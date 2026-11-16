@@ -23,14 +23,55 @@ impl ReplyVariant {
     }
 }
 
+/// The service that translates.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Backend {
+    /// Google Translate's free web endpoint: no key, but unofficial and rate-limited.
+    #[default]
+    GoogleFree,
+    /// Claude, with a Claude Console API key.
+    Claude,
+    /// Any OpenAI-compatible endpoint: Ollama, LM Studio, OpenAI and others.
+    #[serde(rename = "openai_compatible")]
+    OpenAiCompatible,
+}
+
+impl Backend {
+    pub const ALL: [Backend; 3] = [Backend::GoogleFree, Backend::Claude, Backend::OpenAiCompatible];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Backend::GoogleFree => "Google Translate (free, no key)",
+            Backend::Claude => "Claude",
+            Backend::OpenAiCompatible => "OpenAI-compatible (Ollama, LM Studio, OpenAI)",
+        }
+    }
+
+    /// A config file written before backends existed could only use this one.
+    fn before_backends() -> Self {
+        Backend::OpenAiCompatible
+    }
+}
+
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Config {
+    /// New installs start on Google's free service, which needs no setup. A file without
+    /// this field comes from an older version and keeps its OpenAI-compatible endpoint.
+    #[serde(default = "Backend::before_backends")]
+    pub backend: Backend,
     /// Any OpenAI-compatible base URL, ending before /chat/completions.
     pub api_base: String,
     /// Left empty for local servers such as Ollama.
     pub api_key: String,
     pub model: String,
+    /// A Claude Console API key (sk-ant-api...), never a subscription login token.
+    pub claude_api_key: String,
+    pub claude_model: String,
+    /// Where the services are reached. Only tests change these, to use a local stand-in.
+    pub google_free_base: String,
+    pub claude_base: String,
     pub reply_variant: ReplyVariant,
     pub overlay_x: f32,
     pub overlay_y: f32,
@@ -49,6 +90,11 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
+            backend: Backend::default(),
+            claude_api_key: String::new(),
+            claude_model: "claude-haiku-5-5".into(),
+            google_free_base: "https://translate.googleapis.com".into(),
+            claude_base: "https://api.anthropic.com".into(),
             api_base: "http://localhost:11434/v1".into(),
             api_key: String::new(),
             model: "hf.co/tencent/HY-MT1.5-7B-GGUF:Q4_K_M".into(),
@@ -104,6 +150,18 @@ pub fn save(config: &Config) -> std::io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn old_config_files_keep_their_endpoint_and_new_installs_need_no_setup() {
+        let old: Config = serde_json::from_str(r#"{"api_base":"http://localhost:11434/v1","api_key":"","model":"m"}"#).unwrap();
+        assert_eq!(old.backend, Backend::OpenAiCompatible);
+        assert_eq!(old.claude_model, "claude-haiku-5-5");
+        assert_eq!(Config::default().backend, Backend::GoogleFree);
+        let saved = serde_json::to_string(&Config { backend: Backend::Claude, ..Config::default() }).unwrap();
+        assert!(saved.contains(r#""backend":"claude""#), "{saved}");
+        assert_eq!(serde_json::from_str::<Config>(&saved).unwrap().backend, Backend::Claude);
+        assert!(serde_json::to_string(&old).unwrap().contains(r#""backend":"openai_compatible""#));
+    }
 
     #[test]
     fn old_config_files_reply_in_taiwanese() {

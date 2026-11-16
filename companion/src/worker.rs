@@ -82,9 +82,15 @@ pub fn spawn(config: Arc<Mutex<Config>>, jobs: Receiver<Job>, ui: UiSender, clip
         let mut cache: HashMap<String, String> = HashMap::new();
         for job in jobs {
             let config = config.lock().unwrap().clone();
+            // Notes from the backend, such as a wait; cleared once the line gets through.
+            let noted = std::cell::Cell::new(false);
+            let notify = |note: String| {
+                noted.set(true);
+                ui.send(UiEvent::Status(note));
+            };
             if let Job::Test = job {
                 let started = Instant::now();
-                let result = translate(&config, TEST_LINE, Direction::ToEnglish);
+                let result = translate(&config, TEST_LINE, Direction::ToEnglish, &notify);
                 ui.send(UiEvent::TestResult { result, seconds: started.elapsed().as_secs_f32() });
                 continue;
             }
@@ -93,13 +99,17 @@ pub fn spawn(config: Arc<Mutex<Config>>, jobs: Receiver<Job>, ui: UiSender, clip
                 Job::Reply { text } => (text.clone(), Direction::ToChinese),
                 Job::Test => unreachable!("handled above"),
             };
-            let key = format!("{:?}|{}|{text}", config.reply_variant, matches!(direction, Direction::ToEnglish));
+            let key =
+                format!("{:?}|{:?}|{}|{text}", config.backend, config.reply_variant, matches!(direction, Direction::ToEnglish));
             let result = match cache.get(&key) {
                 Some(hit) => Ok(hit.clone()),
-                None => translate(&config, &text, direction),
+                None => translate(&config, &text, direction, &notify),
             };
             let translated = match result {
                 Ok(t) => {
+                    if noted.get() {
+                        ui.send(UiEvent::Status("Ready".into()));
+                    }
                     if cache.len() > 2000 {
                         cache.clear();
                     }

@@ -1,11 +1,14 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod app;
+mod backends;
 mod clipboard;
 mod config;
 mod focus;
 mod layout;
 mod strip;
+#[cfg(test)]
+mod testing;
 mod text;
 mod translate;
 mod worker;

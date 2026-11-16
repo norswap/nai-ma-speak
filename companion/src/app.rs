@@ -1,4 +1,5 @@
-use crate::config::{self, Config, ReplyVariant};
+use crate::backends::claude::key_problem;
+use crate::config::{self, Backend, Config, ReplyVariant};
 use crate::translate::WOW_CHAT_BYTES;
 use crate::focus::WowView;
 use crate::layout::{self, ChatWindow};
@@ -160,12 +161,15 @@ impl TranslateApp {
                     self.last_reply = Some((chinese, copied));
                 }
                 UiEvent::TestResult { result, seconds } => {
+                    let backend = self.config.lock().unwrap().backend.label();
                     self.test_result = match result {
                         Ok(english) if crate::text::has_chinese(&english) => {
-                            format!("The model answered but did not translate ({seconds:.1} s): {english}")
+                            format!("{backend} answered but did not translate ({seconds:.1} s): {english}")
                         }
-                        Ok(english) => format!("Model works ({seconds:.1} s): {} -> {english}", crate::worker::TEST_LINE),
-                        Err(e) => format!("Model test failed: {e}"),
+                        Ok(english) => {
+                            format!("{backend} works ({seconds:.1} s): {} -> {english}", crate::worker::TEST_LINE)
+                        }
+                        Err(e) => format!("{backend} test failed: {e}"),
                     };
                 }
                 UiEvent::Strip(text) => self.strip_status = text,
@@ -221,17 +225,18 @@ impl TranslateApp {
     fn control_contents(&mut self, ui: &mut egui::Ui) {
         {
             ui.heading("Translate companion");
-            ui.label(&self.status);
+            // Chat lines leave this computer for the service named here, unless it runs locally.
+            ui.label(format!("{} · translating with {}", self.status, self.draft.backend.label()));
             if !self.notice.is_empty() {
                 ui.colored_label(Color32::from_rgb(120, 200, 255), &self.notice);
             }
             ui.label(&self.strip_status);
             ui.horizontal(|ui| {
-                if ui.button("Test model").clicked() {
+                if ui.button("Test translation").clicked() {
                     // Test what is typed in Settings, even before Save.
                     *self.config.lock().unwrap() = self.draft.clone();
                     let _ = self.interactive.send(Job::Test);
-                    self.test_result = format!("Testing {} at {}", self.draft.model, self.draft.api_base);
+                    self.test_result = format!("Testing {}", self.draft.backend.label());
                 }
                 if !self.test_result.is_empty() {
                     ui.label(&self.test_result);
@@ -287,15 +292,44 @@ impl TranslateApp {
 
             egui::CollapsingHeader::new("Settings").default_open(false).show(ui, |ui| {
                 egui::Grid::new("settings").num_columns(2).show(ui, |ui| {
-                    ui.label("API base URL");
-                    ui.text_edit_singleline(&mut self.draft.api_base);
+                    ui.label("Translate with");
+                    egui::ComboBox::from_id_salt("backend").selected_text(self.draft.backend.label()).show_ui(ui, |ui| {
+                        for backend in Backend::ALL {
+                            ui.selectable_value(&mut self.draft.backend, backend, backend.label());
+                        }
+                    });
                     ui.end_row();
-                    ui.label("API key");
-                    ui.add(egui::TextEdit::singleline(&mut self.draft.api_key).password(true));
-                    ui.end_row();
-                    ui.label("Model");
-                    ui.text_edit_singleline(&mut self.draft.model);
-                    ui.end_row();
+                    match self.draft.backend {
+                        Backend::GoogleFree => {
+                            ui.label("");
+                            ui.label("No setup. Chat lines are sent to Google. No slang hints;\nGoogle may slow down or stop this free service.");
+                            ui.end_row();
+                        }
+                        Backend::Claude => {
+                            ui.label("Claude API key");
+                            ui.vertical(|ui| {
+                                ui.add(egui::TextEdit::singleline(&mut self.draft.claude_api_key).password(true));
+                                if let Some(problem) = key_problem(&self.draft.claude_api_key) {
+                                    ui.colored_label(Color32::from_rgb(255, 120, 90), problem);
+                                }
+                            });
+                            ui.end_row();
+                            ui.label("Claude model");
+                            ui.text_edit_singleline(&mut self.draft.claude_model);
+                            ui.end_row();
+                        }
+                        Backend::OpenAiCompatible => {
+                            ui.label("API base URL");
+                            ui.text_edit_singleline(&mut self.draft.api_base);
+                            ui.end_row();
+                            ui.label("API key");
+                            ui.add(egui::TextEdit::singleline(&mut self.draft.api_key).password(true));
+                            ui.end_row();
+                            ui.label("Model");
+                            ui.text_edit_singleline(&mut self.draft.model);
+                            ui.end_row();
+                        }
+                    }
                     ui.label("Anchor to chat tab");
                     ui.vertical(|ui| {
                         ui.add(egui::TextEdit::singleline(&mut self.draft.anchor_tab).hint_text("tab name, or empty"));
