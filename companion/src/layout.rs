@@ -13,12 +13,10 @@ pub struct ChatWindow {
     pub shown: bool,
     pub rect: Rect,
     pub font_size: f32,
-    /// Opacity of the window's background as set in the game, 0 to 1.
-    pub alpha: f32,
 }
 
 /// Parses a layout line: "L", a tab, then one record per window separated by byte 30,
-/// each "name, shown, left, top, width, height, font size, alpha" separated by byte 31.
+/// each "name, shown, left, top, width, height, font size" separated by byte 31.
 /// None for any other line; records that do not parse are left out.
 pub fn parse(line: &str) -> Option<Vec<ChatWindow>> {
     let records = line.strip_prefix("L\t")?;
@@ -28,7 +26,7 @@ pub fn parse(line: &str) -> Option<Vec<ChatWindow>> {
         let shown = fields.next()? == "1";
         let mut number = || fields.next()?.parse::<f32>().ok().filter(|n| n.is_finite());
         let rect = [number()?, number()?, number()?, number()?];
-        Some(ChatWindow { name, shown, rect, font_size: number()?, alpha: number()? })
+        Some(ChatWindow { name, shown, rect, font_size: number()? })
     };
     Some(records.split('\u{1e}').filter_map(window).collect())
 }
@@ -106,14 +104,14 @@ mod tests {
     use super::*;
 
     const LINE: &str =
-        "L\tGeneral\u{1f}1\u{1f}33\u{1f}760\u{1f}440\u{1f}180\u{1f}14\u{1f}0.25\u{1e}翻譯\u{1f}0\u{1f}33\u{1f}760\u{1f}440\u{1f}180\u{1f}16.5\u{1f}0\u{1e}bad\u{1f}1\u{1f}x";
+        "L\tGeneral\u{1f}1\u{1f}33\u{1f}760\u{1f}440\u{1f}180\u{1f}14\u{1e}翻譯\u{1f}0\u{1f}33\u{1f}760\u{1f}440\u{1f}180\u{1f}16.5\u{1e}bad\u{1f}1\u{1f}x";
 
     #[test]
     fn parses_the_windows_of_a_layout_line() {
         let windows = parse(LINE).unwrap();
         assert_eq!(windows.len(), 2, "the broken record is left out");
         let general =
-            ChatWindow { name: "General".into(), shown: true, rect: [33.0, 760.0, 440.0, 180.0], font_size: 14.0, alpha: 0.25 };
+            ChatWindow { name: "General".into(), shown: true, rect: [33.0, 760.0, 440.0, 180.0], font_size: 14.0 };
         assert_eq!(windows[0], general);
         assert_eq!((windows[1].name.as_str(), windows[1].shown, windows[1].font_size), ("翻譯", false, 16.5));
         assert_eq!(parse("12\t[Say] Lili\t你好"), None);

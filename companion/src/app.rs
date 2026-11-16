@@ -29,15 +29,20 @@ const SHADOW: f32 = 1.0;
 const PENDING_DIM: f32 = 0.6;
 
 struct OverlayLine {
-    /// The number `UiEvent::Translated` refers to; 0 for lines that never get one.
+    /// The number `UiEvent::Translated` refers to.
     id: u64,
     line: ChatLine,
-    /// The body in English, once it arrived.
-    translated: Option<Vec<Span>>,
-    /// The body is Chinese and its translation has not arrived yet.
-    pending: bool,
-    /// The translation was given up on; the body stays in Chinese.
-    failed: bool,
+    translation: Translation,
+}
+
+/// Where the translation of a line's body stands.
+enum Translation {
+    /// The body has no Chinese and is shown as it is.
+    NotNeeded,
+    Pending,
+    /// Given up on; the body stays in Chinese.
+    Failed,
+    Done(Vec<Span>),
 }
 
 impl OverlayLine {
@@ -45,19 +50,18 @@ impl OverlayLine {
     fn job(&self, font: &egui::FontId, width: f32) -> LayoutJob {
         let mut job = LayoutJob::default();
         job.wrap.max_width = width;
-        let body = self.translated.as_deref().unwrap_or(&self.line.body);
-        let dim = if self.pending { PENDING_DIM } else { 1.0 };
+        let (body, dim, note) = match &self.translation {
+            Translation::NotNeeded => (&self.line.body, 1.0, ""),
+            Translation::Pending => (&self.line.body, PENDING_DIM, " (translation pending)"),
+            Translation::Failed => (&self.line.body, 1.0, " (translation failed)"),
+            Translation::Done(english) => (english, 1.0, ""),
+        };
         let parts = self.line.prefix.iter().map(|span| (span, 1.0)).chain(body.iter().map(|span| (span, dim)));
         for (span, brightness) in parts {
             let [r, g, b] = span.color.unwrap_or(self.line.color);
             let color = Color32::from_rgb(r, g, b).gamma_multiply(brightness);
             job.append(&span.text, 0.0, TextFormat::simple(font.clone(), color));
         }
-        let note = match (self.pending, self.failed) {
-            (_, true) => " (translation failed)",
-            (true, _) => " (translation pending)",
-            _ => "",
-        };
         job.append(note, 0.0, TextFormat::simple(font.clone(), Color32::from_gray(150)));
         job
     }
@@ -71,8 +75,6 @@ pub struct TranslateApp {
     lines: VecDeque<OverlayLine>,
     status: String,
     notice: String,
-    /// The last reply in Chinese, and whether it was copied; shown under the reply box.
-    last_reply: Option<(String, bool)>,
     reply: String,
     locked: bool,
     overlay_start: egui::Pos2,
@@ -130,9 +132,10 @@ enum ReplyState {
     Translating,
     /// Copied for pasting; goes back to idle a little later.
     Copied(Instant),
+    /// Not translated, and why.
     Failed(String),
-    /// Translated, but longer than one chat message, so not copied.
-    TooLong,
+    /// Translated into this, but it is longer than one chat message, so it was not copied.
+    TooLong(String),
 }
 
 /// How long settings are left alone before they are written to the file.
@@ -150,21 +153,22 @@ fn reply_id() -> ViewportId {
 /// The sections of the companion window.
 #[derive(Clone, Copy, PartialEq)]
 enum Tab {
-    Reply,
-    Translation,
+    Backend,
     Overlay,
     Status,
     History,
+    /// Typing a reply in the companion, for use outside the game.
+    Translate,
 }
 
 impl Tab {
     /// Typing a reply here comes last: in the game its own Translate button does that.
     const ALL: [(Tab, &'static str); 5] = [
-        (Tab::Translation, "Backend"),
+        (Tab::Backend, "Backend"),
         (Tab::Overlay, "Overlay"),
         (Tab::Status, "Status"),
         (Tab::History, "Chat history"),
-        (Tab::Reply, "Translate"),
+        (Tab::Translate, "Translate"),
     ];
 }
 
@@ -177,6 +181,30 @@ pub const START_SIZE: [f32; 2] = [620.0, 560.0];
 const OFF_SCREEN: f32 = -32000.0;
 /// Whether a hidden overlay is moved off screen; see `overlay`.
 const PARK_HIDDEN_OVERLAY: bool = !cfg!(target_os = "macos");
+
+/// A drop-down of ready-made choices and, last, "Custom". Returns what was clicked, if
+/// anything: the index of a ready-made choice, or `None` for Custom.
+fn preset_combo(ui: &mut egui::Ui, id: &str, labels: &[&str], chosen: Option<usize>) -> Option<Option<usize>> {
+    let mut picked = None;
+    let shown = chosen.map_or(CUSTOM_LABEL, |index| labels[index]);
+    egui::ComboBox::from_id_salt(id).width(ui.available_width()).selected_text(shown).show_ui(ui, |ui| {
+        for (index, label) in labels.iter().enumerate() {
+            if ui.selectable_label(chosen == Some(index), *label).clicked() {
+                picked = Some(Some(index));
+            }
+        }
+        if ui.selectable_label(chosen.is_none(), CUSTOM_LABEL).clicked() {
+            picked = Some(None);
+        }
+    });
+    picked
+}
+
+/// A setting that is a number: its name, then a slider.
+fn slider<N: egui::emath::Numeric>(ui: &mut egui::Ui, name: &str, value: &mut N, range: std::ops::RangeInclusive<N>) {
+    ui.label(theme::label(name));
+    ui.add(egui::Slider::new(value, range));
+}
 
 fn overlay_id() -> ViewportId {
     ViewportId::from_hash_of("overlay")
@@ -193,7 +221,6 @@ impl TranslateApp {
             lines: VecDeque::new(),
             status: "Ready".into(),
             notice: String::new(),
-            last_reply: None,
             reply: String::new(),
             locked: true,
             overlay_start,
@@ -216,7 +243,7 @@ impl TranslateApp {
             custom_claude_model: draft.claude_preset().is_none(),
             wheel_counts: HashMap::new(),
             wheel_steps: 0.0,
-            tab: Tab::Translation,
+            tab: Tab::Backend,
             reply_state: ReplyState::Idle,
             reply_box: false,
             reply_box_focus: false,
@@ -269,19 +296,18 @@ impl TranslateApp {
         while let Ok(event) = self.events.try_recv() {
             match event {
                 UiEvent::Line { id, line, chinese } => {
-                    self.push_line(OverlayLine { id, line, translated: None, pending: chinese, failed: false });
+                    let translation = if chinese { Translation::Pending } else { Translation::NotNeeded };
+                    self.push_line(OverlayLine { id, line, translation });
                 }
                 UiEvent::Translated { id, english } => {
                     if let Some(line) = self.lines.iter_mut().rev().find(|line| line.id == id) {
-                        line.translated = Some(markup::carry_colors(&english, &line.line.body));
-                        line.pending = false;
+                        line.translation = Translation::Done(markup::carry_colors(&english, &line.line.body));
                         self.font_texture_stale = true;
                     }
                 }
                 UiEvent::Failed { id } => {
                     if let Some(line) = self.lines.iter_mut().rev().find(|line| line.id == id) {
-                        line.pending = false;
-                        line.failed = true;
+                        line.translation = Translation::Failed;
                     }
                 }
                 UiEvent::ReplyReady { english, chinese, copied } => {
@@ -290,8 +316,7 @@ impl TranslateApp {
                     } else {
                         format!("Not copied: \"{chinese}\" is too long for WoW chat. Say it in fewer words.")
                     };
-                    self.reply_state = if copied { ReplyState::Copied(Instant::now()) } else { ReplyState::TooLong };
-                    self.last_reply = Some((chinese, copied));
+                    self.reply_state = if copied { ReplyState::Copied(Instant::now()) } else { ReplyState::TooLong(chinese) };
                 }
                 UiEvent::ReplyFailed { english, reason } => {
                     // The English goes back into the box, for another try when it is next opened.
@@ -372,7 +397,28 @@ impl TranslateApp {
     fn send_reply(&mut self, english: String) {
         let _ = self.interactive.send(Job::Reply { text: english });
         self.reply_state = ReplyState::Translating;
-        self.last_reply = None;
+    }
+
+    /// What went wrong with the last reply, if something did, and the color to say it in.
+    /// WoW's chat box holds 255 bytes, and a Chinese character takes 3 of them.
+    fn reply_problem(&self) -> Option<(String, Color32)> {
+        match &self.reply_state {
+            ReplyState::Failed(reason) => Some((format!("Not translated: {reason} Enter tries again."), theme::BAD)),
+            ReplyState::TooLong(chinese) => {
+                let bytes = chinese.len();
+                Some((format!("Not copied: {bytes} of {WOW_CHAT_BYTES} bytes. Say it in fewer words."), theme::GOLD))
+            }
+            _ => None,
+        }
+    }
+
+    /// Copies a reply that is too long for one chat message all the same.
+    fn copy_anyway(&mut self, ctx: &egui::Context) {
+        if let ReplyState::TooLong(chinese) = &self.reply_state {
+            ctx.copy_text(chinese.clone());
+            self.reply_state = ReplyState::Copied(Instant::now());
+            self.notice = "Copied the long reply. WoW will cut it at 255 bytes.".into();
+        }
     }
 
     /// The small window for typing a reply, opened by the game's Translate button above the
@@ -396,15 +442,13 @@ impl TranslateApp {
         if let Some(area) = area {
             builder = builder.with_position([area[0], area[1] - REPLY_BOX_HEIGHT - REPLY_BOX_GAP]);
         }
-        let (note, edge) = match &self.reply_state {
-            ReplyState::Failed(reason) => (format!("Not translated: {reason} Enter tries again."), theme::BAD),
-            ReplyState::TooLong => {
-                let bytes = self.last_reply.as_ref().map_or(0, |(chinese, _)| chinese.len());
-                (format!("Not copied: {bytes} of {WOW_CHAT_BYTES} bytes. Say it in fewer words."), theme::GOLD)
-            }
-            _ => ("Enter translates and copies, and this box closes. Esc closes.".to_string(), theme::BORDER),
+        let hint = ("Enter translates and copies, and this box closes. Esc closes.".to_string(), theme::MUTED);
+        let (problem, (note, color)) = match self.reply_problem() {
+            Some(problem) => (true, problem),
+            None => (false, hint),
         };
-        let too_long = matches!(self.reply_state, ReplyState::TooLong);
+        let edge = if problem { color } else { theme::BORDER };
+        let too_long = matches!(self.reply_state, ReplyState::TooLong(_));
         let take_focus = std::mem::take(&mut self.reply_box_focus);
         let (mut submit, mut close, mut copy_anyway) = (false, false, false);
         let reply = &mut self.reply;
@@ -413,11 +457,7 @@ impl TranslateApp {
             if take_focus {
                 ctx.send_viewport_cmd(ViewportCommand::Focus);
             }
-            let frame = egui::Frame::NONE
-                .fill(theme::BACKGROUND)
-                .stroke(egui::Stroke::new(2.0, edge))
-                .corner_radius(8)
-                .inner_margin(egui::Margin::symmetric(12, 10));
+            let frame = theme::popup(edge).inner_margin(egui::Margin::symmetric(12, 10));
             egui::CentralPanel::default().frame(frame).show(root, |ui| {
                 ui.horizontal(|ui| {
                     ui.label(RichText::new("Translate").font(theme::heading_font(16.0)).color(theme::GOLD));
@@ -433,17 +473,13 @@ impl TranslateApp {
                     if too_long {
                         copy_anyway = ui.add(theme::button("Copy anyway").small()).clicked();
                     }
-                    ui.add(egui::Label::new(RichText::new(&note).size(11.5).color(if edge == theme::BORDER { theme::MUTED } else { edge })).truncate());
+                    ui.add(egui::Label::new(RichText::new(&note).size(11.5).color(color)).truncate());
                 });
                 close = ui.input(|i| i.key_pressed(egui::Key::Escape) || i.viewport().close_requested());
             });
         });
         if copy_anyway {
-            if let Some((chinese, copied)) = &mut self.last_reply {
-                ctx.copy_text(chinese.clone());
-                *copied = true;
-                self.reply_state = ReplyState::Copied(Instant::now());
-            }
+            self.copy_anyway(ctx);
         }
         if submit {
             let english = std::mem::take(&mut self.reply).trim().to_string();
@@ -469,12 +505,10 @@ impl TranslateApp {
             ReplyState::Translating => Some(("Translating".into(), theme::TEXT, true)),
             ReplyState::Copied(_) => Some(("Copied, paste it".into(), theme::GOOD, false)),
             ReplyState::Failed(_) => Some(("Not translated: press Translate".into(), theme::BAD, false)),
-            ReplyState::TooLong => Some(("Too long: press Translate".into(), theme::GOLD, false)),
+            ReplyState::TooLong(_) => Some(("Too long: press Translate".into(), theme::GOLD, false)),
         }
     }
 
-    /// Brings this window over the game, next to the chat window, when the game's
-    /// Settings button asks for it.
     /// Hides this window and gives the keyboard back to the game. The overlay stays.
     fn hide_window(&mut self, ctx: &egui::Context) {
         let root = ViewportId::ROOT;
@@ -488,7 +522,7 @@ impl TranslateApp {
 
     /// Shows, hides and brings back this window: over the game, next to the chat window,
     /// when the game's Settings button asks for it, and away again on a second click.
-    fn show_over_game(&mut self, ctx: &egui::Context) {
+    fn window_visibility(&mut self, ctx: &egui::Context) {
         let root = ViewportId::ROOT;
         // The yellow button would minimize the window, and macOS then ignores a click
         // on the app's icon as long as the companion is the app in front. Hiding the
@@ -553,11 +587,7 @@ impl TranslateApp {
         if !self.undo_asked {
             return;
         }
-        let frame = egui::Frame::NONE
-            .fill(theme::BACKGROUND)
-            .stroke(egui::Stroke::new(2.0, theme::BORDER))
-            .corner_radius(8)
-            .inner_margin(18);
+        let frame = theme::popup(theme::BORDER).inner_margin(18);
         let asked = egui::Modal::new(egui::Id::new("undo")).frame(frame).show(ctx, |ui| {
             ui.set_width(340.0);
             ui.label(RichText::new("Undo changes").font(theme::heading_font(18.0)).color(theme::GOLD));
@@ -619,8 +649,8 @@ impl TranslateApp {
                 ui.add_space(4.0);
             }
             match self.tab {
-                Tab::Reply => self.reply_tab(ui),
-                Tab::Translation => self.translation_tab(ui),
+                Tab::Translate => self.translate_tab(ui),
+                Tab::Backend => self.backend_tab(ui),
                 Tab::Overlay => self.overlay_tab(ui),
                 Tab::Status => self.status_tab(ui),
                 Tab::History => self.history_tab(ui),
@@ -705,7 +735,7 @@ impl TranslateApp {
         painter.hline(gap, bottom - 0.5, egui::Stroke::new(1.0, theme::BACKGROUND));
     }
 
-    fn reply_tab(&mut self, ui: &mut egui::Ui) {
+    fn translate_tab(&mut self, ui: &mut egui::Ui) {
         ui.label(theme::label("Translate into Chinese"));
         let edit = ui.add(
             theme::field(&mut self.reply).hint_text("Type in English, press Enter, then paste into WoW chat"),
@@ -716,27 +746,15 @@ impl TranslateApp {
             self.notice = "Translating your reply".into();
             edit.request_focus();
         }
-        // WoW's chat box holds 255 bytes, and a Chinese character takes 3 of them.
-        let mut copy_anyway = false;
-        if let Some((chinese, copied)) = &self.last_reply {
-            let size = format!("{}/{WOW_CHAT_BYTES} bytes", chinese.len());
-            if *copied {
-                ui.label(format!("{size}: {chinese}"));
-            } else {
-                ui.label(RichText::new(format!("{size}, WoW would cut it off: {chinese}")).color(theme::BAD));
-                copy_anyway = ui.add(theme::button("Copy anyway")).clicked();
-            }
+        if let Some((problem, color)) = self.reply_problem() {
+            ui.label(RichText::new(problem).color(color));
         }
-        if copy_anyway {
-            if let Some((chinese, copied)) = &mut self.last_reply {
-                ui.ctx().copy_text(chinese.clone());
-                *copied = true;
-                self.notice = "Copied the long reply. WoW will cut it at 255 bytes.".into();
-            }
+        if matches!(self.reply_state, ReplyState::TooLong(_)) && ui.add(theme::button("Copy anyway")).clicked() {
+            self.copy_anyway(ui.ctx());
         }
     }
 
-    fn translation_tab(&mut self, ui: &mut egui::Ui) {
+    fn backend_tab(&mut self, ui: &mut egui::Ui) {
         let wide = ui.available_width();
         ui.label(theme::label("Translate with"));
         egui::ComboBox::from_id_salt("backend").width(wide).selected_text(self.draft.backend.label()).show_ui(ui, |ui| {
@@ -756,18 +774,13 @@ impl TranslateApp {
                 }
                 ui.label(theme::label("Claude model"));
                 let chosen = self.draft.claude_preset().filter(|_| !self.custom_claude_model);
-                let shown = chosen.map_or(CUSTOM_LABEL, |index| CLAUDE_MODELS[index].0);
-                egui::ComboBox::from_id_salt("claude_model").width(wide).selected_text(shown).show_ui(ui, |ui| {
-                    for (index, (label, id)) in CLAUDE_MODELS.iter().enumerate() {
-                        if ui.selectable_label(chosen == Some(index), *label).clicked() {
-                            self.draft.claude_model = id.to_string();
-                            self.custom_claude_model = false;
-                        }
+                let labels: Vec<&str> = CLAUDE_MODELS.iter().map(|(label, _)| *label).collect();
+                if let Some(picked) = preset_combo(ui, "claude_model", &labels, chosen) {
+                    self.custom_claude_model = picked.is_none();
+                    if let Some(index) = picked {
+                        self.draft.claude_model = CLAUDE_MODELS[index].1.to_string();
                     }
-                    if ui.selectable_label(chosen.is_none(), CUSTOM_LABEL).clicked() {
-                        self.custom_claude_model = true;
-                    }
-                });
+                }
                 if chosen.is_none() {
                     ui.label(theme::label("Model ID"));
                     ui.add(theme::field(&mut self.draft.claude_model));
@@ -776,19 +789,14 @@ impl TranslateApp {
             Backend::OpenAiCompatible => {
                 ui.label(theme::label("Service and model"));
                 let chosen = self.draft.endpoint_preset().filter(|_| !self.custom_endpoint);
-                let shown = chosen.map_or(CUSTOM_LABEL, |index| ENDPOINT_PRESETS[index].label);
-                egui::ComboBox::from_id_salt("endpoint").width(wide).selected_text(shown).show_ui(ui, |ui| {
-                    for (index, preset) in ENDPOINT_PRESETS.iter().enumerate() {
-                        if ui.selectable_label(chosen == Some(index), preset.label).clicked() {
-                            self.draft.api_base = preset.api_base.to_string();
-                            self.draft.model = preset.model.to_string();
-                            self.custom_endpoint = false;
-                        }
+                let labels: Vec<&str> = ENDPOINT_PRESETS.iter().map(|preset| preset.label).collect();
+                if let Some(picked) = preset_combo(ui, "endpoint", &labels, chosen) {
+                    self.custom_endpoint = picked.is_none();
+                    if let Some(index) = picked {
+                        self.draft.api_base = ENDPOINT_PRESETS[index].api_base.to_string();
+                        self.draft.model = ENDPOINT_PRESETS[index].model.to_string();
                     }
-                    if ui.selectable_label(chosen.is_none(), CUSTOM_LABEL).clicked() {
-                        self.custom_endpoint = true;
-                    }
-                });
+                }
                 if chosen.is_none() {
                     ui.label(theme::label("API base URL"));
                     ui.add(theme::field(&mut self.draft.api_base));
@@ -810,12 +818,7 @@ impl TranslateApp {
             });
 
         ui.add_space(6.0);
-        let boxed = egui::Frame::NONE
-            .fill(theme::FIELD)
-            .stroke(egui::Stroke::new(1.0, theme::BORDER_DIM))
-            .corner_radius(4)
-            .inner_margin(10);
-        boxed.show(ui, |ui| {
+        theme::boxed().show(ui, |ui| {
             ui.set_width(ui.available_width());
             if ui.add(theme::button("Test translation")).clicked() {
                 *self.config.lock().unwrap() = self.draft.clone();
@@ -835,8 +838,7 @@ impl TranslateApp {
         ui.checkbox(&mut self.draft.show_original, "Show Chinese too");
         ui.checkbox(&mut self.draft.hide_when_unfocused, HIDE_LABEL);
         ui.spacing_mut().slider_width = (ui.available_width() - 70.0).max(120.0);
-        ui.label(theme::label("Lines kept (scrollback)"));
-        ui.add(egui::Slider::new(&mut self.draft.max_lines, 1..=500));
+        slider(ui, "Lines kept (scrollback)", &mut self.draft.max_lines, 1..=500);
 
         // On a chat tab the overlay takes the tab's place, size, text size and
         // background. Placed by hand, it has its own, and can be unlocked to drag it.
@@ -879,30 +881,21 @@ impl TranslateApp {
                     self.save();
                 }
             }
-            ui.label(theme::label("Overlay width"));
-            ui.add(egui::Slider::new(&mut self.draft.overlay_width, 200.0..=1600.0));
-            ui.label(theme::label("Overlay height"));
-            ui.add(egui::Slider::new(&mut self.draft.overlay_height, 80.0..=1000.0));
-            ui.label(theme::label("Background opacity"));
-            ui.add(egui::Slider::new(&mut self.draft.overlay_opacity, 0.0..=1.0));
-            ui.label(theme::label("Text size"));
-            ui.add(egui::Slider::new(&mut self.draft.font_size, 10.0..=32.0));
+            slider(ui, "Overlay width", &mut self.draft.overlay_width, 200.0..=1600.0);
+            slider(ui, "Overlay height", &mut self.draft.overlay_height, 80.0..=1000.0);
+            slider(ui, "Background opacity", &mut self.draft.overlay_opacity, 0.0..=1.0);
+            slider(ui, "Text size", &mut self.draft.font_size, 10.0..=32.0);
         }
     }
 
     /// The lines the overlay holds, to scroll through and select text from.
     fn history_tab(&mut self, ui: &mut egui::Ui) {
-        let boxed = egui::Frame::NONE
-            .fill(theme::FIELD)
-            .stroke(egui::Stroke::new(1.0, theme::BORDER_DIM))
-            .corner_radius(4)
-            .inner_margin(8);
-        boxed.show(ui, |ui| {
+        theme::boxed().show(ui, |ui| {
             let room = (ui.available_height() - 60.0).max(160.0);
             let scroll = egui::ScrollArea::vertical().id_salt("history").max_height(room).stick_to_bottom(true);
             scroll.auto_shrink([false, true]).show(ui, |ui| {
                 ui.spacing_mut().item_spacing.y = 1.0;
-                let font = egui::FontId::new(14.0, egui::FontFamily::Name(crate::OVERLAY_FAMILY.into()));
+                let font = egui::FontId::new(14.0, egui::FontFamily::Name(crate::fonts::OVERLAY_FAMILY.into()));
                 let width = ui.available_width();
                 if self.lines.is_empty() {
                     ui.label(RichText::new("No chat lines yet.").color(theme::MUTED));
@@ -1027,7 +1020,7 @@ impl TranslateApp {
                 egui::ScrollArea::vertical().stick_to_bottom(true).auto_shrink(false).show(ui, |ui| {
                     // Chat lines sit tight together and fill the window from the bottom up.
                     ui.spacing_mut().item_spacing.y = 0.0;
-                    let font = egui::FontId::new(draft.font_size, egui::FontFamily::Name(crate::OVERLAY_FAMILY.into()));
+                    let font = egui::FontId::new(draft.font_size, egui::FontFamily::Name(crate::fonts::OVERLAY_FAMILY.into()));
                     let small = egui::FontId::new(draft.font_size * 0.85, font.family.clone());
                     let width = ui.available_width() - SHADOW;
                     if wheel_steps != 0.0 {
@@ -1038,7 +1031,7 @@ impl TranslateApp {
                     let mut galleys = Vec::new();
                     for line in lines {
                         galleys.push(ui.painter().layout_job(line.job(&font, width)));
-                        if draft.show_original && line.translated.is_some() {
+                        if draft.show_original && matches!(line.translation, Translation::Done(_)) {
                             let original = markup::plain(&line.line.body);
                             let format = TextFormat::simple(small.clone(), Color32::from_gray(170));
                             let mut job = LayoutJob::single_section(original, format);
@@ -1088,7 +1081,7 @@ impl eframe::App for TranslateApp {
         self.passes.begin();
         self.drain_events();
         self.control_panel(ui);
-        self.show_over_game(&ctx);
+        self.window_visibility(&ctx);
         // A copy started only to be pictured must not put a second overlay over the game.
         if std::env::var_os("TRANSLATE_SHOTS").is_none() {
             self.overlay(&ctx);

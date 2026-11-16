@@ -1,11 +1,4 @@
-local addonName, ns = ...
-
--- Captured Chinese lines, keyed by a running id. A line a chat window is about
--- to show is found here by Mirror, which then knows where its message starts.
-ns.messages = {}
-local nextId = 1
-local oldestId = 1
-local KEEP = 300
+local _, ns = ...
 
 local CHAT_EVENTS = {
     "CHAT_MSG_SAY", "CHAT_MSG_YELL", "CHAT_MSG_WHISPER",
@@ -16,7 +9,7 @@ local CHAT_EVENTS = {
 }
 
 -- Lines that are not player chat: the game's own messages, emotes, creatures
--- and your own whispers. They get no [T] link and only reach the overlay.
+-- and your own whispers.
 local INFO_EVENTS = {
     "CHAT_MSG_SYSTEM", "CHAT_MSG_EMOTE", "CHAT_MSG_TEXT_EMOTE", "CHAT_MSG_WHISPER_INFORM",
     "CHAT_MSG_MONSTER_SAY", "CHAT_MSG_MONSTER_YELL", "CHAT_MSG_MONSTER_WHISPER", "CHAT_MSG_MONSTER_PARTY",
@@ -29,15 +22,6 @@ local INFO_EVENTS = {
 -- CJK Unified Ideographs (U+4E00..U+9FFF) start with UTF-8 lead bytes E4..E9.
 local function HasChinese(text)
     return text:find("[\228-\233][\128-\191][\128-\191]") ~= nil
-end
-
--- Hyperlinks and color codes would confuse the translator; send plain text.
-local function StripCodes(text)
-    text = text:gsub("|H.-|h(.-)|h", "%1")
-    text = text:gsub("|c%x%x%x%x%x%x%x%x", "")
-    text = text:gsub("|r", "")
-    text = text:gsub("[\r\n]", " ") -- a newline separates lines on the strip
-    return text
 end
 
 -- A named color code (|cnNAME:) as an ordinary one, looked up among the
@@ -118,33 +102,34 @@ function ns.Hex(r, g, b)
     return string.format("%02x%02x%02x", Byte(r), Byte(g), Byte(b))
 end
 
--- One line for the overlay: "<id>\t<prefix>\t<body>\t<rrggbb>". Prefix and body
--- are markup and together make the line as shown in chat, in the given color;
--- the body is the part to translate. Id 0 marks a line shown as it is. A body
--- too long for the strip is cut, so the color after it always arrives.
-local function Send(id, prefix, body, color)
-    local room = ns.STRIP.maxText - (#tostring(id) + #prefix + #color + 3)
-    ns.SendToStrip(id .. "\t" .. prefix .. "\t" .. ns.Truncate(body, math.max(room, 0)) .. "\t" .. color)
+-- One line for the overlay: "<1 or 0>\t<prefix>\t<body>\t<rrggbb>". Prefix and
+-- body are markup and together make the line as shown in chat, in the given
+-- color. The leading 1 asks for the body to be translated; with 0 the line is
+-- shown as it is. A body too long for the strip is cut, so the color after it
+-- always arrives.
+local function Send(translate, prefix, body, color)
+    local room = ns.STRIP.maxText - (#prefix + #color + 4)
+    local flag = translate and "1" or "0"
+    ns.SendToStrip(flag .. "\t" .. prefix .. "\t" .. ns.Truncate(body, math.max(room, 0)) .. "\t" .. color)
 end
 
 ns.Markup, ns.Plain, ns.MarkupIndex = Markup, Plain, MarkupIndex
 
--- Chat frames each run the filter, so one line can arrive several times.
--- lineID is unique per line and maps it to a single stored id.
-local byLine = {}
+-- The chat lines already handled, by the game's lineID: the message's plain
+-- text if it has Chinese, false if not. Every chat window reports a line, so
+-- this is how a line is sent once, and how Mirror knows where the message
+-- starts in the line a window words around it. Forgets the oldest beyond KEEP.
+local KEEP = 300
+local handled, order, first = {}, {}, 1
 
-local function Store(text, author, lineID)
-    local id = nextId
-    nextId = nextId + 1
-    ns.messages[id] = { text = StripCodes(text), author = author, lineID = lineID }
-    if lineID then byLine[lineID] = id end
-    while nextId - oldestId > KEEP do
-        local old = ns.messages[oldestId]
-        if old and old.lineID then byLine[old.lineID] = nil end
-        ns.messages[oldestId] = nil
-        oldestId = oldestId + 1
+local function Remember(lineID, value)
+    handled[lineID] = value
+    order[#order + 1] = lineID
+    if #order - first >= KEEP then
+        handled[order[first]] = nil
+        order[first] = nil
+        first = first + 1
     end
-    return id
 end
 
 -- How the game words each kind of line around the speaker's name.
@@ -182,23 +167,6 @@ local function NameMarkup(name, guid, info)
     return name
 end
 
--- Lines without Chinese that were already sent, so each goes out once
--- although every chat frame reports it. Forgets the oldest beyond KEEP.
-local plainSeen, plainOrder, plainFirst = {}, {}, 1
-
-local function SeenPlain(lineID)
-    if not lineID then return false end
-    if plainSeen[lineID] then return true end
-    plainSeen[lineID] = true
-    plainOrder[#plainOrder + 1] = lineID
-    if #plainOrder - plainFirst >= KEEP then
-        plainSeen[plainOrder[plainFirst]] = nil
-        plainOrder[plainFirst] = nil
-        plainFirst = plainFirst + 1
-    end
-    return false
-end
-
 -- The names on the tabs of the game's chat windows, in window order.
 function ns.ChatWindowNames()
     local names = {}
@@ -230,30 +198,25 @@ local function MirroredWindow()
     return WindowNamed(wanted)
 end
 
--- Stores a Chinese line once and sends it to the pixel strip. Returns its id,
--- or nil when the line is not Chinese or cannot be read (secret values).
--- With allLines on, other lines also go to the strip, with id 0, so the
--- overlay can show the whole conversation in order; they are not stored.
--- While a chat window is mirrored, nothing is sent from here: Chinese lines
--- are only stored, so Mirror can find them.
+-- Takes a chat event's line once, and sends it to the pixel strip unless a
+-- chat window is mirrored: then Mirror sends what that window shows, and the
+-- line is only remembered for it. Lines without Chinese are sent only with
+-- allLines on, so the overlay can show the whole conversation in order.
+-- Lines that cannot be read (secret values) are left alone.
 -- Arguments follow the CHAT_MSG_* payload: the 4th is the channel's full
 -- name, the 8th its number, the 11th the lineID, the 12th the sender's GUID.
 local function Capture(event, msg, author, _, channel, _, _, _, channelIndex, _, _, lineID, guid)
     if ns.IsSecret(msg) or ns.IsSecret(author) or ns.IsSecret(channel) or ns.IsSecret(lineID)
         or ns.IsSecret(channelIndex) or ns.IsSecret(guid) then
-        return nil
+        return
     end
-    if type(msg) ~= "string" then return nil end
+    if type(msg) ~= "string" then return end
+    if lineID ~= nil and handled[lineID] ~= nil then return end
     local chinese = HasChinese(msg)
-    local mirrored = MirroredWindow() ~= nil
-    if not chinese and (mirrored or not ns.db.allLines) then return nil end
-    if chinese and lineID and byLine[lineID] then return byLine[lineID] end
-    if not chinese and SeenPlain(lineID) then return nil end
+    if lineID ~= nil then Remember(lineID, chinese and Plain(Markup(msg))) end
+    if MirroredWindow() or not (chinese or ns.db.allLines) then return end
 
     local name = type(author) == "string" and author ~= "" and Ambiguate(author, "short") or nil
-    local id = chinese and Store(msg, name or "?", lineID) or 0
-    if mirrored then return id end
-
     local color, info = LineColor(event, channelIndex)
     local around = AROUND_NAME[event]
     local prefix = ""
@@ -263,8 +226,7 @@ local function Capture(event, msg, author, _, channel, _, _, _, channelIndex, _,
     elseif around and name then
         prefix = around[1] .. NameMarkup(name, guid, info) .. around[2]
     end
-    Send(id, Markup(prefix), Markup(msg), color)
-    return chinese and id or nil
+    Send(chinese, Markup(prefix), Markup(msg), color)
 end
 
 -- Copies a line the mirrored chat window just added, so the overlay shows
@@ -276,19 +238,18 @@ local function Mirror(frame, text, r, g, b)
     if ns.IsSecret(text) or ns.IsSecret(r) or ns.IsSecret(g) or ns.IsSecret(b) then return end
     if type(text) ~= "string" then return end
 
-    -- The lineID in the speaker's link names the stored line.
+    -- The lineID in the speaker's link names the line Capture remembered.
     local lineID = tonumber(text:match("|Hplayer:[^:|]*:(%d+)"))
-    local id = lineID and byLine[lineID]
-    local entry = id and ns.messages[id]
+    local message = lineID and handled[lineID]
 
     local markup = Markup(text)
     local plain = Plain(markup)
     local color = ns.Hex(r, g, b)
     local prefix, body = "", markup
     if HasChinese(plain) then
-        -- The message starts where its stored text is found, or failing that
-        -- (icons, other addons' edits) after the first ": ".
-        local at = entry and plain:find(entry.text, 1, true)
+        -- The message starts where its remembered text is found, or failing
+        -- that (icons, other addons' edits) after the first ": ".
+        local at = message and plain:find(message, 1, true)
         if not at then
             local _, last = plain:find(": ", 1, true)
             at = last and last + 1
@@ -298,19 +259,17 @@ local function Mirror(frame, text, r, g, b)
             prefix, body = markup:sub(1, cut - 1), markup:sub(cut)
         end
     end
-    local bodyText = Plain(body)
-    if not HasChinese(bodyText) then
+    if HasChinese(Plain(body)) then
+        Send(true, prefix, body, color)
+    elseif ns.db.allLines then
         -- Nothing to translate, or only the speaker's name is Chinese.
-        if ns.db.allLines then Send(0, "", markup, color) end
-        return
+        Send(false, "", markup, color)
     end
-    if not entry then id = Store(bodyText, "?", nil) end
-    Send(id, prefix, body, color)
 end
 
 -- A made-up Chinese line for the overlay, as if someone had said it.
 function ns.SendTestLine(text)
-    Send(Store(text, "Test", nil), "[Test]: ", text, "ffffff")
+    Send(true, "[Test]: ", text, "ffffff")
 end
 
 -- Runs Mirror for tests, and behind the hook where an error must not reach the chat window.
@@ -319,7 +278,7 @@ function ns.MirrorLine(frame, text, r, g, b)
     if not ok then ns.mirrorSource = "failed: " .. tostring(problem) end
 end
 
--- Runs before a chat window words and adds the line, so Mirror finds it stored.
+-- Runs before a chat window words and adds the line, so Mirror finds it remembered.
 local function Filter(_, event, msg, author, ...)
     Capture(event, msg, author, ...)
     return false
@@ -341,7 +300,7 @@ function ns.InitChat()
     end
 
     -- Also capture lines on channels no chat window shows. Capture skips
-    -- lines the filter already stored.
+    -- lines the filter already took.
     for _, event in ipairs(CHAT_EVENTS) do
         ns.On(event, function(...) Capture(event, ...) end)
     end

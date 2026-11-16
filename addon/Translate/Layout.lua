@@ -1,11 +1,11 @@
-local addonName, ns = ...
+local _, ns = ...
 
 -- Tells the companion where the chat windows are, so its overlay can sit on
 -- one of them and hide while that window's tab is not selected.
 --
 -- One strip line: "L", a tab, then one record per chat window. Records are
 -- separated by byte 30 and their fields by byte 31:
---   name, shown (1 or 0), left, top, width, height, font size, background alpha
+--   name, shown (1 or 0), left, top, width, height, font size
 -- Lengths are physical screen pixels and positions are measured from the
 -- top-left corner of the game's picture, where the strip is drawn.
 
@@ -18,9 +18,9 @@ local function Round(value, step)
 end
 
 -- Pure Lua, so it can be tested outside WoW.
-function ns.LayoutRecord(name, shown, left, top, width, height, fontSize, alpha)
+function ns.LayoutRecord(name, shown, left, top, width, height, fontSize)
     name = name:gsub("[%z\1-\31]", "")
-    return table.concat({ name, shown and 1 or 0, left, top, width, height, fontSize, alpha }, FIELD)
+    return table.concat({ name, shown and 1 or 0, left, top, width, height, fontSize }, FIELD)
 end
 
 local function Describe()
@@ -28,7 +28,7 @@ local function Describe()
     local records = {}
     for i = 1, NUM_CHAT_WINDOWS or 10 do
         local frame = _G["ChatFrame" .. i]
-        local name, fontSize, _, _, _, alpha = FCF_GetChatWindowInfo(i)
+        local name, fontSize = FCF_GetChatWindowInfo(i)
         if frame and type(name) == "string" and name ~= "" and (frame:IsShown() or frame.isDocked) then
             -- The background reaches a little past the text area on every side.
             local area = frame.Background or frame
@@ -40,8 +40,7 @@ local function Describe()
                     name, frame:IsVisible(),
                     Round(left * pixels, 1), Round(screenHeight - top * pixels, 1),
                     Round(area:GetWidth() * pixels, 1), Round(area:GetHeight() * pixels, 1),
-                    Round((fontSize or 14) * frame:GetEffectiveScale() * screenHeight / 768, 0.1),
-                    Round(alpha or 0, 0.01))
+                    Round((fontSize or 14) * frame:GetEffectiveScale() * screenHeight / 768, 0.1))
             end
         end
     end

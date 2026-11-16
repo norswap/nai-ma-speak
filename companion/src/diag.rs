@@ -35,8 +35,29 @@ pub fn log(message: impl AsRef<str>) {
 /// When the pass under way began, in milliseconds since the start; 0 between passes.
 static PASS_BEGAN: AtomicU64 = AtomicU64::new(0);
 
-/// Starts the log: panics go into it, and a watcher notes a pass that does not finish.
+/// Sends egui's and eframe's warnings to the log, e.g. a lost viewport or a full font atlas.
+struct Warnings;
+
+impl log::Log for Warnings {
+    fn enabled(&self, metadata: &log::Metadata) -> bool {
+        metadata.level() <= log::Level::Warn
+    }
+
+    fn log(&self, record: &log::Record) {
+        if self.enabled(record.metadata()) {
+            log(format!("[{}] {}: {}", record.level(), record.target(), record.args()));
+        }
+    }
+
+    fn flush(&self) {}
+}
+
+/// Starts the log: warnings and panics go into it, and a watcher notes a pass that does
+/// not finish.
 pub fn start() {
+    if log::set_logger(&Warnings).is_ok() {
+        log::set_max_level(log::LevelFilter::Warn);
+    }
     if std::fs::metadata(path()).is_ok_and(|file| file.len() > LARGEST) {
         let _ = std::fs::remove_file(path());
     }

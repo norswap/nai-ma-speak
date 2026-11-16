@@ -17,40 +17,6 @@ pub const BUTTON: Color32 = Color32::from_rgb(0x5a, 0x1a, 0x12);
 pub const GOOD: Color32 = Color32::from_rgb(0x4c, 0xc3, 0x8a);
 pub const BAD: Color32 = Color32::from_rgb(0xff, 0xab, 0x91);
 
-/// Name of the font family for headings, labels and buttons.
-pub const HEADING_FAMILY: &str = "heading";
-
-/// Marcellus, under the SIL Open Font License (see THIRD_PARTY_NOTICES).
-const HEADING_FONT: &[u8] = include_bytes!("fonts/Marcellus-Regular.ttf");
-
-/// Arial, where systems keep it. It is drawn for small sizes on ordinary screens, where
-/// egui's own thin font turns ragged.
-const BODY_FONTS: &[&str] = &["/System/Library/Fonts/Supplemental/Arial.ttf", "C:\\Windows\\Fonts\\arial.ttf"];
-
-/// Draws each letter on whole pixels. egui otherwise also keeps copies shifted by parts
-/// of a pixel, which spaces letters more evenly but blurs them on ordinary screens.
-pub fn crisp(mut font: egui::FontData) -> egui::FontData {
-    font.tweak.subpixel_binning = Some(false);
-    font
-}
-
-/// Puts Arial first among the proportional fonts, if the system has it.
-pub fn add_body_font(fonts: &mut egui::FontDefinitions) {
-    let Some(bytes) = BODY_FONTS.iter().find_map(|path| std::fs::read(path).ok()) else {
-        return;
-    };
-    fonts.font_data.insert("body".into(), std::sync::Arc::new(crisp(egui::FontData::from_owned(bytes))));
-    fonts.families.entry(FontFamily::Proportional).or_default().insert(0, "body".into());
-}
-
-/// Adds the heading family: Marcellus, then the proportional fonts for what it lacks.
-pub fn add_heading_family(fonts: &mut egui::FontDefinitions) {
-    fonts.font_data.insert("marcellus".into(), std::sync::Arc::new(crisp(egui::FontData::from_static(HEADING_FONT))));
-    let mut names = vec!["marcellus".to_string()];
-    names.extend(fonts.families.get(&FontFamily::Proportional).cloned().unwrap_or_default());
-    fonts.families.insert(FontFamily::Name(HEADING_FAMILY.into()), names);
-}
-
 /// The app's name, "Nǎi Mā Speak" (奶媽, the healer in Chinese players' slang), as the
 /// window's heading. The heading font has ā but no ǎ, and borrowing that one letter from
 /// another font shows. So the first a is written plain and its mark is drawn here, a
@@ -74,7 +40,7 @@ pub fn title(ui: &mut egui::Ui) {
 }
 
 pub fn heading_font(size: f32) -> FontId {
-    FontId::new(size, FontFamily::Name(HEADING_FAMILY.into()))
+    FontId::new(size, FontFamily::Name(crate::fonts::HEADING_FAMILY.into()))
 }
 
 /// A gold label in the heading font, as above each setting.
@@ -87,6 +53,16 @@ pub fn label(text: &str) -> RichText {
 /// The edge is the widgets' own: bronze, and thicker and gold under the pointer.
 pub fn button(text: &str) -> egui::Button<'static> {
     egui::Button::new(RichText::new(text.to_string()).font(heading_font(15.0)).color(GOLD)).fill(BUTTON).corner_radius(4)
+}
+
+/// A sunken box around a group, such as the chat history.
+pub fn boxed() -> egui::Frame {
+    egui::Frame::NONE.fill(FIELD).stroke(Stroke::new(1.0, BORDER_DIM)).corner_radius(4).inner_margin(10)
+}
+
+/// The panel of a small window or question that opens over other things.
+pub fn popup(edge: Color32) -> egui::Frame {
+    egui::Frame::NONE.fill(BACKGROUND).stroke(Stroke::new(2.0, edge)).corner_radius(8)
 }
 
 /// A one-line text field: nearly black, with a bronze edge and room around the text.
