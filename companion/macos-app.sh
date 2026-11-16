@@ -42,8 +42,19 @@ cat > "$app/Contents/Info.plist" <<PLIST
 </plist>
 PLIST
 
-# An ad-hoc signature: macOS will not start an unsigned app on Apple silicon.
-codesign --force --sign - "$app" 2>/dev/null
+# macOS will not start an unsigned app on Apple silicon, and it ties the Screen Recording
+# permission to the signature. With the certificate from macos-signing-cert.sh the
+# signature stays the same from build to build, so the permission is granted once.
+# Without it the app gets an ad-hoc signature and needs the permission again after
+# every build (clear the old one with: tccutil reset ScreenCapture <bundle id>).
+identity="${TRANSLATE_SIGN_IDENTITY:-Translate Local Signing}"
+if security find-certificate -c "$identity" >/dev/null 2>&1; then
+    codesign --force --sign "$identity" "$app" 2>/dev/null
+    echo "Signed as \"$identity\""
+else
+    codesign --force --sign - "$app" 2>/dev/null
+    echo "Signed ad hoc; run ./macos-signing-cert.sh once to keep permissions across builds"
+fi
 
 mkdir -p "$dest"
 rm -rf "$dest/Translate.app"
