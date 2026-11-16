@@ -14,12 +14,52 @@ pub enum ReplyVariant {
 }
 
 impl ReplyVariant {
-    /// The variant's name in its own script, for the settings.
     pub fn label(self) -> &'static str {
         match self {
-            ReplyVariant::Taiwan => "繁體中文（台灣）",
-            ReplyVariant::Simplified => "简体中文",
+            ReplyVariant::Taiwan => "Traditional Chinese (Taiwan)",
+            ReplyVariant::Simplified => "Simplified Chinese",
         }
+    }
+}
+
+/// A ready-made OpenAI-compatible endpoint offered in the settings.
+pub struct EndpointPreset {
+    pub label: &'static str,
+    pub api_base: &'static str,
+    pub model: &'static str,
+}
+
+const OPENAI_BASE: &str = "https://api.openai.com/v1";
+const OLLAMA_BASE: &str = "http://localhost:11434/v1";
+const OLLAMA_MODEL: &str = "hf.co/tencent/HY-MT1.5-7B-GGUF:Q4_K_M";
+
+pub const ENDPOINT_PRESETS: [EndpointPreset; 3] = [
+    EndpointPreset { label: "OpenAI: GPT-4o mini (fast, cheap)", api_base: OPENAI_BASE, model: "gpt-4o-mini" },
+    EndpointPreset { label: "OpenAI: GPT-6 Luna", api_base: OPENAI_BASE, model: "gpt-6-luna" },
+    EndpointPreset { label: "Ollama: HY-MT 1.5 (on this computer)", api_base: OLLAMA_BASE, model: OLLAMA_MODEL },
+];
+
+/// Claude models offered in the settings, as label and model ID. Haiku comes first: a chat
+/// line is short and wants a fast answer.
+pub const CLAUDE_MODELS: [(&str, &str); 3] = [
+    ("Haiku 5.5 (fastest, cheapest; recommended)", "claude-haiku-5-5"),
+    ("Sonnet 5.5 (better with slang, slower)", "claude-sonnet-5-5"),
+    ("Opus 5.5 (best, slowest, most costly)", "claude-opus-5-5"),
+];
+
+/// Label shown for an endpoint or model typed in by hand.
+pub const CUSTOM_LABEL: &str = "Custom";
+
+impl Config {
+    /// Which preset the OpenAI-compatible settings match, if any.
+    pub fn endpoint_preset(&self) -> Option<usize> {
+        let base = self.api_base.trim().trim_end_matches('/');
+        ENDPOINT_PRESETS.iter().position(|preset| preset.api_base == base && preset.model == self.model.trim())
+    }
+
+    /// Which offered Claude model is set, if any.
+    pub fn claude_preset(&self) -> Option<usize> {
+        CLAUDE_MODELS.iter().position(|(_, id)| *id == self.claude_model.trim())
     }
 }
 
@@ -92,12 +132,12 @@ impl Default for Config {
         Self {
             backend: Backend::default(),
             claude_api_key: String::new(),
-            claude_model: "claude-haiku-5-5".into(),
+            claude_model: CLAUDE_MODELS[0].1.into(),
             google_free_base: "https://translate.googleapis.com".into(),
             claude_base: "https://api.anthropic.com".into(),
-            api_base: "http://localhost:11434/v1".into(),
+            api_base: OLLAMA_BASE.into(),
             api_key: String::new(),
-            model: "hf.co/tencent/HY-MT1.5-7B-GGUF:Q4_K_M".into(),
+            model: OLLAMA_MODEL.into(),
             reply_variant: ReplyVariant::default(),
             overlay_x: 20.0,
             overlay_y: 420.0,
@@ -171,6 +211,18 @@ mod tests {
         let simplified: Config = serde_json::from_str(r#"{"reply_variant":"zh-Hans"}"#).unwrap();
         assert_eq!(simplified.reply_variant, ReplyVariant::Simplified);
         assert!(serde_json::to_string(&Config::default()).unwrap().contains(r#""reply_variant":"zh-Hant-TW""#));
+    }
+
+    #[test]
+    fn settings_recognise_the_offered_endpoints_and_models() {
+        let fresh = Config::default();
+        assert_eq!(fresh.endpoint_preset(), Some(2));
+        assert_eq!(fresh.claude_preset(), Some(0));
+        let openai = Config { api_base: "https://api.openai.com/v1/ ".into(), model: "gpt-4o-mini".into(), ..Config::default() };
+        assert_eq!(openai.endpoint_preset(), Some(0));
+        let own = Config { model: "qwen2.5:7b".into(), claude_model: "claude-fable-5-2".into(), ..Config::default() };
+        assert_eq!(own.endpoint_preset(), None);
+        assert_eq!(own.claude_preset(), None);
     }
 
     #[test]

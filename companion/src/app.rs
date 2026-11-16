@@ -1,5 +1,5 @@
 use crate::backends::claude::key_problem;
-use crate::config::{self, Backend, Config, ReplyVariant};
+use crate::config::{self, Backend, Config, ReplyVariant, CLAUDE_MODELS, CUSTOM_LABEL, ENDPOINT_PRESETS};
 use crate::translate::WOW_CHAT_BYTES;
 use crate::focus::WowView;
 use crate::layout::{self, ChatWindow};
@@ -54,6 +54,9 @@ pub struct TranslateApp {
     overlay_anchored: bool,
     overlay_sent: Option<egui::Pos2>,
     overlay_hidden: bool,
+    /// The settings show the fields for typing an endpoint, or a Claude model, by hand.
+    custom_endpoint: bool,
+    custom_claude_model: bool,
 }
 
 /// Smallest companion window that shows every control with Settings closed.
@@ -72,7 +75,6 @@ impl TranslateApp {
         let overlay_start = egui::pos2(draft.overlay_x, draft.overlay_y);
         Self {
             config,
-            draft,
             events,
             interactive,
             lines: VecDeque::new(),
@@ -91,8 +93,11 @@ impl TranslateApp {
             overlay_anchored: false,
             overlay_sent: None,
             overlay_hidden: false,
+            custom_endpoint: draft.endpoint_preset().is_none(),
+            custom_claude_model: draft.claude_preset().is_none(),
             test_result: String::new(),
             strip_status: "Starting the pixel strip reader".into(),
+            draft,
         }
     }
 
@@ -315,18 +320,53 @@ impl TranslateApp {
                             });
                             ui.end_row();
                             ui.label("Claude model");
-                            ui.text_edit_singleline(&mut self.draft.claude_model);
+                            let chosen = self.draft.claude_preset().filter(|_| !self.custom_claude_model);
+                            let shown = chosen.map_or(CUSTOM_LABEL, |index| CLAUDE_MODELS[index].0);
+                            egui::ComboBox::from_id_salt("claude_model").selected_text(shown).show_ui(ui, |ui| {
+                                for (index, (label, id)) in CLAUDE_MODELS.iter().enumerate() {
+                                    if ui.selectable_label(chosen == Some(index), *label).clicked() {
+                                        self.draft.claude_model = id.to_string();
+                                        self.custom_claude_model = false;
+                                    }
+                                }
+                                if ui.selectable_label(chosen.is_none(), CUSTOM_LABEL).clicked() {
+                                    self.custom_claude_model = true;
+                                }
+                            });
                             ui.end_row();
+                            if chosen.is_none() {
+                                ui.label("Model ID");
+                                ui.text_edit_singleline(&mut self.draft.claude_model);
+                                ui.end_row();
+                            }
                         }
                         Backend::OpenAiCompatible => {
-                            ui.label("API base URL");
-                            ui.text_edit_singleline(&mut self.draft.api_base);
+                            ui.label("Service and model");
+                            let chosen = self.draft.endpoint_preset().filter(|_| !self.custom_endpoint);
+                            let shown = chosen.map_or(CUSTOM_LABEL, |index| ENDPOINT_PRESETS[index].label);
+                            egui::ComboBox::from_id_salt("endpoint").selected_text(shown).show_ui(ui, |ui| {
+                                for (index, preset) in ENDPOINT_PRESETS.iter().enumerate() {
+                                    if ui.selectable_label(chosen == Some(index), preset.label).clicked() {
+                                        self.draft.api_base = preset.api_base.to_string();
+                                        self.draft.model = preset.model.to_string();
+                                        self.custom_endpoint = false;
+                                    }
+                                }
+                                if ui.selectable_label(chosen.is_none(), CUSTOM_LABEL).clicked() {
+                                    self.custom_endpoint = true;
+                                }
+                            });
                             ui.end_row();
+                            if chosen.is_none() {
+                                ui.label("API base URL");
+                                ui.text_edit_singleline(&mut self.draft.api_base);
+                                ui.end_row();
+                                ui.label("Model");
+                                ui.text_edit_singleline(&mut self.draft.model);
+                                ui.end_row();
+                            }
                             ui.label("API key");
-                            ui.add(egui::TextEdit::singleline(&mut self.draft.api_key).password(true));
-                            ui.end_row();
-                            ui.label("Model");
-                            ui.text_edit_singleline(&mut self.draft.model);
+                            ui.add(egui::TextEdit::singleline(&mut self.draft.api_key).password(true).hint_text("empty for Ollama"));
                             ui.end_row();
                         }
                     }
