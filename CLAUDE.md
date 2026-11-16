@@ -15,13 +15,13 @@ Run from `companion/`:
 
 Needs Rust 1.95 or newer.
 
-## Local install (this Mac)
+## Running it
 
-- The companion runs as `/Applications/wow-translate/Nai Ma Speak.app`; install with `./macos-app.sh /Applications/wow-translate`. Its `config.json` sits next to the app (holds API keys; never commit it).
+- `./macos-app.sh <folder>` installs the app into a folder of its own; its `config.json` sits next to the app (holds API keys; never commit it).
 - The companion writes `translate.log` next to `config.json`: panics, a window pass that never finishes ("STUCK") and passes running without pause ("BUSY", with what asked for them).
-- To see the companion window without sitting at the screen: `open -n "/Applications/wow-translate/Nai Ma Speak.app" --env TRANSLATE_SHOTS=<folder>` saves a picture of each tab into the folder and quits.
-- The addon is symlinked from `addon/Translate` into `/Applications/World of Warcraft/_forever_/Interface/AddOns/Translate`.
-- The app is signed with the self-signed "Translate Local Signing" certificate in the login keychain (created by `./macos-signing-cert.sh`), so the Screen Recording permission survives rebuilds. Without that certificate the build is signed ad hoc and needs the permission again each time.
+- To see the companion window without sitting at the screen: `open -n "<folder>/Nai Ma Speak.app" --env TRANSLATE_SHOTS=<pictures folder>` saves a picture of each tab and quits. It draws no overlay.
+- With the certificate from `./macos-signing-cert.sh` in the login keychain, the app is signed the same way each build, so the Screen Recording permission survives rebuilds. Without it the build is signed ad hoc and needs the permission again each time.
+- Where the app and the addon are installed on a given computer belongs in `CLAUDE.local.md`, which is not committed.
 
 ## Rules
 

@@ -256,10 +256,10 @@ mod tests {
     #[test]
     fn config_sits_beside_the_program_or_its_app_bundle() {
         let dir = |exe: &str| config_dir(Path::new(exe)).unwrap().to_str().unwrap().to_owned();
-        assert_eq!(dir("/Applications/wow-translate/translate-companion"), "/Applications/wow-translate");
+        assert_eq!(dir("/opt/nms/translate-companion"), "/opt/nms");
         assert_eq!(
-            dir("/Applications/wow-translate/Translate.app/Contents/MacOS/translate-companion"),
-            "/Applications/wow-translate"
+            dir("/opt/nms/Nai Ma Speak.app/Contents/MacOS/translate-companion"),
+            "/opt/nms"
         );
         assert_eq!(dir("/opt/Contents/MacOS/translate-companion"), "/opt/Contents/MacOS");
     }
