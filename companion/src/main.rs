@@ -4,6 +4,7 @@ mod app;
 mod clipboard;
 mod config;
 mod focus;
+mod layout;
 mod strip;
 mod text;
 mod translate;

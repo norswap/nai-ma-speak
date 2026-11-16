@@ -1,5 +1,6 @@
 use crate::config::{self, Config};
 use crate::focus::WowView;
+use crate::layout::{self, ChatWindow};
 use crate::worker::{Job, UiEvent};
 use eframe::egui::{self, Color32, RichText, ViewportBuilder, ViewportCommand, ViewportId};
 use std::collections::VecDeque;
@@ -36,6 +37,10 @@ pub struct TranslateApp {
     strip_status: String,
     fitted_height: f32,
     wow_view: WowView,
+    chat_windows: Vec<ChatWindow>,
+    /// Whether the overlay was on a chat tab last frame, and where it was last sent.
+    overlay_anchored: bool,
+    overlay_sent: Option<egui::Pos2>,
     overlay_hidden: bool,
 }
 
@@ -67,6 +72,9 @@ impl TranslateApp {
             overlay_rect: None,
             fitted_height: 0.0,
             wow_view: WowView::Unknown,
+            chat_windows: Vec::new(),
+            overlay_anchored: false,
+            overlay_sent: None,
             overlay_hidden: false,
             test_result: String::new(),
             strip_status: "Starting the pixel strip reader".into(),
@@ -114,12 +122,14 @@ impl TranslateApp {
                 }
                 UiEvent::Strip(text) => self.strip_status = text,
                 UiEvent::WowView(view) => self.wow_view = view,
+                UiEvent::ChatWindows(windows) => self.chat_windows = windows,
                 UiEvent::Status(text) => self.status = text,
             }
         }
     }
 
     fn save(&mut self) {
+        // While the overlay sits on a chat tab, overlay_rect keeps the hand-placed spot.
         if let Some(rect) = self.overlay_rect {
             self.draft.overlay_x = rect.min.x;
             self.draft.overlay_y = rect.min.y;
@@ -217,6 +227,14 @@ impl TranslateApp {
                     ui.label("Model");
                     ui.text_edit_singleline(&mut self.draft.model);
                     ui.end_row();
+                    ui.label("Anchor to chat tab");
+                    ui.vertical(|ui| {
+                        ui.add(egui::TextEdit::singleline(&mut self.draft.anchor_tab).hint_text("tab name, or empty"));
+                        if !self.draft.anchor_tab.trim().is_empty() {
+                            ui.label(self.anchor_status());
+                        }
+                    });
+                    ui.end_row();
                     ui.label("Overlay width");
                     ui.add(egui::Slider::new(&mut self.draft.overlay_width, 200.0..=1600.0));
                     ui.end_row();
@@ -240,7 +258,26 @@ impl TranslateApp {
         }
     }
 
+    /// One line for the settings: what the anchor name currently matches.
+    fn anchor_status(&self) -> String {
+        match layout::anchor(&self.chat_windows, &self.draft.anchor_tab) {
+            Some(window) if window.shown => format!("On the \"{}\" tab.", window.name),
+            Some(window) => format!("Hidden until the \"{}\" tab is selected.", window.name),
+            None if self.chat_windows.is_empty() => "Waiting for the addon to report the chat windows.".into(),
+            None => {
+                let names: Vec<&str> = self.chat_windows.iter().map(|window| window.name.as_str()).collect();
+                format!("No such tab. The game has: {}", names.join(", "))
+            }
+        }
+    }
+
     fn overlay(&mut self, ctx: &egui::Context) {
+        // On a chat tab the overlay takes that window's place, size and font size.
+        let anchor = layout::anchor(&self.chat_windows, &self.draft.anchor_tab).cloned();
+        let size = match &anchor {
+            Some(window) => [window.rect[2].max(40.0), window.rect[3].max(20.0)],
+            None => [self.draft.overlay_width, self.draft.overlay_height],
+        };
         let builder = ViewportBuilder::default()
             .with_title("Translate overlay")
             .with_decorations(false)
@@ -249,24 +286,37 @@ impl TranslateApp {
             .with_taskbar(false)
             .with_mouse_passthrough(self.locked)
             .with_position(self.overlay_start)
-            .with_inner_size([self.draft.overlay_width, self.draft.overlay_height]);
+            .with_inner_size(size);
 
         let locked = self.locked;
         // Hiding parks the window off screen instead of closing or hiding it:
         // showing a window again can take focus from WoW, and Windows still
         // draws a border around an empty transparent window.
-        let area = self.overlay_rect.map(|r| [r.min.x, r.min.y, r.width(), r.height()]);
-        let hidden = locked && self.draft.hide_when_unfocused && !self.wow_view.shows_overlay(area);
-        if hidden != self.overlay_hidden {
-            let pos = if hidden {
-                egui::pos2(OFF_SCREEN, OFF_SCREEN)
-            } else {
-                self.overlay_rect.map_or(self.overlay_start, |r| r.min)
-            };
+        let area = match &anchor {
+            Some(window) => Some(window.rect),
+            None => self.overlay_rect.map(|r| [r.min.x, r.min.y, r.width(), r.height()]),
+        };
+        let covered = locked && self.draft.hide_when_unfocused && !self.wow_view.shows_overlay(area);
+        let hidden = covered || anchor.as_ref().is_some_and(|window| !window.shown);
+        let pos = match &anchor {
+            _ if hidden => egui::pos2(OFF_SCREEN, OFF_SCREEN),
+            Some(window) => egui::pos2(window.rect[0], window.rect[1]),
+            None => self.overlay_rect.map_or(self.overlay_start, |r| r.min),
+        };
+        // Placed by hand, the window is only moved to park and unpark it, so dragging it
+        // is not fought. On a chat tab it follows the tab.
+        let changed_mode = hidden != self.overlay_hidden || anchor.is_some() != self.overlay_anchored;
+        if changed_mode || (anchor.is_some() && self.overlay_sent != Some(pos)) {
             ctx.send_viewport_cmd_to(overlay_id(), ViewportCommand::OuterPosition(pos));
+            self.overlay_sent = Some(pos);
             self.overlay_hidden = hidden;
+            self.overlay_anchored = anchor.is_some();
         }
-        let draft = self.draft.clone();
+        let mut draft = self.draft.clone();
+        if let Some(window) = &anchor {
+            draft.font_size = window.font_size.clamp(6.0, 48.0);
+        }
+        let anchored = anchor.is_some();
         let lines = &self.lines;
         let mut rect = self.overlay_rect;
 
@@ -276,7 +326,9 @@ impl TranslateApp {
                 return;
             }
             // Skip the parked position, which can linger for a frame after showing.
-            rect = ctx.input(|i| i.viewport().outer_rect).filter(|r| r.min.x > OFF_SCREEN / 2.0).or(rect);
+            if !anchored {
+                rect = ctx.input(|i| i.viewport().outer_rect).filter(|r| r.min.x > OFF_SCREEN / 2.0).or(rect);
+            }
             let alpha = (draft.overlay_opacity * 255.0) as u8;
             let fill = if locked {
                 Color32::from_black_alpha(alpha)
@@ -285,7 +337,9 @@ impl TranslateApp {
             };
             let frame = egui::Frame::NONE.fill(fill).inner_margin(8.0);
             egui::CentralPanel::default().frame(frame).show(root, |ui| {
-                if !locked {
+                if !locked && anchored {
+                    ui.label(RichText::new("Following the chat tab. Lock it from the companion window.").color(Color32::WHITE));
+                } else if !locked {
                     let drag = ui.interact(ui.max_rect(), ui.id().with("drag"), egui::Sense::drag());
                     if drag.drag_started() {
                         ctx.send_viewport_cmd(ViewportCommand::StartDrag);

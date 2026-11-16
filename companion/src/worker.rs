@@ -27,6 +27,8 @@ pub enum UiEvent {
     PasteReady { id: u64, english: String },
     ReplyReady { english: String, chinese: String },
     TestResult { result: Result<String, String>, seconds: f32 },
+    /// The game's chat windows, in screen points, whenever the addon reports them.
+    ChatWindows(Vec<crate::layout::ChatWindow>),
     /// Pixel strip state: searching, or where it was found.
     Strip(String),
     /// Whether WoW has focus; None when the focused window cannot be read.

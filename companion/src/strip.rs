@@ -353,6 +353,21 @@ pub fn spawn(jobs: Sender<Job>, ui: UiSender) {
                         // The first frame after locking may be an old line; it is
                         // still new to the overlay, so it is shown too.
                         last_seen = Some((frame.seq, frame.checksum));
+                        if let Some(windows) = frame.text.split('\n').find_map(crate::layout::parse) {
+                            let scale = if cfg!(target_os = "macos") {
+                                monitor.scale_factor().unwrap_or(1.0).max(1.0)
+                            } else {
+                                1.0
+                            };
+                            let picture = crate::layout::Picture {
+                                monitor: (monitor.x().unwrap_or(0) as f32, monitor.y().unwrap_or(0) as f32),
+                                scale,
+                                strip: (lock.x as f32, lock.y as f32),
+                                block: lock.block as f32,
+                            };
+                            let windows = windows.iter().map(|window| picture.on_screen(window)).collect();
+                            ui.send(UiEvent::ChatWindows(windows));
+                        }
                         for (line, job) in crate::worker::route_frame(&frame.text, &mut next_line) {
                             ui.send(line);
                             if let Some(job) = job {

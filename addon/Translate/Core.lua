@@ -42,6 +42,7 @@ end)
 
 ns.On("PLAYER_LOGIN", function()
     if ns.InitChat then ns.InitChat() end
+    if ns.InitLayout then ns.InitLayout() end
 end)
 
 local function ShowHelp()
@@ -84,6 +85,7 @@ local commands = {
         ns.Print("issecretvalue: " .. tostring(issecretvalue ~= nil))
         ns.Print("Chat filter API: " .. tostring(ns.filterSource))
         ns.Print("Link click hook: " .. tostring(ns.linkSource))
+        ns.Print("Chat window positions: " .. tostring(ns.layoutSource))
         local w, h = GetPhysicalScreenSize()
         ns.Print("Physical screen: " .. tostring(w) .. "x" .. tostring(h) .. ", strip " .. (ns.db.strip and "on" or "off"))
         ns.Print("SendChatMessage: " .. ((C_ChatInfo and C_ChatInfo.SendChatMessage) and "C_ChatInfo" or (SendChatMessage and "global" or "none")))

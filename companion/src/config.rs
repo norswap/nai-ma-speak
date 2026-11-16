@@ -17,6 +17,8 @@ pub struct Config {
     pub font_size: f32,
     pub max_lines: usize,
     pub show_original: bool,
+    /// Name of the chat tab the overlay sits on and follows; empty to place it by hand.
+    pub anchor_tab: String,
     /// Hide the locked overlay while another window is in front of WoW.
     pub hide_when_unfocused: bool,
 }
@@ -35,6 +37,7 @@ impl Default for Config {
             font_size: 15.0,
             max_lines: 100,
             show_original: false,
+            anchor_tab: String::new(),
             hide_when_unfocused: true,
         }
     }

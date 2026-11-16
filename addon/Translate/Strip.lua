@@ -116,11 +116,21 @@ local function Advance()
     C_Timer.After(SHOW_TIME, Advance)
 end
 
-function ns.SendToStrip(text)
+-- Urgent text is the chat window layout: it jumps the queue, so the overlay
+-- follows the chat windows even with many lines waiting, and it replaces a
+-- layout that is still waiting, since only the newest one matters.
+function ns.SendToStrip(text, urgent)
     if not ns.db.strip then return end
     if not frame then Build() end
-    if #queue >= MAX_QUEUE then table.remove(queue, 1) end
-    queue[#queue + 1] = text
+    if urgent then
+        for i = #queue, 1, -1 do
+            if queue[i]:sub(1, 2) == "L\t" then table.remove(queue, i) end
+        end
+        table.insert(queue, 1, text)
+    else
+        if #queue >= MAX_QUEUE then table.remove(queue, 1) end
+        queue[#queue + 1] = text
+    end
     if not ticking then Advance() end
 end
 
