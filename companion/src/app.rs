@@ -87,6 +87,13 @@ pub struct TranslateApp {
     passes: crate::diag::Passes,
     /// The tab the overlay was anchored to before anchoring was turned off.
     last_anchor: Option<String>,
+    /// The settings as last written to the file, and as they were when the companion
+    /// started, which Undo goes back to.
+    saved: Config,
+    opened: Config,
+    /// When the settings last differed from the file's.
+    changed_at: Option<Instant>,
+    undo_asked: bool,
     /// The tab being pictured and since when; see `shots`.
     shot: Option<(usize, Instant)>,
     wow_view: WowView,
@@ -133,6 +140,8 @@ enum ReplyState {
     TooLong,
 }
 
+/// How long settings are left alone before they are written to the file.
+const SAVE_AFTER: Duration = Duration::from_millis(500);
 /// How long the overlay says a reply was copied.
 const COPIED_SHOWN: Duration = Duration::from_secs(6);
 /// Size of the reply box, and how far above the chat window it opens, past the tab row.
@@ -196,6 +205,10 @@ impl TranslateApp {
             overlay_rect: None,
             passes: crate::diag::Passes::new(),
             last_anchor: None,
+            saved: draft.clone(),
+            opened: draft.clone(),
+            changed_at: None,
+            undo_asked: false,
             shot: None,
             wow_view: WowView::Unknown,
             font_texture_sent: Instant::now(),
@@ -528,6 +541,55 @@ impl TranslateApp {
         ctx.send_viewport_cmd_to(root, ViewportCommand::Focus);
     }
 
+    /// Settings take effect as they are changed, and are written to the file once they
+    /// have been left alone for a moment, so dragging a slider does not write it at
+    /// every step.
+    fn keep_settings(&mut self, ctx: &egui::Context) {
+        if self.draft == self.saved {
+            return;
+        }
+        // The translators read this copy, so a new backend or key is used at once.
+        *self.config.lock().unwrap() = self.draft.clone();
+        let since = *self.changed_at.get_or_insert_with(Instant::now);
+        match SAVE_AFTER.checked_sub(since.elapsed()) {
+            Some(left) => ctx.request_repaint_after(left),
+            None => self.save(),
+        }
+    }
+
+    /// Asks before putting the settings back as they were when the companion started.
+    fn undo_question(&mut self, ctx: &egui::Context) {
+        if !self.undo_asked {
+            return;
+        }
+        let frame = egui::Frame::NONE
+            .fill(theme::BACKGROUND)
+            .stroke(egui::Stroke::new(2.0, theme::BORDER))
+            .corner_radius(8)
+            .inner_margin(18);
+        let asked = egui::Modal::new(egui::Id::new("undo")).frame(frame).show(ctx, |ui| {
+            ui.set_width(340.0);
+            ui.label(RichText::new("Undo changes").font(theme::heading_font(18.0)).color(theme::GOLD));
+            ui.label("This will reset the settings to what they were when the companion was opened. Proceed?");
+            ui.add_space(6.0);
+            ui.horizontal(|ui| {
+                if ui.add(theme::button("Reset settings")).clicked() {
+                    self.draft = self.opened.clone();
+                    self.custom_endpoint = self.draft.endpoint_preset().is_none();
+                    self.custom_claude_model = self.draft.claude_preset().is_none();
+                    self.last_anchor = None;
+                    self.undo_asked = false;
+                }
+                if ui.add(theme::button("Cancel")).clicked() {
+                    self.undo_asked = false;
+                }
+            });
+        });
+        if asked.should_close() {
+            self.undo_asked = false;
+        }
+    }
+
     fn save(&mut self) {
         // While the overlay sits on a chat tab, overlay_rect keeps the hand-placed spot.
         if let Some(rect) = self.overlay_rect {
@@ -535,10 +597,11 @@ impl TranslateApp {
             self.draft.overlay_y = rect.min.y;
         }
         *self.config.lock().unwrap() = self.draft.clone();
-        self.notice = match config::save(&self.draft) {
-            Ok(()) => format!("Saved {}", config::path().display()),
-            Err(e) => format!("Could not save settings: {e}"),
-        };
+        self.saved = self.draft.clone();
+        self.changed_at = None;
+        if let Err(e) = config::save(&self.draft) {
+            self.notice = format!("Could not save settings: {e}");
+        }
     }
 
     /// The window keeps the size it has, whichever tab is open: resizing it to each
@@ -585,11 +648,17 @@ impl TranslateApp {
                     if ui.add(theme::button("Hide")).on_hover_text(hint).clicked() {
                         self.hide_window(ui.ctx());
                     }
-                    if ui.add(theme::button("Restart")).on_hover_text("Quit and start the companion again. Unsaved settings are lost.").clicked() {
+                    if ui.add(theme::button("Restart")).on_hover_text("Quit and start the companion again.").clicked() {
+                        self.save();
                         match config::start_again() {
                             Ok(()) => ui.ctx().send_viewport_cmd_to(ViewportId::ROOT, ViewportCommand::Close),
                             Err(e) => self.notice = format!("Could not restart: {e}"),
                         }
+                    }
+                    let changed = self.draft != self.opened;
+                    let undo = ui.add_enabled(changed, theme::button("Undo"));
+                    if undo.on_hover_text("Put the settings back as they were when the companion was opened.").clicked() {
+                        self.undo_asked = true;
                     }
                     // What is left of the row, so a long status is shortened, not pushed out.
                     ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
@@ -643,16 +712,6 @@ impl TranslateApp {
         // Rub the line out under the chosen tab, between its side edges.
         let gap = (chosen.left() + 1.0)..=(chosen.right() - 1.0);
         painter.hline(gap, bottom - 0.5, egui::Stroke::new(1.0, theme::BACKGROUND));
-    }
-
-    fn save_row(&mut self, ui: &mut egui::Ui) {
-        ui.add_space(6.0);
-        ui.horizontal(|ui| {
-            if ui.add(theme::main_button("Save settings")).clicked() {
-                self.save();
-            }
-            ui.label(RichText::new("Changes apply when saved.").color(theme::MUTED));
-        });
     }
 
     fn reply_tab(&mut self, ui: &mut egui::Ui) {
@@ -768,7 +827,6 @@ impl TranslateApp {
         boxed.show(ui, |ui| {
             ui.set_width(ui.available_width());
             if ui.add(theme::button("Test translation")).clicked() {
-                // Test what is chosen here, even before Save.
                 *self.config.lock().unwrap() = self.draft.clone();
                 let _ = self.interactive.send(Job::Test);
                 self.test_result = format!("Testing {}", self.draft.backend.label());
@@ -777,7 +835,6 @@ impl TranslateApp {
                 ui.label(&self.test_result);
             }
         });
-        self.save_row(ui);
     }
 
     fn overlay_tab(&mut self, ui: &mut egui::Ui) {
@@ -819,7 +876,10 @@ impl TranslateApp {
                     ui.selectable_value(&mut self.draft.anchor_tab, chosen.clone(), format!("{chosen} (not in the game now)"));
                 }
             });
-            ui.label(RichText::new(self.anchor_status()).color(theme::MUTED));
+            // Only said when the overlay is not simply showing on the chosen tab.
+            if let Some(problem) = self.anchor_status() {
+                ui.label(RichText::new(problem).color(theme::MUTED));
+            }
         } else {
             let label = if self.locked { "Unlock overlay to move it" } else { "Lock overlay" };
             if ui.add(theme::button(label)).clicked() {
@@ -837,7 +897,6 @@ impl TranslateApp {
             ui.label(theme::label("Text size"));
             ui.add(egui::Slider::new(&mut self.draft.font_size, 10.0..=32.0));
         }
-        self.save_row(ui);
     }
 
     /// The lines the overlay holds, to scroll through and select text from.
@@ -881,16 +940,13 @@ impl TranslateApp {
         ui.label(config::path().display().to_string());
     }
 
-    /// One line for the settings: what the anchor name currently matches.
-    fn anchor_status(&self) -> String {
+    /// Why the overlay is not showing on the chosen tab, if it is not.
+    fn anchor_status(&self) -> Option<String> {
         match layout::anchor(&self.chat_windows, &self.draft.anchor_tab) {
-            Some(window) if window.shown => format!("On the \"{}\" tab.", window.name),
-            Some(window) => format!("Hidden until the \"{}\" tab is selected.", window.name),
-            None if self.chat_windows.is_empty() => "Waiting for the addon to report the chat windows.".into(),
-            None => {
-                let names: Vec<&str> = self.chat_windows.iter().map(|window| window.name.as_str()).collect();
-                format!("No such tab. The game has: {}", names.join(", "))
-            }
+            Some(window) if window.shown => None,
+            Some(window) => Some(format!("Hidden until the \"{}\" tab is selected in the game.", window.name)),
+            None if self.chat_windows.is_empty() => Some("Waiting for the addon to report the chat tabs.".into()),
+            None => Some("The game has no such tab now, so the overlay is placed by hand.".into()),
         }
     }
 
@@ -1044,6 +1100,8 @@ impl eframe::App for TranslateApp {
         self.show_over_game(&ctx);
         self.overlay(&ctx);
         self.reply_box(&ctx);
+        self.undo_question(&ctx);
+        self.keep_settings(&ctx);
         // After both windows laid out their text, so this frame's new glyphs are included.
         self.refresh_font_texture(&ctx);
         self.shots(&ctx);

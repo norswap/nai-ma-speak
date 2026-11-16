@@ -67,11 +67,6 @@ pub fn button(text: &str) -> egui::Button<'static> {
     egui::Button::new(RichText::new(text.to_string()).font(heading_font(15.0)).color(GOLD)).fill(BUTTON).corner_radius(4)
 }
 
-/// The one button a tab is there for: larger.
-pub fn main_button(text: &str) -> egui::Button<'static> {
-    button(text).min_size(egui::vec2(130.0, 32.0))
-}
-
 /// A one-line text field: nearly black, with a bronze edge and room around the text.
 pub fn field(text: &mut String) -> egui::TextEdit<'_> {
     egui::TextEdit::singleline(text).margin(egui::Margin::symmetric(9, 6)).desired_width(f32::INFINITY)
