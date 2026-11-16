@@ -3760,6 +3760,7 @@ dependencies = [
  "arboard",
  "eframe",
  "ferrous-opencc",
+ "log",
  "objc2-core-foundation",
  "objc2-core-graphics",
  "serde",

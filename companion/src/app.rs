@@ -7,11 +7,15 @@ use eframe::egui::{self, Color32, RichText, ViewportBuilder, ViewportCommand, Vi
 use std::collections::VecDeque;
 use std::sync::mpsc::{Receiver, Sender};
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 #[cfg(target_os = "macos")]
 const HIDE_LABEL: &str = "Hide when WoW is hidden or covered";
 #[cfg(not(target_os = "macos"))]
 const HIDE_LABEL: &str = "Hide when WoW is in the background";
+
+/// How often the whole font texture is re-sent even without new text.
+const FONT_TEXTURE_REFRESH: Duration = Duration::from_secs(5);
 
 struct OverlayLine {
     /// The number `UiEvent::Translated` refers to; 0 for lines that never get one.
@@ -40,6 +44,10 @@ pub struct TranslateApp {
     strip_status: String,
     fitted_height: f32,
     wow_view: WowView,
+    /// When the whole font texture was last sent; see `refresh_font_texture`.
+    font_texture_sent: Instant,
+    /// New overlay text arrived, so the font texture is re-sent after this frame.
+    font_texture_stale: bool,
     chat_windows: Vec<ChatWindow>,
     /// Whether the overlay was on a chat tab last frame, and where it was last sent.
     overlay_anchored: bool,
@@ -76,6 +84,8 @@ impl TranslateApp {
             overlay_rect: None,
             fitted_height: 0.0,
             wow_view: WowView::Unknown,
+            font_texture_sent: Instant::now(),
+            font_texture_stale: false,
             chat_windows: Vec::new(),
             overlay_anchored: false,
             overlay_sent: None,
@@ -90,6 +100,34 @@ impl TranslateApp {
         while self.lines.len() > self.draft.max_lines.max(1) {
             self.lines.pop_front();
         }
+        self.font_texture_stale = true;
+    }
+
+    /// Sends the whole font atlas to the GPU again, after new overlay text and
+    /// every few seconds anyway.
+    ///
+    /// egui normally uploads only the glyphs added since the last frame. On
+    /// macOS that stopped working once after some hours: every glyph
+    /// rasterized from then on drew as fragments of other glyphs in both
+    /// windows until the app was restarted. Atlas growth, light/dark theme
+    /// switches, window resizes and overlay hiding did not reproduce it, so
+    /// rather than guess at the trigger the companion re-sends the complete
+    /// atlas, which repairs the texture whatever went wrong. The copy is a few
+    /// megabytes, so it is cheap at this rate.
+    fn refresh_font_texture(&mut self, ctx: &egui::Context) {
+        let due = self.font_texture_stale || self.font_texture_sent.elapsed() >= FONT_TEXTURE_REFRESH;
+        if !due {
+            return;
+        }
+        let image = ctx.fonts(|fonts| fonts.image());
+        let delta = egui::epaint::ImageDelta::full(image, egui::epaint::TextureAtlas::texture_options());
+        ctx.tex_manager().write().set(egui::TextureId::default(), delta);
+        if self.font_texture_stale {
+            // The overlay was painted before this upload; show it again with the repaired texture.
+            ctx.request_repaint();
+        }
+        self.font_texture_sent = Instant::now();
+        self.font_texture_stale = false;
     }
 
     fn drain_events(&mut self) {
@@ -101,6 +139,7 @@ impl TranslateApp {
                 UiEvent::Translated { id, english } => {
                     if let Some(line) = self.lines.iter_mut().rev().find(|line| line.id == id) {
                         line.english = Some(english);
+                        self.font_texture_stale = true;
                     }
                 }
                 UiEvent::PasteReady { id, english } => {
@@ -433,6 +472,8 @@ impl eframe::App for TranslateApp {
         self.drain_events();
         self.control_panel(ui);
         self.overlay(&ctx);
+        // After both windows laid out their text, so this frame's new glyphs are included.
+        self.refresh_font_texture(&ctx);
     }
 
     fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {

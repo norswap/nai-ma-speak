@@ -170,7 +170,30 @@ fn face_index(font: &[u8], family: &str) -> Option<u32> {
         .map(|face| face as u32)
 }
 
+/// Prints egui and eframe warnings to stderr, e.g. a lost viewport or a full
+/// font atlas, so a misbehaving session leaves a trace in the terminal.
+struct StderrLog;
+
+impl log::Log for StderrLog {
+    fn enabled(&self, metadata: &log::Metadata) -> bool {
+        metadata.level() <= log::Level::Warn
+    }
+
+    fn log(&self, record: &log::Record) {
+        if self.enabled(record.metadata()) {
+            eprintln!("[{}] {}: {}", record.level(), record.target(), record.args());
+        }
+    }
+
+    fn flush(&self) {}
+}
+
+static LOG: StderrLog = StderrLog;
+
 fn main() -> eframe::Result {
+    if log::set_logger(&LOG).is_ok() {
+        log::set_max_level(log::LevelFilter::Warn);
+    }
     // `translate-companion --decode shot.png` reads a strip from a screenshot.
     let args: Vec<String> = std::env::args().collect();
     if args.len() == 3 && args[1] == "--decode" {
