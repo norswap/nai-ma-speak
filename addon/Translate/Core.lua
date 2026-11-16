@@ -19,6 +19,7 @@ local DEFAULTS = {
     showLinks = true, -- add a clickable [T] after Chinese chat lines
     strip = true,     -- draw new Chinese lines as a pixel strip for the companion
     allLines = true,  -- also send lines without Chinese, shown untranslated in the overlay
+    sourceWindow = "", -- tab name of the chat window whose settings pick the lines sent; "" sends all
 }
 
 function ns.Print(msg)
@@ -43,12 +44,14 @@ end)
 ns.On("PLAYER_LOGIN", function()
     if ns.InitChat then ns.InitChat() end
     if ns.InitLayout then ns.InitLayout() end
+    if ns.InitOptions then ns.InitOptions() end
 end)
 
 local function ShowHelp()
     ns.Print("/tr  open the translate window on the latest Chinese line")
     ns.Print("/tr links  toggle the [T] links after Chinese lines")
     ns.Print("/tr test  say a Chinese test line to check the strip and overlay")
+    ns.Print("/tr options  open the options (also under Options > AddOns)")
     ns.Print("/tr all  toggle showing lines without Chinese in the overlay too")
     ns.Print("/tr strip  toggle the pixel strip the companion reads (top-left corner)")
     ns.Print("/tr probe  report which client features this addon found")
@@ -59,6 +62,9 @@ local commands = {
     links = function()
         ns.db.showLinks = not ns.db.showLinks
         ns.Print("[T] links " .. (ns.db.showLinks and "on." or "off."))
+    end,
+    options = function()
+        if ns.OpenOptions then ns.OpenOptions() else ns.Print("No options panel on this client.") end
     end,
     all = function()
         ns.db.allLines = not ns.db.allLines
@@ -86,6 +92,8 @@ local commands = {
         ns.Print("Chat filter API: " .. tostring(ns.filterSource))
         ns.Print("Link click hook: " .. tostring(ns.linkSource))
         ns.Print("Chat window positions: " .. tostring(ns.layoutSource))
+        ns.Print("Options panel: " .. tostring(ns.optionsSource))
+        ns.Print("Lines sent: " .. ((ns.db.sourceWindow or "") == "" and "all chat" or ("what the " .. ns.db.sourceWindow .. " window shows")))
         local w, h = GetPhysicalScreenSize()
         ns.Print("Physical screen: " .. tostring(w) .. "x" .. tostring(h) .. ", strip " .. (ns.db.strip and "on" or "off"))
         ns.Print("SendChatMessage: " .. ((C_ChatInfo and C_ChatInfo.SendChatMessage) and "C_ChatInfo" or (SendChatMessage and "global" or "none")))

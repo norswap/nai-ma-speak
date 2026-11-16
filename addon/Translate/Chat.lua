@@ -99,20 +99,82 @@ local function SeenPlain(lineID)
     return false
 end
 
+-- The names on the tabs of the game's chat windows, in window order.
+function ns.ChatWindowNames()
+    local names = {}
+    if not FCF_GetChatWindowInfo then return names end
+    for i = 1, NUM_CHAT_WINDOWS or 10 do
+        local frame = _G["ChatFrame" .. i]
+        local name = FCF_GetChatWindowInfo(i)
+        if frame and type(name) == "string" and name ~= "" and (frame:IsShown() or frame.isDocked) then
+            names[#names + 1] = name
+        end
+    end
+    return names
+end
+
+local function WindowNamed(wanted)
+    if not FCF_GetChatWindowInfo then return nil end
+    for i = 1, NUM_CHAT_WINDOWS or 10 do
+        local frame = _G["ChatFrame" .. i]
+        if frame and FCF_GetChatWindowInfo(i) == wanted then return frame end
+    end
+end
+
+-- Whether a chat window is set up to show a message, going by the message
+-- types and channels ticked in that window's own settings. This mirrors how
+-- the game picks the windows a line appears in.
+function ns.WindowShows(frame, event, zoneChannel, baseName)
+    if event == "CHAT_MSG_CHANNEL" then
+        for index, value in pairs(frame.channelList or {}) do
+            local sameZone = type(zoneChannel) == "number" and zoneChannel > 0
+                and frame.zoneChannelList and frame.zoneChannelList[index] == zoneChannel
+            if sameZone or (type(baseName) == "string" and strupper(value) == strupper(baseName)) then
+                return true
+            end
+        end
+        return false
+    end
+    for _, group in pairs(frame.messageTypeList or {}) do
+        if "CHAT_MSG_" .. group == event then return true end
+        for _, groupEvent in pairs(ChatTypeGroup and ChatTypeGroup[group] or {}) do
+            if groupEvent == event then return true end
+        end
+    end
+    return false
+end
+
+-- Whether a line goes to the overlay: everything, or with a source window
+-- chosen in the options, only what that window is set up to show. The window
+-- need not be visible; it only lends its settings. If it no longer exists,
+-- everything is sent.
+local function FromSource(event, zoneChannel, baseName)
+    local wanted = ns.db.sourceWindow
+    if type(wanted) ~= "string" or wanted == "" then return true end
+    local frame = WindowNamed(wanted)
+    if not frame then return true end
+    return ns.WindowShows(frame, event, zoneChannel, baseName)
+end
+
 -- Stores a Chinese line once and sends it to the pixel strip. Returns its id,
 -- or nil when the line is not Chinese or cannot be read (secret values).
 -- With allLines on, other lines also go to the strip, with id 0, so the
 -- overlay can show the whole conversation in order; they are not stored.
--- Arguments follow the CHAT_MSG_* payload; lineID is the 11th.
-local function Capture(event, msg, author, _, channel, _, _, _, _, _, _, lineID)
-    if ns.IsSecret(msg) or ns.IsSecret(author) or ns.IsSecret(channel) or ns.IsSecret(lineID) then
+-- Chinese lines outside the source window are stored, so their [T] link
+-- works, but not sent.
+-- Arguments follow the CHAT_MSG_* payload: the 7th is the zone channel id,
+-- the 9th the channel's name without its number, the 11th the lineID.
+local function Capture(event, msg, author, _, channel, _, _, zoneChannel, _, baseName, _, lineID)
+    if ns.IsSecret(msg) or ns.IsSecret(author) or ns.IsSecret(channel) or ns.IsSecret(lineID)
+        or ns.IsSecret(zoneChannel) or ns.IsSecret(baseName) then
         return nil
     end
     if type(msg) ~= "string" then return nil end
     local chinese = HasChinese(msg)
     if not chinese and not ns.db.allLines then return nil end
     if chinese and lineID and byLine[lineID] then return byLine[lineID] end
-    if not chinese and SeenPlain(lineID) then return nil end
+    local wanted = FromSource(event, zoneChannel, baseName)
+    if not chinese and (not wanted or SeenPlain(lineID)) then return nil end
 
     local name = type(author) == "string" and Ambiguate(author, "short") or "?"
     local label = LABELS[event]
@@ -125,7 +187,9 @@ local function Capture(event, msg, author, _, channel, _, _, _, _, _, _, lineID)
         return nil
     end
     local id = Store(msg, name, lineID)
-    ns.SendToStrip(id .. "\t" .. speaker .. "\t" .. ns.messages[id].text)
+    if wanted then
+        ns.SendToStrip(id .. "\t" .. speaker .. "\t" .. ns.messages[id].text)
+    end
     return id
 end
 

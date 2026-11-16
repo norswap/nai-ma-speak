@@ -11,3 +11,4 @@ UI.lua
 Strip.lua
 Chat.lua
 Layout.lua
+Options.lua

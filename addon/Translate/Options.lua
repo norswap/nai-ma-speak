@@ -1,0 +1,75 @@
+local addonName, ns = ...
+
+-- The panel under Options > AddOns. Every control writes straight to
+-- TranslateDB, the same values the /tr commands toggle.
+
+local ALL = "" -- sourceWindow value that sends every line
+
+-- Choices for "Lines sent to the overlay": all chat, or one entry per chat
+-- window. Built each time the dropdown opens, so renamed and new windows
+-- show up. A saved window that no longer exists stays listed, marked.
+local function SourceOptions()
+    local container = Settings.CreateControlTextContainer()
+    container:Add(ALL, "All chat")
+    local saved, found = ns.db.sourceWindow, false
+    for _, name in ipairs(ns.ChatWindowNames()) do
+        container:Add(name, "Only what the \"" .. name .. "\" window shows")
+        found = found or name == saved
+    end
+    if type(saved) == "string" and saved ~= ALL and not found then
+        container:Add(saved, "\"" .. saved .. "\" (no such window: all chat is sent)")
+    end
+    return container:GetData()
+end
+
+local function Build()
+    local category = Settings.RegisterVerticalLayoutCategory("Translate")
+
+    local function Checkbox(key, label, tooltip)
+        local setting = Settings.RegisterAddOnSetting(category, "Translate_" .. key, key, ns.db,
+            Settings.VarType.Boolean, label, true)
+        Settings.CreateCheckbox(category, setting, tooltip)
+        return setting
+    end
+
+    local source = Settings.RegisterAddOnSetting(category, "Translate_sourceWindow", "sourceWindow", ns.db,
+        Settings.VarType.String, "Lines sent to the overlay", ALL)
+    Settings.CreateDropdown(category, source, SourceOptions,
+        "Send every chat line, or only the lines one chat window is set up to show. "
+        .. "Pick the message types and channels in that window's own settings "
+        .. "(right-click its tab, Settings). The window does not have to be visible, "
+        .. "so a spare tab can serve just to make the selection.")
+
+    Checkbox("allLines", "Include lines without Chinese",
+        "Also send lines without Chinese. The overlay shows them untranslated, in order with the translated ones.")
+    Checkbox("showLinks", "[T] links after Chinese lines",
+        "Add a clickable [T] after each Chinese chat line, to translate it by copy and paste.")
+    Checkbox("strip", "Pixel strip",
+        "Draw chat lines as a small strip of colored blocks in the top-left corner, which the companion app reads. "
+        .. "Without it the overlay gets no lines.")
+    Settings.SetOnValueChangedCallback("Translate_strip", function()
+        ns.SetStripShown(ns.db.strip)
+    end, ns)
+
+    Settings.RegisterAddOnCategory(category)
+    return category
+end
+
+function ns.InitOptions()
+    if not (Settings and Settings.RegisterVerticalLayoutCategory and Settings.RegisterAddOnSetting
+            and Settings.CreateDropdown and Settings.CreateCheckbox) then
+        ns.optionsSource = "none (no Settings API)"
+        return
+    end
+    -- The Settings API differs between client versions; a failure here must
+    -- not take the rest of the addon down with it.
+    local ok, result = pcall(Build)
+    if not ok then
+        ns.optionsSource = "failed: " .. tostring(result)
+        return
+    end
+    ns.optionsSource = "Settings API"
+    function ns.OpenOptions()
+        Settings.OpenToCategory(result:GetID())
+    end
+end
