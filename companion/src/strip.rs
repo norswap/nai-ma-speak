@@ -220,6 +220,49 @@ pub fn parse_payload(text: &str) -> Option<(String, String)> {
     Some((speaker, message))
 }
 
+/// The capture rectangle, in the monitor's points, that holds a strip found
+/// at `lock` in a full capture taken in pixels. macOS takes regions in points
+/// but captures in pixels, so on a HiDPI display (scale 2) the pixel
+/// coordinates must be halved; one point of margin absorbs the rounding.
+fn region_in_points(lock: Lock, scale: f32, max_w: u32, max_h: u32) -> Option<(u32, u32, u32, u32)> {
+    let (w, h) = (COLS as u32 * lock.block, ROWS as u32 * lock.block);
+    let x0 = (lock.x as f32 / scale).floor() as u32;
+    let y0 = (lock.y as f32 / scale).floor() as u32;
+    let x1 = (((lock.x + w) as f32 / scale).ceil() as u32 + 1).min(max_w);
+    let y1 = (((lock.y + h) as f32 / scale).ceil() as u32 + 1).min(max_h);
+    (x1 > x0 && y1 > y0).then(|| (x0, y0, x1 - x0, y1 - y0))
+}
+
+/// Reads the strip's own rectangle once it has been found.
+fn read_locked(monitor: &Monitor, lock: Lock) -> Decoded {
+    let scale = if cfg!(target_os = "macos") {
+        monitor.scale_factor().unwrap_or(1.0).max(1.0)
+    } else {
+        1.0
+    };
+    if scale == 1.0 {
+        let (w, h) = (COLS as u32 * lock.block, ROWS as u32 * lock.block);
+        return match monitor.capture_region(lock.x, lock.y, w, h) {
+            Ok(img) => decode(&img, Lock { x: 0, y: 0, block: lock.block }),
+            Err(_) => Decoded::Missing,
+        };
+    }
+    let max_w = monitor.width().unwrap_or(u32::MAX);
+    let max_h = monitor.height().unwrap_or(u32::MAX);
+    let Some((x, y, w, h)) = region_in_points(lock, scale, max_w, max_h) else {
+        return Decoded::Missing;
+    };
+    match monitor.capture_region(x, y, w, h) {
+        // The capture comes back in pixels; finding the strip again inside it
+        // is cheap and avoids redoing the rounding.
+        Ok(img) => match find(&img) {
+            Some(found) => decode(&img, found),
+            None => Decoded::Missing,
+        },
+        Err(_) => Decoded::Missing,
+    }
+}
+
 /// Polls the screen: a full scan about once a second until the strip turns
 /// up, then only the strip's own rectangle several times a second.
 ///
@@ -302,12 +345,7 @@ pub fn spawn(jobs: Sender<Job>, ui: UiSender) {
                 locked = None;
                 continue;
             };
-            let (w, h) = (COLS as u32 * lock.block, ROWS as u32 * lock.block);
-            let decoded = match monitor.capture_region(lock.x, lock.y, w, h) {
-                Ok(img) => decode(&img, Lock { x: 0, y: 0, block: lock.block }),
-                Err(_) => Decoded::Missing,
-            };
-            match decoded {
+            match read_locked(monitor, lock) {
                 Decoded::Frame(frame) => {
                     last_good = Instant::now();
                     if last_seen != Some((frame.seq, frame.checksum)) {
@@ -385,6 +423,27 @@ mod tests {
             other => panic!("{other:?}"),
         }
         assert_eq!(parse_payload(text), Some(("[Party] Lili".into(), "副本缺T 速来".into())));
+    }
+
+    /// What macOS does on a scale-2 display: full and region captures both
+    /// come back in pixels, but regions are requested in points.
+    #[test]
+    fn rereads_the_strip_through_a_hidpi_region() {
+        let text = "7\t[Party] Lili\t副本缺補 密我";
+        let full = paint(&encode(9, text), (0, 51), 4);
+        let lock = find(&full).expect("strip found in the full capture");
+        let (x, y, w, h) = region_in_points(lock, 2.0, 400, 100).expect("region");
+        let region = xcap::image::imageops::crop_imm(&full, x * 2, y * 2, w * 2, h * 2).to_image();
+        let found = find(&region).expect("strip found in the region capture");
+        assert!(matches!(decode(&region, found), Decoded::Frame(f) if f.text == text));
+    }
+
+    #[test]
+    fn region_stays_on_screen() {
+        // Bottom-right corner of a 1920x1080-point screen at scale 2.
+        let lock = Lock { x: 3584, y: 2128, block: 4 };
+        let (x, y, w, h) = region_in_points(lock, 2.0, 1920, 1080).expect("region");
+        assert!(x + w <= 1920 && y + h <= 1080, "{x},{y} {w}x{h}");
     }
 
     fn fixture(bytes: &[u8]) -> RgbaImage {
