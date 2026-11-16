@@ -336,6 +336,12 @@ impl TranslateApp {
                 if ui.button("Clear overlay").clicked() {
                     self.lines.clear();
                 }
+                if ui.button("Restart").on_hover_text("Quit and start the companion again. Unsaved settings are lost.").clicked() {
+                    match config::start_again() {
+                        Ok(()) => ui.ctx().send_viewport_cmd_to(ViewportId::ROOT, ViewportCommand::Close),
+                        Err(e) => self.notice = format!("Could not restart: {e}"),
+                    }
+                }
                 ui.checkbox(&mut self.draft.show_original, "Show Chinese too");
                 ui.checkbox(&mut self.draft.hide_when_unfocused, HIDE_LABEL);
             });

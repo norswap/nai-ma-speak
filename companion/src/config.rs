@@ -163,12 +163,31 @@ pub fn path() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("config.json"))
 }
 
-fn config_dir(exe: &Path) -> Option<&Path> {
+/// The macOS app bundle a program runs from, if it is inside one.
+fn app_bundle(exe: &Path) -> Option<&Path> {
     let dir = exe.parent()?;
-    let bundle = dir.parent().and_then(Path::parent).filter(|bundle| {
+    dir.parent().and_then(Path::parent).filter(|bundle| {
         dir.ends_with("Contents/MacOS") && bundle.extension().is_some_and(|extension| extension == "app")
-    });
-    bundle.and_then(Path::parent).or(Some(dir))
+    })
+}
+
+fn config_dir(exe: &Path) -> Option<&Path> {
+    app_bundle(exe).and_then(Path::parent).or(exe.parent())
+}
+
+/// Starts a second copy of the companion, for the caller to then quit. An app bundle is
+/// opened as one, so the new copy is the same app to macOS and keeps its permissions.
+pub fn start_again() -> std::io::Result<()> {
+    let exe = std::env::current_exe()?;
+    let mut command = match app_bundle(&exe) {
+        Some(bundle) => {
+            let mut open = std::process::Command::new("open");
+            open.arg("-n").arg(bundle);
+            open
+        }
+        None => std::process::Command::new(&exe),
+    };
+    command.spawn().map(|_| ())
 }
 
 pub fn load() -> Config {
