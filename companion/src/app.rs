@@ -241,7 +241,7 @@ impl TranslateApp {
                     ui.label("Overlay height");
                     ui.add(egui::Slider::new(&mut self.draft.overlay_height, 80.0..=1000.0));
                     ui.end_row();
-                    ui.label("Background opacity");
+                    ui.label("Background opacity").on_hover_text("Not used on a chat tab, which has its own background.");
                     ui.add(egui::Slider::new(&mut self.draft.overlay_opacity, 0.0..=1.0));
                     ui.end_row();
                     ui.label("Text size");
@@ -315,6 +315,8 @@ impl TranslateApp {
         let mut draft = self.draft.clone();
         if let Some(window) = &anchor {
             draft.font_size = window.font_size.clamp(6.0, 48.0);
+            // The chat window behind the overlay already draws its own background.
+            draft.overlay_opacity = 0.0;
         }
         let anchored = anchor.is_some();
         let lines = &self.lines;
