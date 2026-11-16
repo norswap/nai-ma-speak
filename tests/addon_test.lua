@@ -49,6 +49,8 @@ ChatTypeInfo = {
 RAID_CLASS_COLORS = { MAGE = { colorStr = "ff3fc7eb" } }
 function GetPlayerInfoByGUID() return "Mage", "MAGE" end
 RED_FONT_COLOR = { r = 1, g = 0.125, b = 0.125 }
+local clickLink
+EventRegistry = { RegisterCallback = function(_, _, fn) clickLink = function(link) fn(nil, link) end end }
 
 -- Load the addon as the game does, in the order of Translate.toc, and log in.
 local ns = {}
@@ -85,15 +87,15 @@ local function Check(name, got, want)
 end
 
 -- A chat event as the game delivers it: through every chat window's filter, then to
--- the addon's own handler. Returns the lineID.
+-- the addon's own handler. Returns the lineID and the message as the filter left it.
 local lineID = 0
 local function Chat(event, text, channel, channelIndex)
     lineID = lineID + 1
     local args = { text, "Bob", "", channel or "", "", "", 0, channelIndex or 0, "", 0, lineID, "guid-1" }
     filters[event](nil, event, unpack(args))
-    filters[event](nil, event, unpack(args))
+    local _, shown = filters[event](nil, event, unpack(args))
     ns.handlers[event](unpack(args))
-    return lineID
+    return lineID, shown or text
 end
 
 -- Chat events, with no chat window copied ------------------------------------------
@@ -119,12 +121,39 @@ TranslateDB.allLines = true
 
 -- A copied chat window ----------------------------------------------------------------
 
+-- [T] links ------------------------------------------------------------------------------
+
+local asked, withLink = Chat("CHAT_MSG_GUILD", "缺補")
+local _, plainLine = Chat("CHAT_MSG_SAY", "no link here")
+Check("a Chinese line gets a [T] link", withLink, "缺補 |Haddon:Translate:" .. asked .. "|h|cff66ccff[T]|r|h")
+Check("other lines get none", plainLine, "no link here")
+Frames()
+ns.SendToStrip("0\t\twaiting 1")
+ns.SendToStrip("0\t\twaiting 2")
+clickLink("addon:Translate:" .. asked)
+clickLink("addon:Other:" .. asked)
+clickLink("item:1")
+Check("a click sends the line again, ahead of what is waiting", Frames(), {
+    "0 |  | waiting 1",
+    "T | [Guild] [|cff3fc7ebBob|r]:  | 缺補 | 40ff40\n0 |  | waiting 2",
+})
+printed = {}
+clickLink("addon:Translate:99999")
+Check("a line too old to send again says so", #printed, 1)
+TranslateDB.showLinks = false
+local _, unlinked = Chat("CHAT_MSG_GUILD", "缺坦")
+Check("no links with the option off", unlinked, "缺坦")
+TranslateDB.showLinks = true
+Frames()
+
+-- A copied chat window ----------------------------------------------------------------
+
 TranslateDB.sourceWindow = "Pick"
-local id = Chat("CHAT_MSG_GUILD", "來打副本 |cffa335ee|Hitem:1|h[劍]|h|r")
+local id, linked = Chat("CHAT_MSG_GUILD", "來打副本 |cffa335ee|Hitem:1|h[劍]|h|r")
 Check("events send nothing while a window is copied", Frames(), {})
 
 local function Shown(text, r, g, b) ChatFrame2:AddMessage(text, r or 1, g or 1, b or 1) end
-Shown("|Hchannel:GUILD|h[Guild]|h |Hplayer:Bob:" .. id .. ":GUILD|h[|cff3fc7ebBob|r]|h: 來打副本 |cffa335ee|Hitem:1|h[劍]|h|r", 0.25, 1, 0.25)
+Shown("|Hchannel:GUILD|h[Guild]|h |Hplayer:Bob:" .. id .. ":GUILD|h[|cff3fc7ebBob|r]|h: " .. linked, 0.25, 1, 0.25)
 ChatFrame1:AddMessage("not the copied window", 1, 1, 1)
 Shown("|cff33ff99DBM|r: Pull in |cffffff005|r")
 Shown("12:30 |Hplayer:小明:999:SAY|h[小明]|h says: hello there")

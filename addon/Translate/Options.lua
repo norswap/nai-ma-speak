@@ -42,7 +42,7 @@ local function Build()
         .. "so a spare tab can serve just to make the selection.")
 
     local buttons = Settings.RegisterAddOnSetting(category, "Translate_buttons", "buttons", ns.db,
-        Settings.VarType.String, "Translate and Settings buttons", "tabs")
+        Settings.VarType.String, "Translate and App buttons", "tabs")
     Settings.CreateDropdown(category, buttons, function()
         local container = Settings.CreateControlTextContainer()
         container:Add("tabs", "On the tab row")
@@ -51,18 +51,15 @@ local function Build()
         container:Add("hidden", "Hidden")
         return container:GetData()
     end, "Where the two buttons sit on the main chat window. Translate opens and closes the box for typing a reply; "
-        .. "Settings brings the companion's window over the game.")
+        .. "App shows and hides the companion app's window over the game.")
     Settings.SetOnValueChangedCallback("Translate_buttons", function() ns.PlaceButtons() end, ns)
 
     Checkbox("allLines", "Include lines without Chinese",
         "Also send lines without Chinese. The overlay shows them untranslated, in order with the translated ones.")
-    Checkbox("strip", "Pixel strip",
-        "Draw chat lines as a small strip of colored blocks in the top-left corner, which the companion app reads. "
-        .. "Without it the overlay gets no lines.")
-    Settings.SetOnValueChangedCallback("Translate_strip", function()
-        ns.SetStripShown(ns.db.strip)
-        ns.PlaceButtons()
-    end, ns)
+    Checkbox("showLinks", "[T] links after Chinese lines",
+        "Add a clickable [T] after each Chinese line in the game's chat windows. Clicking it sends that line "
+        .. "to the overlay again, ahead of everything waiting, marked as asked for: for a line that scrolled "
+        .. "away or was dropped when chat was too busy.")
 
     Settings.RegisterAddOnCategory(category)
     return category

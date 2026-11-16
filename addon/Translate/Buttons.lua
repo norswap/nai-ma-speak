@@ -1,6 +1,6 @@
 local _, ns = ...
 
--- The Translate and Settings buttons on the chat window, and replies typed as
+-- The Translate and App buttons on the chat window, and replies typed as
 -- "/tr /g hello". The addon cannot reach the companion except through the
 -- pixel strip, so a click or a reply is sent as a strip line:
 --   "C\treply" or "C\tsettings"   a button was clicked
@@ -32,19 +32,20 @@ end
 
 local function Build()
     bar = CreateFrame("Frame", "TranslateButtons", UIParent)
-    bar:SetSize(138, 20)
+    bar:SetSize(118, 20)
     bar:SetFrameStrata("MEDIUM")
     local reply = MakeButton("Translate", 72, "reply")
     reply:SetPoint("LEFT", bar, "LEFT", 0, 0)
-    local settings = MakeButton("Settings", 64, "settings")
-    settings:SetPoint("LEFT", reply, "RIGHT", 2, 0)
+    -- "App", not "Settings": the addon has settings of its own, in the game's options.
+    local app = MakeButton("App", 44, "settings")
+    app:SetPoint("LEFT", reply, "RIGHT", 2, 0)
 end
 
 -- Puts the buttons where the options say, on the main chat window, or hides them.
 function ns.PlaceButtons()
     local place = PLACES[ns.db.buttons]
     local window = ChatFrame1 and (ChatFrame1.Background or ChatFrame1)
-    if not place or not window or not ns.db.strip then
+    if not place or not window then
         if bar then bar:Hide() end
         return
     end

@@ -88,7 +88,6 @@ function ns.InitLayout()
     local last, sentAt = nil, 0
     local ticker
     ticker = C_Timer.NewTicker(CHECK_TIME, function()
-        if not ns.db.strip then return end
         local ok, text = pcall(Describe)
         if not ok then
             ns.layoutSource = "failed: " .. tostring(text)

@@ -28,7 +28,8 @@ Reading the strip is screen capture: it only reads pixels and never sends input 
 - **A copy of a chat window.** Pick a chat window in the addon's options and the overlay shows every line that window shows, including system messages and what other addons print, with their color tags. Without one, the overlay gets player chat and the game's own messages as they arrive.
 - **Translation backends.** Google Translate's free endpoint (no setup, no key), Claude with a Claude Console API key, or any OpenAI-compatible endpoint: OpenAI, or a local model through Ollama or LM Studio.
 - **Slang hints.** The chat models are told the WoW slang found in each line (缺補, 坦, 副本...), from a list of mainland and Taiwanese terms. Google Translate takes no hints.
-- **In-game buttons.** "Translate" and "Settings" buttons on the chat window open the reply box and the companion's window.
+- **In-game buttons.** "Translate" and "App" buttons on the chat window open the reply box and the companion app's window.
+- **Translate again on request.** Chinese lines in the game's own chat windows end in a `[T]` link. Clicking it sends that line to the overlay again, ahead of everything waiting, marked "[On request]": for a line that scrolled away, or was dropped when chat was too busy.
 - **Scrollback.** With the overlay on a chat tab, the mouse wheel over that tab scrolls the overlay.
 - **Chat history.** The companion keeps the recent lines in a tab where text can be selected and copied.
 
@@ -65,7 +66,7 @@ Run WoW in **windowed** or **windowed (fullscreen)** mode: overlays cannot draw 
 The two buttons sit on the main chat window. Their place (on the tab row, top right, bottom right, or hidden) is set under Options > AddOns > Nai Ma Speak, along with which chat window the overlay copies.
 
 - **Translate** opens a box above the chat window. Type English and press Enter: the box closes at once and a note on the overlay says "Translating", then "Copied, paste it". Paste into the game's chat box and send. If the translation fails or is too long for one chat message (255 bytes), the note says so, and Translate reopens the box with your text.
-- **Settings** brings the companion's window over the game, and sends it away again.
+- **App** brings the companion app's window over the game, and sends it away again. (The addon's own few settings are in the game's options.)
 
 The same from the chat box, where `/nms` works in place of `/tr`:
 
@@ -76,7 +77,6 @@ The same from the chat box, where `/nms` works in place of `/tr`:
 | `/tr /g hello` | The same, reopening the chat box on that target: `/p`, `/s`, `/y`, `/ra`, `/i`, `/o`, `/2`, `/w Name`, `/r` |
 | `/tr /options` | Open the addon's options |
 | `/tr /all` | Toggle lines without Chinese in the overlay |
-| `/tr /strip` | Toggle the pixel strip |
 | `/tr /test` | Say a Chinese test line in `/say` to check the strip and overlay |
 | `/tr /test 10` | Send that many test lines to the overlay only |
 | `/tr /probe` | Report which client features the addon found |
@@ -84,7 +84,7 @@ The same from the chat box, where `/nms` works in place of `/tr`:
 
 ### The companion window
 
-Settings take effect as you change them and are saved by themselves. **Undo** puts them back as they were when the companion was opened, **Restart** starts it again, and **Hide** hides the window while the overlay stays; the game's Settings button or the app's icon brings it back.
+Settings take effect as you change them and are saved by themselves. **Undo** puts them back as they were when the companion was opened, **Restart** starts it again, and **Hide** hides the window while the overlay stays; the game's App button or the app's icon brings it back.
 
 - **Backend:** what translates, and which Chinese replies are written in. "Test translation" sends a fixed line and shows the answer and how long it took.
   - *Google Translate* needs nothing, but it is an unofficial endpoint: it is rate-limited and may stop working.
@@ -106,7 +106,7 @@ Chat lines are sent to whichever backend you choose. Only a local model keeps th
 
 - Chat text inside instances may be a secret value under Midnight rules. The addon cannot read those lines, so they are not shown or translated.
 - Each strip frame holds 376 bytes, enough for a chat message (255 bytes at most) with its speaker and colors. Longer lines, such as some system messages, are cut.
-- The strip carries about 1,500 bytes a second. In a flood of chat, lines queue in the addon, up to 200, and the oldest are dropped beyond that.
+- The strip carries about 1,500 bytes a second. In a flood of chat, lines queue in the addon, up to 200, and the oldest are dropped beyond that. A dropped line can be asked for again with its `[T]` link.
 - Icons inside chat lines (raid markers and the like) are left out of the overlay.
 - A translation keeps the colors of the original line only where they can be placed: a line in one color, item links in order, and words that come back unchanged.
 - The buttons sit on the main chat window and its docked tabs, not on a chat window floating on its own.

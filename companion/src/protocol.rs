@@ -2,9 +2,10 @@
 //! lines separated by "\n", and each line is fields separated by tabs. The first field
 //! says what the line is:
 //!
-//! - `1` or `0`, then prefix, body and `rrggbb`: a chat line. Prefix and body carry WoW
-//!   color codes and together make the line as the game shows it, in that color. With `1`
-//!   the body is to be translated; with `0` the line is shown as it is.
+//! - `0`, `1` or `T`, then prefix, body and `rrggbb`: a chat line. Prefix and body carry
+//!   WoW color codes and together make the line as the game shows it, in that color.
+//!   With `0` the line is shown as it is; with `1` its body is to be translated; `T` is a
+//!   line the player asked for again by its [T] link, to translate ahead of the others.
 //! - `L`, then one record per chat window separated by byte 30, each
 //!   "name, shown, left, top, width, height, font size" separated by byte 31.
 //! - `S`, then a chat window's name and the mouse wheel steps it has had since login,
@@ -20,10 +21,19 @@ use crate::markup::{self, ChatLine};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Message {
-    Chat { translate: bool, line: ChatLine },
+    Chat { line: ChatLine, handling: Handling },
     Windows(Vec<ChatWindow>),
     Wheel { name: String, count: i64 },
     Command(Command),
+}
+
+/// What to do with a chat line.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Handling {
+    Show,
+    Translate,
+    /// Asked for by the player: translated before the lines already waiting, and marked.
+    TranslateFirst,
 }
 
 /// Something the player asked for in the game.
@@ -47,15 +57,20 @@ pub fn parse(line: &str) -> Option<Message> {
         "C" if rest == "reply" => Some(Message::Command(Command::OpenReply)),
         "C" if rest == "settings" => Some(Message::Command(Command::OpenSettings)),
         "R" if !rest.trim().is_empty() => Some(Message::Command(Command::Reply(rest.trim().to_string()))),
-        _ => {
-            let translate = kind.parse::<u64>().ok()? != 0;
+        "0" | "1" | "T" => {
+            let handling = match kind {
+                "0" => Handling::Show,
+                "1" => Handling::Translate,
+                _ => Handling::TranslateFirst,
+            };
             let mut fields = rest.splitn(3, '\t');
             let (prefix, body) = (fields.next()?, fields.next()?);
             let color = fields.next().and_then(markup::rgb).unwrap_or([255; 3]);
             let mut open = Vec::new();
             let line = ChatLine { color, prefix: markup::parse(prefix, &mut open), body: markup::parse(body, &mut open) };
-            Some(Message::Chat { translate, line })
+            Some(Message::Chat { line, handling })
         }
+        _ => None,
     }
 }
 
@@ -86,18 +101,20 @@ pub mod tests {
 
     #[test]
     fn reads_chat_lines() {
-        let Some(Message::Chat { translate: true, line }) = parse("1\t[|cff3fc7ebLili|r]: \t缺 |cffa335ee[劍]|r\t40ff40") else {
+        let Some(Message::Chat { line, handling: Handling::Translate }) = parse("1\t[|cff3fc7ebLili|r]: \t缺 |cffa335ee[劍]|r\t40ff40") else {
             panic!("a chat line to translate");
         };
         assert_eq!(line.color, [0x40, 0xff, 0x40]);
         assert_eq!(line.prefix[1], markup::Span { text: "Lili".into(), color: Some([0x3f, 0xc7, 0xeb]) });
         assert_eq!(markup::plain(&line.body), "缺 [劍]");
         // Without a color the line is white, and 0 asks for no translation.
-        let Some(Message::Chat { translate: false, line }) = parse("0\t[Party] Lili: \t副本缺T 速来") else {
+        let Some(Message::Chat { line, handling: Handling::Show }) = parse("0\t[Party] Lili: \t副本缺T 速来") else {
             panic!("a chat line shown as it is");
         };
         assert_eq!((markup::plain(&line.prefix), line.color), ("[Party] Lili: ".into(), [255; 3]));
+        assert!(matches!(parse("T\t\t缺坦\tffffff"), Some(Message::Chat { handling: Handling::TranslateFirst, .. })));
         assert_eq!(parse("broken"), None);
+        assert_eq!(parse("7\t\t缺坦"), None);
         assert_eq!(parse("1\tno body"), None);
         assert_eq!(parse("X\ta\tb"), None);
     }

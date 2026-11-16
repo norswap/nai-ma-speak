@@ -3,7 +3,7 @@
 //! [seq][len hi][len lo][text...][fletcher16 hi][fletcher16 lo] packed
 //! 3 bytes into 4 six-bit blocks.
 
-use crate::protocol::{self, Message};
+use crate::protocol::{self, Handling, Message};
 use crate::worker::{Job, UiEvent, UiSender};
 use std::sync::mpsc::Sender;
 use std::thread;
@@ -260,7 +260,9 @@ fn read_locked(monitor: &Monitor, lock: Lock) -> Decoded {
 ///
 /// Set TRANSLATE_DUMP=1 to save each full scan as translate-capture-<n>.png
 /// in the working directory and log what was captured, for `--decode`.
-pub fn spawn(jobs: Sender<Job>, ui: UiSender) {
+/// `jobs` is the queue for chat lines as they come, `asked` the one for what the player
+/// asks for and waits on.
+pub fn spawn(jobs: Sender<Job>, asked: Sender<Job>, ui: UiSender) {
     thread::spawn(move || {
         let mut locked: Option<(usize, Lock)> = None;
         let mut last_seen: Option<(u8, u16)> = None;
@@ -368,12 +370,14 @@ pub fn spawn(jobs: Sender<Job>, ui: UiSender) {
                                 Message::Command(_) if first => {}
                                 Message::Command(command) => ui.send(UiEvent::Command(command)),
                                 Message::Wheel { name, count } => ui.send(UiEvent::Wheel { name, count }),
-                                Message::Chat { translate, line } => {
-                                    let (event, job) = crate::worker::chat_line(next_line, translate, line);
+                                Message::Chat { line, handling } => {
+                                    let (event, job) = crate::worker::chat_line(next_line, line, handling);
                                     next_line += 1;
                                     ui.send(event);
+                                    // A line the player asked for does not wait behind the chat.
+                                    let queue = if handling == Handling::TranslateFirst { &asked } else { &jobs };
                                     if let Some(job) = job {
-                                        let _ = jobs.send(job);
+                                        let _ = queue.send(job);
                                     }
                                 }
                             }

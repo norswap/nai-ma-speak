@@ -16,10 +16,10 @@ frame:SetScript("OnEvent", function(_, event, ...)
 end)
 
 local DEFAULTS = {
-    strip = true,     -- draw new Chinese lines as a pixel strip for the companion
     allLines = true,  -- also send lines without Chinese, shown untranslated in the overlay
+    showLinks = true, -- add a clickable [T] after Chinese chat lines, to ask for one again
     sourceWindow = "", -- tab name of the chat window whose settings pick the lines sent; "" sends all
-    buttons = "tabs", -- where the Translate and Settings buttons sit: "tabs", "top", "bottom" or "hidden"
+    buttons = "tabs", -- where the Translate and App buttons sit: "tabs", "top", "bottom" or "hidden"
 }
 
 function ns.Print(msg)
@@ -64,7 +64,6 @@ local function ShowHelp()
     ns.Print("/tr /g hello  the same, and open the chat box on guild (or /p, /s, /w Name, /2 ...)")
     ns.Print("/tr /options  open the options (also under Options > AddOns)")
     ns.Print("/tr /all  toggle showing lines without Chinese in the overlay too")
-    ns.Print("/tr /strip  toggle the pixel strip the companion reads (top-left corner)")
     ns.Print("/tr /test  say a Chinese test line to check the strip and overlay")
     ns.Print("/tr /test 10  send that many short test lines to the overlay only (at most " .. TEST_MOST .. ")")
     ns.Print("/tr /probe  report which client features this addon found")
@@ -78,12 +77,6 @@ local commands = {
     all = function()
         ns.db.allLines = not ns.db.allLines
         ns.Print("The overlay shows " .. (ns.db.allLines and "all chat lines." or "Chinese lines only."))
-    end,
-    strip = function()
-        ns.db.strip = not ns.db.strip
-        ns.SetStripShown(ns.db.strip)
-        if ns.PlaceButtons then ns.PlaceButtons() end
-        ns.Print("Pixel strip " .. (ns.db.strip and "on." or "off. The overlay gets no new lines."))
     end,
     -- With a count, sends that many short lines, each a number in Chinese,
     -- straight to the overlay: enough different lines to see how the
@@ -118,12 +111,13 @@ local commands = {
         ns.Print("Options panel: " .. tostring(ns.optionsSource))
         ns.Print("Lines sent: " .. ((ns.db.sourceWindow or "") == "" and "all chat" or ("what the " .. ns.db.sourceWindow .. " window shows")))
         ns.Print("Chat window copying: " .. tostring(ns.mirrorSource))
+        ns.Print("[T] link clicks: " .. tostring(ns.linkSource))
         ns.Print("Overlay scrolling: " .. tostring(ns.wheelSource))
         ns.Print("Chat window buttons: " .. tostring(ns.buttonSource))
         local font = ChatFrame1 and ChatFrame1.GetFont and ChatFrame1:GetFont()
         ns.Print("Chat font: " .. tostring(font))
         local w, h = GetPhysicalScreenSize()
-        ns.Print("Physical screen: " .. tostring(w) .. "x" .. tostring(h) .. ", strip " .. (ns.db.strip and "on" or "off"))
+        ns.Print("Physical screen: " .. tostring(w) .. "x" .. tostring(h))
         ns.Print("SendChatMessage: " .. ((C_ChatInfo and C_ChatInfo.SendChatMessage) and "C_ChatInfo" or (SendChatMessage and "global" or "none")))
     end,
     help = ShowHelp,

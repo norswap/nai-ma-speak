@@ -1,5 +1,6 @@
 use crate::config::Config;
-use crate::markup::ChatLine;
+use crate::markup::{ChatLine, Span};
+use crate::protocol::Handling;
 use crate::translate::{translate, Direction};
 use std::collections::HashMap;
 use std::sync::mpsc::{Receiver, Sender};
@@ -65,12 +66,19 @@ impl UiSender {
     }
 }
 
+/// The color of the mark on a line the player asked for again.
+const ASKED_COLOR: crate::markup::Rgb = [0x66, 0xcc, 0xff];
+
 /// The overlay's line for a chat line from the addon, numbered `id`, and the job that
-/// translates it if the addon asked for that. The addon does not ask for lines in which
-/// only a speaker's name is Chinese. The translator gets the body without its color codes.
-pub fn chat_line(id: u64, translate: bool, line: ChatLine) -> (UiEvent, Option<Job>) {
+/// translates it if the addon asked for that and its body does have Chinese. The addon
+/// does not ask for lines in which only a speaker's name is Chinese. The translator gets
+/// the body without its color codes.
+pub fn chat_line(id: u64, mut line: ChatLine, handling: Handling) -> (UiEvent, Option<Job>) {
     let text = crate::markup::plain(&line.body);
-    let chinese = translate && crate::text::has_chinese(&text);
+    let chinese = handling != Handling::Show && crate::text::has_chinese(&text);
+    if handling == Handling::TranslateFirst {
+        line.prefix.insert(0, Span { text: "[On request] ".into(), color: Some(ASKED_COLOR) });
+    }
     let job = chinese.then(|| Job::Incoming { line: id, text: text.trim().to_string() });
     (UiEvent::Line { id, line, chinese }, job)
 }
@@ -145,25 +153,32 @@ mod tests {
     use super::*;
     use crate::protocol::{parse, Message};
 
-    fn chat(line: &str) -> (bool, ChatLine) {
+    fn chat(line: &str) -> (UiEvent, Option<Job>) {
         match parse(line) {
-            Some(Message::Chat { translate, line }) => (translate, line),
+            Some(Message::Chat { line, handling }) => chat_line(7, line, handling),
             other => panic!("{other:?}"),
         }
     }
 
     #[test]
     fn only_lines_the_addon_marks_go_to_the_translator() {
-        let (translate, line) = chat("1\t[Say] [Lili]: \t副本缺T |cffa335ee[劍]|r \t40ff40");
-        let (UiEvent::Line { id: 7, chinese: true, .. }, Some(Job::Incoming { line: 7, text })) = chat_line(7, translate, line) else {
+        let (UiEvent::Line { id: 7, chinese: true, .. }, Some(Job::Incoming { line: 7, text })) =
+            chat("1\t[Say] [Lili]: \t副本缺T |cffa335ee[劍]|r \t40ff40")
+        else {
             panic!("the Chinese line shows untranslated and is queued");
         };
         assert_eq!(text, "副本缺T [劍]");
         // A copied line with only a Chinese name is shown as it is.
-        let (translate, line) = chat("0\t\t[小明] says: hello");
-        assert!(matches!(chat_line(8, translate, line), (UiEvent::Line { id: 8, chinese: false, .. }, None)));
+        assert!(matches!(chat("0\t\t[小明] says: hello"), (UiEvent::Line { chinese: false, .. }, None)));
         // So is a marked line that turns out to have no Chinese.
-        let (translate, line) = chat("1\t\thello");
-        assert!(matches!(chat_line(9, translate, line), (UiEvent::Line { chinese: false, .. }, None)));
+        assert!(matches!(chat("1\t\thello"), (UiEvent::Line { chinese: false, .. }, None)));
+    }
+
+    #[test]
+    fn a_line_asked_for_again_is_marked() {
+        let (UiEvent::Line { line, chinese: true, .. }, Some(_)) = chat("T\t[Say] [Lili]: \t缺坦\tffffff") else {
+            panic!("a line asked for is translated");
+        };
+        assert_eq!(crate::markup::plain(&line.prefix), "[On request] [Say] [Lili]: ");
     }
 }

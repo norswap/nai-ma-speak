@@ -117,11 +117,11 @@ pub struct TranslateApp {
     /// The reply box is open, and whether it still has to take the keyboard.
     reply_box: bool,
     reply_box_focus: bool,
-    /// The game's Settings button asked for this window to come forward.
+    /// The game's App button asked for this window to come forward.
     show_window: bool,
     /// This window was hidden with its Hide button.
     window_hidden: bool,
-    /// The game's Settings button brought this window over the game, where it still is.
+    /// The game's App button brought this window over the game, where it still is.
     window_summoned: bool,
     /// Whether the companion was the app in front at the last look.
     was_active: bool,
@@ -522,7 +522,7 @@ impl TranslateApp {
     }
 
     /// Shows, hides and brings back this window: over the game, next to the chat window,
-    /// when the game's Settings button asks for it, and away again on a second click.
+    /// when the game's App button asks for it, and away again on a second click.
     fn window_visibility(&mut self, ctx: &egui::Context) {
         let root = ViewportId::ROOT;
         // The yellow button would minimize the window, and macOS then ignores a click
@@ -666,7 +666,7 @@ impl TranslateApp {
             ui.horizontal(|ui| {
                 theme::title(ui);
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    let hint = "Hide this window; the overlay stays. The game's Settings button or the app's icon brings it back.";
+                    let hint = "Hide this window; the overlay stays. The game's App button or the app's icon brings it back.";
                     if ui.add(theme::button("Hide")).on_hover_text(hint).clicked() {
                         self.hide_window(ui.ctx());
                     }

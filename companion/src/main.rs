@@ -77,7 +77,7 @@ fn main() -> eframe::Result {
 
             worker::spawn(config.clone(), strip_rx, ui.clone(), clip_tx.clone());
             worker::spawn(config.clone(), interactive_rx, ui.clone(), clip_tx);
-            strip::spawn(strip_tx, ui.clone());
+            strip::spawn(strip_tx, interactive_tx.clone(), ui.clone());
             focus::spawn(ui.clone());
             clipboard::spawn(clip_rx, ui);
 

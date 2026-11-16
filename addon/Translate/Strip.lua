@@ -123,7 +123,6 @@ end
 -- even with many lines waiting, and it replaces waiting text that starts
 -- with the same key, since only the newest state matters.
 function ns.SendToStrip(text, key)
-    if not ns.db.strip then return end
     if not frame then Build() end
     if key then
         for i = #queue, 1, -1 do
@@ -135,15 +134,6 @@ function ns.SendToStrip(text, key)
         queue[#queue + 1] = text
     end
     if not ticking then Advance() end
-end
-
-function ns.SetStripShown(shown)
-    if shown then
-        if not frame then Build() end
-        frame:Show()
-    elseif frame then
-        frame:Hide()
-    end
 end
 
 ns.On("DISPLAY_SIZE_CHANGED", function() ns.PlaceStrip() end)
