@@ -61,16 +61,18 @@ impl UiSender {
 
 /// Turns the text of one strip frame into overlay lines, numbered from `next_id`, and the
 /// translation jobs for the Chinese ones. A frame holds one or more lines, each
-/// "<id>\t<prefix>\t<body>\t<color>". Lines whose body has no Chinese are shown as they
-/// are and never reach the translator, which gets the body without its color codes.
+/// "<id>\t<prefix>\t<body>\t<color>". Lines with id 0 are shown as they are and never
+/// reach the translator: the addon found no Chinese to translate in them, though a
+/// speaker's name in them may be Chinese. The translator gets the body of the others,
+/// without its color codes.
 pub fn route_frame(frame: &str, next_id: &mut u64) -> Vec<(UiEvent, Option<Job>)> {
     let lines = frame.split('\n').filter_map(crate::strip::parse_payload);
     lines
-        .map(|line| {
+        .map(|(addon_id, line)| {
             let id = *next_id;
             *next_id += 1;
             let text = crate::markup::plain(&line.body);
-            let chinese = crate::text::has_chinese(&text);
+            let chinese = addon_id != 0 && crate::text::has_chinese(&text);
             let job = chinese.then(|| Job::Incoming { line: id, text: text.trim().to_string() });
             (UiEvent::Line { id, line, chinese }, job)
         })
@@ -148,7 +150,7 @@ mod tests {
     #[test]
     fn only_chinese_lines_go_to_the_translator() {
         let mut next_id = 7;
-        let frame = "12\t[Say] [Lili]: \t副本缺T |cffa335ee[劍]|r \t40ff40\n0\t[小明] says: \tlf tank\tffffff\nbroken\nS\tGeneral\t3\n0\t\tBob has come online.";
+        let frame = "12\t[Say] [Lili]: \t副本缺T |cffa335ee[劍]|r \t40ff40\n0\t[小明] says: \tlf tank\tffffff\nbroken\nS\tGeneral\t3\n0\t\t[小明] says: hello";
         let routed = route_frame(frame, &mut next_id);
         assert_eq!(next_id, 10);
         assert_eq!(routed.len(), 3);
@@ -160,8 +162,8 @@ mod tests {
         // A Chinese name alone does not send a line to the translator.
         assert!(matches!(&routed[1], (UiEvent::Line { id: 8, chinese: false, .. }, None)));
         let (UiEvent::Line { id: 9, line, chinese: false }, None) = &routed[2] else {
-            panic!("the system line is shown as it is");
+            panic!("a copied line with only a Chinese name is shown as it is");
         };
-        assert_eq!((line.prefix.len(), crate::markup::plain(&line.body).as_str()), (0, "Bob has come online."));
+        assert_eq!((line.prefix.len(), crate::markup::plain(&line.body).as_str()), (0, "[小明] says: hello"));
     }
 }

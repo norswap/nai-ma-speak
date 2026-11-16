@@ -214,15 +214,16 @@ pub fn find(img: &RgbaImage) -> Option<Lock> {
 
 /// One chat line from the addon: "<id>\t<prefix>\t<body>\t<rrggbb>". Prefix and body
 /// carry WoW color codes and together make the line as the game shows it; the color is
-/// the line's own and is white when an older addon leaves it out.
-pub fn parse_payload(text: &str) -> Option<ChatLine> {
+/// the line's own and is white when an older addon leaves it out. Returned with the id,
+/// which is 0 for a line the addon found nothing to translate in.
+pub fn parse_payload(text: &str) -> Option<(u64, ChatLine)> {
     let mut parts = text.splitn(4, '\t');
     // Lines that start with a letter are not chat: the window layout and scroll counts.
-    parts.next()?.parse::<u64>().ok()?;
+    let id = parts.next()?.parse::<u64>().ok()?;
     let (prefix, body) = (parts.next()?, parts.next()?);
     let color = parts.next().and_then(markup::rgb).unwrap_or([255; 3]);
     let mut open = Vec::new();
-    Some(ChatLine { color, prefix: markup::parse(prefix, &mut open), body: markup::parse(body, &mut open) })
+    Some((id, ChatLine { color, prefix: markup::parse(prefix, &mut open), body: markup::parse(body, &mut open) }))
 }
 
 /// The capture rectangle, in the monitor's points, that holds a strip found
@@ -449,10 +450,11 @@ mod tests {
             }
             other => panic!("{other:?}"),
         }
-        let line = parse_payload(text).unwrap();
+        let (id, line) = parse_payload(text).unwrap();
+        assert_eq!(id, 7);
         assert_eq!((markup::plain(&line.prefix), markup::plain(&line.body)), ("[Party] Lili".into(), "副本缺T 速来".into()));
         assert_eq!(line.color, [255; 3]);
-        let colored = parse_payload("3\t[|cff3fc7ebLili|r]: \t缺 |cffa335ee[劍]|r\t40ff40").unwrap();
+        let colored = parse_payload("3\t[|cff3fc7ebLili|r]: \t缺 |cffa335ee[劍]|r\t40ff40").unwrap().1;
         assert_eq!(colored.color, [0x40, 0xff, 0x40]);
         assert_eq!(colored.prefix[1], markup::Span { text: "Lili".into(), color: Some([0x3f, 0xc7, 0xeb]) });
         assert_eq!(markup::plain(&colored.body), "缺 [劍]");
