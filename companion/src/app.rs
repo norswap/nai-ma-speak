@@ -2,7 +2,7 @@ use crate::backends::claude::key_problem;
 use crate::config::{self, Backend, Config, ReplyVariant, CLAUDE_MODELS, CUSTOM_LABEL, ENDPOINT_PRESETS};
 use crate::translate::WOW_CHAT_BYTES;
 use crate::focus::WowView;
-use crate::layout::{self, ChatWindow};
+use crate::layout::{self, ChatWindow, Command};
 use crate::markup::{self, ChatLine, Span};
 use crate::theme;
 use crate::worker::{Job, UiEvent};
@@ -103,6 +103,37 @@ pub struct TranslateApp {
     wheel_counts: HashMap<String, i64>,
     wheel_steps: f32,
     tab: Tab,
+    /// Where the last reply stands; shown as a pill on the overlay.
+    reply_state: ReplyState,
+    /// The reply box is open, and whether it still has to take the keyboard.
+    reply_box: bool,
+    reply_box_focus: bool,
+    /// The game's Settings button asked for this window to come forward.
+    show_window: bool,
+    /// While this window is hidden: where it was, and whether it has lost the keyboard
+    /// since. It is parked off screen, not minimized, so the overlay keeps being drawn.
+    parked: Option<(egui::Pos2, bool)>,
+}
+
+/// Where a reply typed in English stands.
+enum ReplyState {
+    Idle,
+    Translating,
+    /// Copied for pasting; goes back to idle a little later.
+    Copied(Instant),
+    Failed(String),
+    /// Translated, but longer than one chat message, so not copied.
+    TooLong,
+}
+
+/// How long the overlay says a reply was copied.
+const COPIED_SHOWN: Duration = Duration::from_secs(6);
+/// Size of the reply box, and how far above the chat window it opens, past the tab row.
+const REPLY_BOX_HEIGHT: f32 = 78.0;
+const REPLY_BOX_GAP: f32 = 34.0;
+
+fn reply_id() -> ViewportId {
+    ViewportId::from_hash_of("reply")
 }
 
 /// The sections of the companion window.
@@ -112,11 +143,17 @@ enum Tab {
     Translation,
     Overlay,
     Status,
+    History,
 }
 
 impl Tab {
-    const ALL: [(Tab, &'static str); 4] =
-        [(Tab::Reply, "Reply"), (Tab::Translation, "Translation"), (Tab::Overlay, "Overlay"), (Tab::Status, "Status")];
+    const ALL: [(Tab, &'static str); 5] = [
+        (Tab::Reply, "Reply"),
+        (Tab::Translation, "Translation"),
+        (Tab::Overlay, "Overlay"),
+        (Tab::Status, "Status"),
+        (Tab::History, "Chat history"),
+    ];
 }
 
 /// Smallest companion window that shows every control with Settings closed.
@@ -158,6 +195,11 @@ impl TranslateApp {
             wheel_counts: HashMap::new(),
             wheel_steps: 0.0,
             tab: Tab::Reply,
+            reply_state: ReplyState::Idle,
+            reply_box: false,
+            reply_box_focus: false,
+            show_window: false,
+            parked: None,
             test_result: String::new(),
             strip_status: "Starting the pixel strip reader".into(),
             draft,
@@ -228,8 +270,20 @@ impl TranslateApp {
                     } else {
                         format!("Not copied: \"{chinese}\" is too long for WoW chat. Say it in fewer words.")
                     };
+                    self.reply_state = if copied { ReplyState::Copied(Instant::now()) } else { ReplyState::TooLong };
                     self.last_reply = Some((chinese, copied));
                 }
+                UiEvent::ReplyFailed { english, reason } => {
+                    // The English goes back into the box, for another try when it is next opened.
+                    self.reply = english;
+                    self.reply_state = ReplyState::Failed(reason);
+                }
+                UiEvent::Command(Command::OpenReply) => {
+                    self.reply_box = true;
+                    self.reply_box_focus = true;
+                }
+                UiEvent::Command(Command::OpenSettings) => self.show_window = true,
+                UiEvent::Command(Command::Reply(english)) => self.send_reply(english),
                 UiEvent::TestResult { result, seconds } => {
                     let backend = self.config.lock().unwrap().backend.label();
                     self.test_result = match result {
@@ -259,6 +313,140 @@ impl TranslateApp {
                 UiEvent::Status(text) => self.status = text,
             }
         }
+    }
+
+    fn send_reply(&mut self, english: String) {
+        let _ = self.interactive.send(Job::Reply { text: english });
+        self.reply_state = ReplyState::Translating;
+        self.last_reply = None;
+    }
+
+    /// The small window for typing a reply, opened by the game's Reply button above the
+    /// chat window. Enter sends the text off and closes it at once, so it never sits over
+    /// the game while the translation is on its way; the overlay's pill shows that.
+    fn reply_box(&mut self, ctx: &egui::Context) {
+        if !self.reply_box {
+            return;
+        }
+        let window = layout::anchor(&self.chat_windows, &self.draft.anchor_tab).map(|window| window.rect);
+        let area = window.or(self.overlay_rect.map(|r| [r.min.x, r.min.y, r.width(), r.height()]));
+        let width = area.map_or(520.0, |area| area[2].clamp(380.0, 720.0));
+        let mut builder = ViewportBuilder::default()
+            .with_title("Translate reply")
+            .with_decorations(false)
+            .with_transparent(true)
+            .with_always_on_top()
+            .with_taskbar(false)
+            .with_active(true)
+            .with_inner_size([width, REPLY_BOX_HEIGHT]);
+        if let Some(area) = area {
+            builder = builder.with_position([area[0], area[1] - REPLY_BOX_HEIGHT - REPLY_BOX_GAP]);
+        }
+        let (note, edge) = match &self.reply_state {
+            ReplyState::Failed(reason) => (format!("Not translated: {reason} Enter tries again."), theme::BAD),
+            ReplyState::TooLong => {
+                let bytes = self.last_reply.as_ref().map_or(0, |(chinese, _)| chinese.len());
+                (format!("Not copied: {bytes} of {WOW_CHAT_BYTES} bytes. Say it in fewer words."), theme::GOLD)
+            }
+            _ => ("Enter translates and copies, and this box closes. Esc closes.".to_string(), theme::BORDER),
+        };
+        let too_long = matches!(self.reply_state, ReplyState::TooLong);
+        let take_focus = std::mem::take(&mut self.reply_box_focus);
+        let (mut submit, mut close, mut copy_anyway) = (false, false, false);
+        let reply = &mut self.reply;
+        ctx.show_viewport_immediate(reply_id(), builder, |root, _class| {
+            let ctx = root.ctx().clone();
+            if take_focus {
+                ctx.send_viewport_cmd(ViewportCommand::Focus);
+            }
+            let frame = egui::Frame::NONE
+                .fill(theme::BACKGROUND)
+                .stroke(egui::Stroke::new(2.0, edge))
+                .corner_radius(8)
+                .inner_margin(egui::Margin::symmetric(12, 10));
+            egui::CentralPanel::default().frame(frame).show(root, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new("Reply").font(theme::heading_font(16.0)).color(theme::GOLD));
+                    let edit = ui.add(egui::TextEdit::singleline(reply).desired_width(f32::INFINITY));
+                    if edit.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                        submit = !reply.trim().is_empty();
+                    } else {
+                        // The box is only ever open to be typed in.
+                        edit.request_focus();
+                    }
+                });
+                ui.horizontal(|ui| {
+                    if too_long {
+                        copy_anyway = ui.small_button("Copy anyway").clicked();
+                    }
+                    ui.add(egui::Label::new(RichText::new(&note).size(11.5).color(if edge == theme::BORDER { theme::MUTED } else { edge })).truncate());
+                });
+                close = ui.input(|i| i.key_pressed(egui::Key::Escape) || i.viewport().close_requested());
+            });
+        });
+        if copy_anyway {
+            if let Some((chinese, copied)) = &mut self.last_reply {
+                ctx.copy_text(chinese.clone());
+                *copied = true;
+                self.reply_state = ReplyState::Copied(Instant::now());
+            }
+        }
+        if submit {
+            let english = std::mem::take(&mut self.reply).trim().to_string();
+            self.send_reply(english);
+        }
+        if submit || close || copy_anyway {
+            self.reply_box = false;
+            crate::focus::activate_wow();
+        }
+    }
+
+    /// What the overlay's pill says about the last reply: its text, color and whether it
+    /// is still under way. Nothing while there is nothing to say.
+    fn reply_pill(&mut self, ctx: &egui::Context) -> Option<(String, Color32, bool)> {
+        if let ReplyState::Copied(since) = self.reply_state {
+            match COPIED_SHOWN.checked_sub(since.elapsed()) {
+                Some(left) => ctx.request_repaint_after(left),
+                None => self.reply_state = ReplyState::Idle,
+            }
+        }
+        match &self.reply_state {
+            ReplyState::Idle => None,
+            ReplyState::Translating => Some(("Translating".into(), theme::TEXT, true)),
+            ReplyState::Copied(_) => Some(("Copied, paste it".into(), theme::GOOD, false)),
+            ReplyState::Failed(_) => Some(("Reply failed: press Reply".into(), theme::BAD, false)),
+            ReplyState::TooLong => Some(("Reply too long: press Reply".into(), theme::GOLD, false)),
+        }
+    }
+
+    /// Brings this window over the game, next to the chat window, when the game's
+    /// Settings button asks for it.
+    fn show_over_game(&mut self, ctx: &egui::Context) {
+        let root = ViewportId::ROOT;
+        // A hidden window comes back where it was when it gets the keyboard again, which
+        // is what clicking the app's icon does.
+        let focused = ctx.input(|i| i.viewport().focused) == Some(true);
+        if let Some((at, lost_focus)) = &mut self.parked {
+            if !focused {
+                *lost_focus = true;
+            } else if *lost_focus && !self.show_window {
+                ctx.send_viewport_cmd_to(root, ViewportCommand::OuterPosition(*at));
+                self.parked = None;
+            }
+        }
+        if !std::mem::take(&mut self.show_window) {
+            return;
+        }
+        ctx.send_viewport_cmd_to(root, ViewportCommand::WindowLevel(egui::WindowLevel::AlwaysOnTop));
+        let was = self.parked.take().map(|(at, _)| at);
+        let beside_chat = layout::anchor(&self.chat_windows, &self.draft.anchor_tab).map(|window| {
+            let [x, y, width, height] = window.rect;
+            egui::pos2(x + width + 24.0, (y + height - self.fitted_height).max(y - 300.0))
+        });
+        if let Some(at) = beside_chat.or(was) {
+            ctx.send_viewport_cmd_to(root, ViewportCommand::OuterPosition(at));
+        }
+        ctx.send_viewport_cmd_to(root, ViewportCommand::Focus);
     }
 
     fn save(&mut self) {
@@ -319,6 +507,7 @@ impl TranslateApp {
                 Tab::Translation => self.translation_tab(ui),
                 Tab::Overlay => self.overlay_tab(ui),
                 Tab::Status => self.status_tab(ui),
+                Tab::History => self.history_tab(ui),
             }
         });
     }
@@ -330,8 +519,15 @@ impl TranslateApp {
             ui.horizontal(|ui| {
                 ui.label(RichText::new("Translate").font(theme::heading_font(20.0)).color(theme::GOLD));
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui.button("Hide").on_hover_text("Minimize this window. The overlay stays.").clicked() {
-                        ui.ctx().send_viewport_cmd_to(ViewportId::ROOT, ViewportCommand::Minimized(true));
+                    let hint = "Hide this window; the overlay stays. The game's Settings button or the app's icon brings it back.";
+                    if ui.button("Hide").on_hover_text(hint).clicked() {
+                        let at = ui.ctx().input(|i| i.viewport().outer_rect).map_or(egui::pos2(80.0, 80.0), |r| r.min);
+                        self.parked = Some((at, false));
+                        let level = ViewportCommand::WindowLevel(egui::WindowLevel::Normal);
+                        ui.ctx().send_viewport_cmd_to(ViewportId::ROOT, level);
+                        let away = ViewportCommand::OuterPosition(egui::pos2(OFF_SCREEN, OFF_SCREEN));
+                        ui.ctx().send_viewport_cmd_to(ViewportId::ROOT, away);
+                        crate::focus::activate_wow();
                     }
                     if ui.button("Restart").on_hover_text("Quit and start the companion again. Unsaved settings are lost.").clicked() {
                         match config::start_again() {
@@ -399,10 +595,9 @@ impl TranslateApp {
                 .hint_text("Type in English, press Enter, then paste into WoW chat"),
         );
         if edit.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) && !self.reply.trim().is_empty() {
-            let _ = self.interactive.send(Job::Reply { text: self.reply.trim().to_string() });
+            let english = std::mem::take(&mut self.reply).trim().to_string();
+            self.send_reply(english);
             self.notice = "Translating your reply".into();
-            self.last_reply = None;
-            self.reply.clear();
             edit.request_focus();
         }
         // WoW's chat box holds 255 bytes, and a Chinese character takes 3 of them.
@@ -561,6 +756,30 @@ impl TranslateApp {
         self.save_row(ui);
     }
 
+    /// The lines the overlay holds, to scroll through and select text from.
+    fn history_tab(&mut self, ui: &mut egui::Ui) {
+        let boxed = egui::Frame::NONE
+            .fill(theme::FIELD)
+            .stroke(egui::Stroke::new(1.0, theme::BORDER_DIM))
+            .corner_radius(4)
+            .inner_margin(8);
+        boxed.show(ui, |ui| {
+            let scroll = egui::ScrollArea::vertical().id_salt("history").max_height(320.0).stick_to_bottom(true);
+            scroll.auto_shrink([false, true]).show(ui, |ui| {
+                ui.spacing_mut().item_spacing.y = 1.0;
+                let font = egui::FontId::new(14.0, egui::FontFamily::Name(crate::OVERLAY_FAMILY.into()));
+                let width = ui.available_width();
+                if self.lines.is_empty() {
+                    ui.label(RichText::new("No chat lines yet.").color(theme::MUTED));
+                }
+                for line in &self.lines {
+                    ui.label(line.job(&font, width));
+                }
+            });
+        });
+        ui.label(RichText::new("Holds as many lines as \"Lines kept\" on the Overlay tab.").color(theme::MUTED));
+    }
+
     fn status_tab(&mut self, ui: &mut egui::Ui) {
         ui.label(theme::label("Translation"));
         ui.label(format!("{} · translating with {}", self.status, self.draft.backend.label()));
@@ -638,9 +857,10 @@ impl TranslateApp {
             draft.overlay_opacity = 0.0;
         }
         let anchored = anchor.is_some();
-        let lines = &self.lines;
         let mut rect = self.overlay_rect;
         let wheel_steps = std::mem::take(&mut self.wheel_steps);
+        let pill = self.reply_pill(ctx);
+        let lines = &self.lines;
 
         ctx.show_viewport_immediate(overlay_id(), builder, |root, _class| {
             let ctx = root.ctx().clone();
@@ -701,6 +921,21 @@ impl TranslateApp {
                         ui.painter().galley(rect.min, galley, Color32::WHITE);
                     }
                 });
+                if let Some((text, color, busy)) = &pill {
+                    // In the top right corner, over the oldest lines.
+                    let galley = ui.painter().layout_no_wrap(text.clone(), egui::FontId::proportional(12.0), *color);
+                    let (pad, spinner) = (egui::vec2(8.0, 5.0), if *busy { 17.0 } else { 0.0 });
+                    let size = galley.size() + 2.0 * pad + egui::vec2(spinner, 0.0);
+                    let corner = ui.max_rect().right_top();
+                    let pill = egui::Rect::from_min_size(egui::pos2(corner.x - size.x, corner.y), size);
+                    let edge = egui::Stroke::new(1.0, *color);
+                    ui.painter().rect(pill, 4, theme::BACKGROUND, edge, egui::StrokeKind::Inside);
+                    if *busy {
+                        let at = egui::Rect::from_center_size(egui::pos2(pill.left() + pad.x + 6.0, pill.center().y), egui::vec2(12.0, 12.0));
+                        egui::Spinner::new().size(12.0).color(theme::GOLD).paint_at(ui, at);
+                    }
+                    ui.painter().galley(pill.min + pad + egui::vec2(spinner, 0.0), galley, *color);
+                }
             });
         });
         self.overlay_rect = rect;
@@ -712,7 +947,9 @@ impl eframe::App for TranslateApp {
         let ctx = ui.ctx().clone();
         self.drain_events();
         self.control_panel(ui);
+        self.show_over_game(&ctx);
         self.overlay(&ctx);
+        self.reply_box(&ctx);
         // After both windows laid out their text, so this frame's new glyphs are included.
         self.refresh_font_texture(&ctx);
     }

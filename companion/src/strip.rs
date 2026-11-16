@@ -358,6 +358,7 @@ pub fn spawn(jobs: Sender<Job>, ui: UiSender) {
                     if last_seen != Some((frame.seq, frame.checksum)) {
                         // The first frame after locking may be an old line; it is
                         // still new to the overlay, so it is shown too.
+                        let first = last_seen.is_none();
                         last_seen = Some((frame.seq, frame.checksum));
                         if let Some(windows) = frame.text.split('\n').find_map(crate::layout::parse) {
                             let scale = if cfg!(target_os = "macos") {
@@ -373,6 +374,11 @@ pub fn spawn(jobs: Sender<Job>, ui: UiSender) {
                             };
                             let windows = windows.iter().map(|window| picture.on_screen(window)).collect();
                             ui.send(UiEvent::ChatWindows(windows));
+                        }
+                        // A command still on the strip when the companion starts was given
+                        // before it was watching, perhaps long ago, and is not acted on.
+                        for command in frame.text.split('\n').filter_map(crate::layout::parse_command).filter(|_| !first) {
+                            ui.send(UiEvent::Command(command));
                         }
                         for (name, count) in frame.text.split('\n').filter_map(crate::layout::parse_scroll) {
                             ui.send(UiEvent::Wheel { name, count });

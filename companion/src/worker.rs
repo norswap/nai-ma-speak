@@ -37,6 +37,10 @@ pub enum UiEvent {
     TestResult { result: Result<String, String>, seconds: f32 },
     /// The game's chat windows, in screen points, whenever the addon reports them.
     ChatWindows(Vec<crate::layout::ChatWindow>),
+    /// A reply could not be translated.
+    ReplyFailed { english: String, reason: String },
+    /// A button click or a typed reply from the game.
+    Command(crate::layout::Command),
     /// Mouse wheel steps a chat window has had since login, up counted positive.
     Wheel { name: String, count: i64 },
     /// Pixel strip state: searching, or where it was found.
@@ -126,8 +130,10 @@ pub fn spawn(config: Arc<Mutex<Config>>, jobs: Receiver<Job>, ui: UiSender, clip
                 }
                 Err(e) => {
                     ui.send(UiEvent::Status(format!("Translation failed: {e}")));
-                    if let Job::Incoming { line, .. } = job {
-                        ui.send(UiEvent::Failed { id: line });
+                    match job {
+                        Job::Incoming { line, .. } => ui.send(UiEvent::Failed { id: line }),
+                        Job::Reply { text } => ui.send(UiEvent::ReplyFailed { english: text, reason: e }),
+                        _ => {}
                     }
                     continue;
                 }

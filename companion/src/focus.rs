@@ -45,6 +45,15 @@ impl WowView {
     }
 }
 
+/// Gives the keyboard back to the game after the reply box closes, so the reply can be
+/// pasted at once. This only brings the game's window to the front; nothing is typed.
+pub fn activate_wow() {
+    #[cfg(target_os = "macos")]
+    {
+        let _ = std::process::Command::new("open").args(["-b", "com.blizzard.worldofwarcraft"]).spawn();
+    }
+}
+
 fn overlap(a: Rect, b: Rect) -> bool {
     a[0] < b[0] + b[2] && b[0] < a[0] + a[2] && a[1] < b[1] + b[3] && b[1] < a[1] + a[3]
 }

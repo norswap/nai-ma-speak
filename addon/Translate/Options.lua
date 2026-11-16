@@ -41,6 +41,19 @@ local function Build()
         .. "(right-click its tab, Settings). Its tab does not have to be selected, "
         .. "so a spare tab can serve just to make the selection.")
 
+    local buttons = Settings.RegisterAddOnSetting(category, "Translate_buttons", "buttons", ns.db,
+        Settings.VarType.String, "Reply and Settings buttons", "tabs")
+    Settings.CreateDropdown(category, buttons, function()
+        local container = Settings.CreateControlTextContainer()
+        container:Add("tabs", "On the tab row")
+        container:Add("top", "Top right of the chat window")
+        container:Add("bottom", "Bottom right of the chat window")
+        container:Add("hidden", "Hidden")
+        return container:GetData()
+    end, "Where the two buttons sit on the main chat window. Reply opens the companion's reply box; "
+        .. "Settings brings the companion's window over the game.")
+    Settings.SetOnValueChangedCallback("Translate_buttons", function() ns.PlaceButtons() end, ns)
+
     Checkbox("allLines", "Include lines without Chinese",
         "Also send lines without Chinese. The overlay shows them untranslated, in order with the translated ones.")
     Checkbox("showLinks", "[T] links after Chinese lines",
@@ -50,6 +63,7 @@ local function Build()
         .. "Without it the overlay gets no lines.")
     Settings.SetOnValueChangedCallback("Translate_strip", function()
         ns.SetStripShown(ns.db.strip)
+        ns.PlaceButtons()
     end, ns)
 
     Settings.RegisterAddOnCategory(category)

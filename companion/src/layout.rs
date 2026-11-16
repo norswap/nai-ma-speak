@@ -40,6 +40,25 @@ pub fn parse_scroll(line: &str) -> Option<(String, i64)> {
     Some((name.to_string(), count.parse().ok()?))
 }
 
+/// Something the player asked for in the game: a click on one of the addon's buttons, or
+/// English typed after "/tr" to translate and copy.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Command {
+    OpenReply,
+    OpenSettings,
+    Reply(String),
+}
+
+/// Parses a command line: "C", a tab and the button's name, or "R", a tab and the English.
+pub fn parse_command(line: &str) -> Option<Command> {
+    match line.split_once('\t')? {
+        ("C", "reply") => Some(Command::OpenReply),
+        ("C", "settings") => Some(Command::OpenSettings),
+        ("R", english) if !english.trim().is_empty() => Some(Command::Reply(english.trim().to_string())),
+        _ => None,
+    }
+}
+
 /// Where the game's picture is on screen, worked out from the strip, which the addon
 /// draws at the picture's top-left corner with blocks of 4 game pixels.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -102,6 +121,12 @@ mod tests {
         assert_eq!(parse_scroll("S\t翻譯\t-4"), Some(("翻譯".into(), -4)));
         assert_eq!(parse_scroll("S\t翻譯\tup"), None);
         assert_eq!(parse_scroll("3\ta\tb"), None);
+        assert_eq!(parse_command("C\treply"), Some(Command::OpenReply));
+        assert_eq!(parse_command("C\tsettings"), Some(Command::OpenSettings));
+        assert_eq!(parse_command("R\t sure, I can heal "), Some(Command::Reply("sure, I can heal".into())));
+        assert_eq!(parse_command("R\t "), None);
+        assert_eq!(parse_command("C\tother"), None);
+        assert_eq!(parse_command("3\ta\tb"), None);
     }
 
     #[test]

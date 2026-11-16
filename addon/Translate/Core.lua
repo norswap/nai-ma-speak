@@ -20,6 +20,7 @@ local DEFAULTS = {
     strip = true,     -- draw new Chinese lines as a pixel strip for the companion
     allLines = true,  -- also send lines without Chinese, shown untranslated in the overlay
     sourceWindow = "", -- tab name of the chat window whose settings pick the lines sent; "" sends all
+    buttons = "tabs", -- where the Reply and Settings buttons sit: "tabs", "top", "bottom" or "hidden"
 }
 
 function ns.Print(msg)
@@ -44,6 +45,7 @@ end)
 ns.On("PLAYER_LOGIN", function()
     if ns.InitChat then ns.InitChat() end
     if ns.InitLayout then ns.InitLayout() end
+    if ns.InitButtons then ns.InitButtons() end
     if ns.InitOptions then ns.InitOptions() end
 end)
 
@@ -59,6 +61,8 @@ end
 
 local function ShowHelp()
     ns.Print("/tr  open the translate window on the latest Chinese line")
+    ns.Print("/tr hello  translate English into Chinese and copy it, to paste into chat")
+    ns.Print("/tr /g hello  the same, and open the chat box on guild (or /p, /s, /w Name, /2 ...)")
     ns.Print("/tr links  toggle the [T] links after Chinese lines")
     ns.Print("/tr test  say a Chinese test line to check the strip and overlay")
     ns.Print("/tr test 10  send that many short test lines to the overlay only (at most " .. TEST_MOST .. ")")
@@ -84,6 +88,7 @@ local commands = {
     strip = function()
         ns.db.strip = not ns.db.strip
         ns.SetStripShown(ns.db.strip)
+        if ns.PlaceButtons then ns.PlaceButtons() end
         ns.Print("Pixel strip " .. (ns.db.strip and "on." or "off. The overlay gets no new lines."))
     end,
     -- With a count, sends that many short lines, each a number in Chinese,
@@ -121,6 +126,7 @@ local commands = {
         ns.Print("Lines sent: " .. ((ns.db.sourceWindow or "") == "" and "all chat" or ("what the " .. ns.db.sourceWindow .. " window shows")))
         ns.Print("Chat window copying: " .. tostring(ns.mirrorSource))
         ns.Print("Overlay scrolling: " .. tostring(ns.wheelSource))
+        ns.Print("Chat window buttons: " .. tostring(ns.buttonSource))
         local font = ChatFrame1 and ChatFrame1.GetFont and ChatFrame1:GetFont()
         ns.Print("Chat font: " .. tostring(font))
         local w, h = GetPhysicalScreenSize()
@@ -133,7 +139,14 @@ local commands = {
 SLASH_TRANSLATE1 = "/tr"
 SLASH_TRANSLATE2 = "/translate"
 SlashCmdList.TRANSLATE = function(input)
-    local cmd, argument = strlower(strtrim(input or "")):match("^(%S*)%s*(.-)$")
-    local fn = commands[cmd] or ShowHelp
-    fn(tonumber(argument))
+    local text = strtrim(input or "")
+    local cmd, argument = strlower(text):match("^(%S*)%s*(.-)$")
+    local fn = commands[cmd]
+    -- A command stands alone ("/tr test" may take a count). Anything else is
+    -- English to translate: "/tr help me please" is a reply, "/tr help" is not.
+    if fn and (argument == "" or (cmd == "test" and tonumber(argument))) then
+        fn(tonumber(argument))
+    else
+        ns.Reply(text)
+    end
 end
