@@ -138,12 +138,17 @@ pub fn parse_payload(text: &str) -> Option<(String, String)> {
 
 /// Polls the screen: a full scan about once a second until the strip turns
 /// up, then only the strip's own rectangle several times a second.
+///
+/// Set TRANSLATE_DUMP=1 to save each full scan as translate-capture-<n>.png
+/// in the working directory and log what was captured, for `--decode`.
 pub fn spawn(jobs: Sender<Job>, ui: UiSender) {
     thread::spawn(move || {
         let mut locked: Option<(usize, Lock)> = None;
         let mut last_seen: Option<(u8, u16)> = None;
         let mut last_good = Instant::now();
         let mut said_searching = false;
+        let mut said_capture_error = false;
+        let dump = std::env::var_os("TRANSLATE_DUMP").is_some();
 
         loop {
             let monitors = match Monitor::all() {
@@ -161,8 +166,36 @@ pub fn spawn(jobs: Sender<Job>, ui: UiSender) {
                     said_searching = true;
                 }
                 for (index, monitor) in monitors.iter().enumerate() {
-                    let Ok(img) = monitor.capture_image() else { continue };
+                    let img = match monitor.capture_image() {
+                        Ok(img) => img,
+                        Err(e) => {
+                            // Used to be skipped silently, which looks exactly
+                            // like "no strip on screen".
+                            if !said_capture_error {
+                                eprintln!("screen {}: capture failed: {e}", index + 1);
+                                ui.send(UiEvent::Strip(format!("Screen {} capture failed: {e}", index + 1)));
+                                said_capture_error = true;
+                            }
+                            continue;
+                        }
+                    };
+                    if dump {
+                        let path = format!("translate-capture-{}.png", index + 1);
+                        eprintln!(
+                            "screen {}: {}x{} points, scale {}, captured {}x{} px, saved to {path}",
+                            index + 1,
+                            monitor.width().unwrap_or(0),
+                            monitor.height().unwrap_or(0),
+                            monitor.scale_factor().unwrap_or(0.0),
+                            img.width(),
+                            img.height()
+                        );
+                        if let Err(e) = img.save(&path) {
+                            eprintln!("could not save {path}: {e}");
+                        }
+                    }
                     if let Some(lock) = find(&img) {
+                        eprintln!("screen {}: strip found at {},{} ({} px blocks)", index + 1, lock.x, lock.y, lock.block);
                         ui.send(UiEvent::Strip(format!(
                             "Reading the pixel strip on screen {} at {},{}",
                             index + 1,
@@ -206,6 +239,7 @@ pub fn spawn(jobs: Sender<Job>, ui: UiSender) {
                 Decoded::Missing => {
                     // Hidden UI, a loading screen, or the window moved.
                     if last_good.elapsed() > Duration::from_secs(3) {
+                        eprintln!("lost the strip: no frame read at the locked spot for 3 s");
                         locked = None;
                     }
                 }
