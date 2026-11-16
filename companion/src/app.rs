@@ -84,7 +84,9 @@ pub struct TranslateApp {
     overlay_rect: Option<egui::Rect>,
     test_result: String,
     strip_status: String,
-    fitted_height: f32,
+    passes: crate::diag::Passes,
+    /// The tab being pictured and since when; see `shots`.
+    shot: Option<(usize, Instant)>,
     wow_view: WowView,
     /// When the whole font texture was last sent; see `refresh_font_texture`.
     font_texture_sent: Instant,
@@ -162,7 +164,9 @@ impl Tab {
 
 /// Smallest companion window that shows every control with Settings closed.
 pub const MIN_WIDTH: f32 = 560.0;
-pub const MIN_HEIGHT: f32 = 150.0;
+pub const MIN_HEIGHT: f32 = 320.0;
+/// The size the companion window opens at: room for the tallest tab.
+pub const START_SIZE: [f32; 2] = [620.0, 560.0];
 
 const OFF_SCREEN: f32 = -32000.0;
 /// Whether a hidden overlay is moved off screen; see `overlay`.
@@ -188,7 +192,8 @@ impl TranslateApp {
             locked: true,
             overlay_start,
             overlay_rect: None,
-            fitted_height: 0.0,
+            passes: crate::diag::Passes::new(),
+            shot: None,
             wow_view: WowView::Unknown,
             font_texture_sent: Instant::now(),
             font_texture_stale: false,
@@ -321,6 +326,39 @@ impl TranslateApp {
                 }
                 UiEvent::Status(text) => self.status = text,
             }
+        }
+    }
+
+    /// For looking at the window without sitting at the screen: with TRANSLATE_SHOTS set
+    /// to a folder, saves a picture of this window on each tab there, then quits.
+    fn shots(&mut self, ctx: &egui::Context) {
+        let Some(folder) = std::env::var_os("TRANSLATE_SHOTS") else {
+            return;
+        };
+        ctx.request_repaint_after(Duration::from_millis(100));
+        if self.shot.is_none() {
+            // Above other windows, or a covered window is not drawn and pictures go stale.
+            ctx.send_viewport_cmd_to(ViewportId::ROOT, ViewportCommand::WindowLevel(egui::WindowLevel::AlwaysOnTop));
+        }
+        let (step, since) = self.shot.get_or_insert((0, Instant::now()));
+        if since.elapsed() < Duration::from_millis(900) {
+            return;
+        }
+        let own = xcap::Window::all().unwrap_or_default().into_iter().find(|window| {
+            window.pid().ok() == Some(std::process::id()) && window.title().is_ok_and(|title| title.contains("Companion"))
+        });
+        match own.map(|window| window.capture_image()) {
+            Some(Ok(image)) => {
+                let _ = image.save(std::path::Path::new(&folder).join(format!("tab-{step}.png")));
+            }
+            Some(Err(e)) => crate::diag::log(format!("no picture of tab {step}: {e}")),
+            None => crate::diag::log(format!("no picture of tab {step}: window not found")),
+        }
+        *step += 1;
+        *since = Instant::now();
+        match Tab::ALL.get(*step) {
+            Some((tab, _)) => self.tab = *tab,
+            None => std::process::exit(0),
         }
     }
 
@@ -479,7 +517,8 @@ impl TranslateApp {
             ctx.send_viewport_cmd_to(root, ViewportCommand::WindowLevel(egui::WindowLevel::AlwaysOnTop));
             if let Some(window) = layout::anchor(&self.chat_windows, &self.draft.anchor_tab) {
                 let [x, y, width, height] = window.rect;
-                let top = (y + height - self.fitted_height).max(y - 300.0);
+                let own = ctx.input(|i| i.viewport().outer_rect).map_or(START_SIZE[1], |r| r.height());
+                let top = (y + height - own).max(y - 300.0);
                 ctx.send_viewport_cmd_to(root, ViewportCommand::OuterPosition(egui::pos2(x + width + 24.0, top)));
             }
         }
@@ -499,34 +538,14 @@ impl TranslateApp {
         };
     }
 
+    /// The window keeps the size it has, whichever tab is open: resizing it to each
+    /// tab's contents showed for a moment at the old size. A tab taller than the window
+    /// scrolls.
     fn control_panel(&mut self, root: &mut egui::Ui) {
-        let ctx = root.ctx().clone();
         let frame = egui::Frame::NONE.fill(theme::BACKGROUND);
-        let panel = egui::CentralPanel::default().frame(frame).show(root, |ui| {
-            // Scrolls only when the screen is too short for the whole window.
-            egui::ScrollArea::vertical()
-                .auto_shrink([false, true])
-                .show(ui, |ui| self.control_contents(ui))
-                .content_size
-                .y
+        egui::CentralPanel::default().frame(frame).show(root, |ui| {
+            egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| self.control_contents(ui));
         });
-        self.fit_window(&ctx, panel.inner);
-    }
-
-    /// Grows or shrinks the window to its contents, e.g. when Settings opens.
-    fn fit_window(&mut self, ctx: &egui::Context, content_height: f32) {
-        // Panel margins plus a few pixels so the scrollbar does not appear at an exact fit.
-        let margin = 6.0;
-        let max = ctx
-            .input(|i| i.viewport().monitor_size)
-            .map_or(f32::INFINITY, |m| m.y * 0.9);
-        let wanted = (content_height + margin).clamp(MIN_HEIGHT, max.max(MIN_HEIGHT));
-        if (wanted - self.fitted_height).abs() < 1.0 {
-            return;
-        }
-        self.fitted_height = wanted;
-        let width = ctx.input(|i| i.viewport().inner_rect).map_or(MIN_WIDTH, |r| r.width());
-        ctx.send_viewport_cmd(ViewportCommand::InnerSize(egui::vec2(width, wanted)));
     }
 
     fn control_contents(&mut self, ui: &mut egui::Ui) {
@@ -807,7 +826,8 @@ impl TranslateApp {
             .corner_radius(4)
             .inner_margin(8);
         boxed.show(ui, |ui| {
-            let scroll = egui::ScrollArea::vertical().id_salt("history").max_height(320.0).stick_to_bottom(true);
+            let room = (ui.available_height() - 60.0).max(160.0);
+            let scroll = egui::ScrollArea::vertical().id_salt("history").max_height(room).stick_to_bottom(true);
             scroll.auto_shrink([false, true]).show(ui, |ui| {
                 ui.spacing_mut().item_spacing.y = 1.0;
                 let font = egui::FontId::new(14.0, egui::FontFamily::Name(crate::OVERLAY_FAMILY.into()));
@@ -816,7 +836,7 @@ impl TranslateApp {
                     ui.label(RichText::new("No chat lines yet.").color(theme::MUTED));
                 }
                 for line in &self.lines {
-                    ui.label(line.job(&font, width));
+                    ui.add(egui::Label::new(line.job(&font, width)).selectable(true));
                 }
             });
         });
@@ -978,7 +998,12 @@ impl TranslateApp {
                     ui.painter().rect(pill, 4, theme::BACKGROUND, edge, egui::StrokeKind::Inside);
                     if *busy {
                         let at = egui::Rect::from_center_size(egui::pos2(pill.left() + pad.x + 6.0, pill.center().y), egui::vec2(12.0, 12.0));
-                        egui::Spinner::new().size(12.0).color(theme::GOLD).paint_at(ui, at);
+                        // A turning arc, redrawn a dozen times a second: egui's own spinner
+                        // asks for a new pass of every window as fast as they can be drawn.
+                        let turn = ui.input(|i| i.time) as f32 * std::f32::consts::TAU;
+                        let points = (0..=12).map(|step| at.center() + 5.0 * egui::Vec2::angled(turn + step as f32 * 0.4));
+                        ui.painter().add(egui::Shape::line(points.collect(), egui::Stroke::new(2.0, theme::GOLD)));
+                        ui.ctx().request_repaint_after(Duration::from_millis(80));
                     }
                     ui.painter().galley(pill.min + pad + egui::vec2(spinner, 0.0), galley, *color);
                 }
@@ -991,6 +1016,7 @@ impl TranslateApp {
 impl eframe::App for TranslateApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
+        self.passes.begin();
         self.drain_events();
         self.control_panel(ui);
         self.show_over_game(&ctx);
@@ -998,6 +1024,18 @@ impl eframe::App for TranslateApp {
         self.reply_box(&ctx);
         // After both windows laid out their text, so this frame's new glyphs are included.
         self.refresh_font_texture(&ctx);
+        self.shots(&ctx);
+        self.passes.end(&ctx, || {
+            format!(
+                "tab {}, reply box {}, translating {}, window hidden {}, overlay hidden {}, {} lines",
+                Tab::ALL.iter().position(|(tab, _)| *tab == self.tab).unwrap_or(0),
+                self.reply_box,
+                matches!(self.reply_state, ReplyState::Translating),
+                self.window_hidden,
+                self.overlay_hidden,
+                self.lines.len()
+            )
+        });
     }
 
     fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {

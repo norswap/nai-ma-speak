@@ -4,6 +4,7 @@ mod app;
 mod backends;
 mod clipboard;
 mod config;
+mod diag;
 mod focus;
 mod layout;
 mod markup;
@@ -222,11 +223,12 @@ fn main() -> eframe::Result {
         decode_file(&args[2]);
         return Ok(());
     }
+    diag::start();
     let config = Arc::new(Mutex::new(config::load()));
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title("WoW Translate Companion App")
-            .with_inner_size([app::MIN_WIDTH, app::MIN_HEIGHT])
+            .with_inner_size(app::START_SIZE)
             .with_min_inner_size([app::MIN_WIDTH, app::MIN_HEIGHT])
             .with_icon(window_icon())
             // The renderer only gets an alpha channel when the root window asks

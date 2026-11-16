@@ -50,7 +50,12 @@ impl WowView {
 pub fn activate_wow() {
     #[cfg(target_os = "macos")]
     {
-        let _ = std::process::Command::new("open").args(["-b", "com.blizzard.worldofwarcraft"]).spawn();
+        if let Ok(mut open) = std::process::Command::new("open").args(["-b", "com.blizzard.worldofwarcraft"]).spawn() {
+            // Waited for, so no finished process is left behind for each call.
+            std::thread::spawn(move || {
+                let _ = open.wait();
+            });
+        }
     }
 }
 

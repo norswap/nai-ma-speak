@@ -16,7 +16,8 @@ Needs Rust 1.95 or newer.
 ## Local install (this Mac)
 
 - The companion runs as `/Applications/wow-translate/Translate.app`; install with `./macos-app.sh /Applications/wow-translate`. Its `config.json` sits next to the app (holds API keys; never commit it).
-- For logs, run `/Applications/wow-translate/Translate.app/Contents/MacOS/translate-companion` from Terminal.
+- The companion writes `translate.log` next to `config.json`: panics, a window pass that never finishes ("STUCK") and passes running without pause ("BUSY", with what asked for them).
+- To see the companion window without sitting at the screen: `open -n /Applications/wow-translate/Translate.app --env TRANSLATE_SHOTS=<folder>` saves a picture of each tab into the folder and quits.
 - The addon is symlinked from `addon/Translate` into `/Applications/World of Warcraft/_forever_/Interface/AddOns/Translate`.
 - The app is signed with the self-signed "Translate Local Signing" certificate in the login keychain (created by `./macos-signing-cert.sh`), so the Screen Recording permission survives rebuilds. Without that certificate the build is signed ad hoc and needs the permission again each time.
 

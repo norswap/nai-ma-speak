@@ -62,16 +62,14 @@ pub fn label(text: &str) -> RichText {
 
 /// A button as the game's classic interface draws them: dark red with a gold edge and
 /// gold lettering.
+/// The edge is the widgets' own: bronze, and thicker and gold under the pointer.
 pub fn button(text: &str) -> egui::Button<'static> {
-    egui::Button::new(RichText::new(text.to_string()).font(heading_font(15.0)).color(GOLD))
-        .fill(BUTTON)
-        .stroke(Stroke::new(1.0, BORDER))
-        .corner_radius(4)
+    egui::Button::new(RichText::new(text.to_string()).font(heading_font(15.0)).color(GOLD)).fill(BUTTON).corner_radius(4)
 }
 
-/// The one button a tab is there for, with a brighter edge.
+/// The one button a tab is there for: larger.
 pub fn main_button(text: &str) -> egui::Button<'static> {
-    button(text).stroke(Stroke::new(1.5, BORDER_BRIGHT)).min_size(egui::vec2(120.0, 30.0))
+    button(text).min_size(egui::vec2(130.0, 32.0))
 }
 
 /// A one-line text field: nearly black, with a bronze edge and room around the text.
@@ -81,7 +79,10 @@ pub fn field(text: &mut String) -> egui::TextEdit<'_> {
 
 /// Sets the colors, corners and fonts of every widget. The heading family must exist.
 pub fn apply(ctx: &egui::Context) {
-    ctx.global_style_mut(|style| {
+    // egui keeps one style for a light system and one for a dark one, and follows the
+    // system. This look is the same on both, so it is set on both.
+    ctx.set_theme(egui::Theme::Dark);
+    ctx.all_styles_mut(|style| {
         style.text_styles.insert(TextStyle::Body, FontId::proportional(14.0));
         // Drop-down lists and their entries use the button style; they read as fields.
         style.text_styles.insert(TextStyle::Button, FontId::proportional(14.0));
@@ -89,6 +90,9 @@ pub fn apply(ctx: &egui::Context) {
         style.spacing.item_spacing = egui::vec2(8.0, 7.0);
         style.spacing.button_padding = egui::vec2(12.0, 6.0);
         style.spacing.interact_size.y = 30.0;
+        // Text is only selectable where that is asked for; elsewhere it does not react
+        // to the pointer at all.
+        style.interaction.selectable_labels = false;
 
         let visuals = &mut style.visuals;
         *visuals = egui::Visuals::dark();
@@ -106,15 +110,18 @@ pub fn apply(ctx: &egui::Context) {
         widgets.noninteractive.corner_radius = corners;
         // Fields, drop-downs, checkboxes and sliders: dark with a bronze edge that turns
         // gold under the pointer. Buttons set their own dark red; see `button`.
+        // Nothing grows under the pointer, so nothing around it moves: only the edge,
+        // drawn inside the widget, gets thicker and brighter.
         for (state, fill, edge) in [
-            (&mut widgets.inactive, FIELD, BORDER_FIELD),
-            (&mut widgets.hovered, BAR, BORDER_BRIGHT),
-            (&mut widgets.active, BAR, GOLD),
-            (&mut widgets.open, BAR, GOLD),
+            (&mut widgets.inactive, FIELD, Stroke::new(1.0, BORDER)),
+            (&mut widgets.hovered, BAR, Stroke::new(2.0, BORDER_BRIGHT)),
+            (&mut widgets.active, BAR, Stroke::new(2.0, GOLD)),
+            (&mut widgets.open, BAR, Stroke::new(2.0, GOLD)),
         ] {
+            state.expansion = 0.0;
             state.weak_bg_fill = fill;
             state.bg_fill = if fill == FIELD { BORDER_DIM } else { BORDER_FIELD };
-            state.bg_stroke = Stroke::new(1.0, edge);
+            state.bg_stroke = edge;
             state.fg_stroke = Stroke::new(1.0, TEXT);
             state.corner_radius = corners;
         }
