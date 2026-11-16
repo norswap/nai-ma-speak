@@ -2,8 +2,9 @@
 # Only terms the mainland list (zh_cn.txt) lacks: lines are matched against both lists
 # after conversion to Simplified, so a term written the same way in both scripts
 # belongs in zh_cn.txt alone. Sources and licences: THIRD_PARTY_NOTICES.
-# Left out on purpose: single characters and short Latin terms (補, 坦, 王, 徵, DD, 87),
-# which would match inside ordinary words, names and numbers.
+# Left out on purpose: single characters and numbers (補, 坦, 王, 徵, 87), which would
+# match inside ordinary words, names and numbers. Terms in Latin letters are safe: they
+# only match as whole words, in either case.
 # WoW Translator 2.15 (Pirson, MIT): Taiwan wording that differs from mainland
 秘法=Arcane (mage spec)
 刺殺=Assassination (rogue spec)
@@ -97,3 +98,4 @@ M我=whisper me
 母湯=don't (Taiwanese Hokkien)
 雷包=bad teammate
 划水=slacking
+DD=DPS

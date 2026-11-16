@@ -55,14 +55,15 @@ pub fn to_taiwanese(text: &str) -> String {
     S2TWP.get_or_init(|| converter(BuiltinConfig::S2twp)).convert(text)
 }
 
-/// Both slang lists keyed by the term in Simplified characters, so one lookup serves
-/// lines in either script. A term in both lists keeps its mainland entry.
+/// Both slang lists keyed by the term in Simplified characters and lower-case Latin
+/// letters, so one lookup serves lines in either script and either case. A term in both
+/// lists keeps its mainland entry.
 fn slang() -> &'static [(String, &'static str)] {
     static SLANG: OnceLock<Vec<(String, &'static str)>> = OnceLock::new();
     SLANG.get_or_init(|| {
         let mut terms: Vec<(String, &'static str)> = Vec::new();
         for (zh, en) in slang_pairs(SLANG_ZH_CN).chain(slang_pairs(SLANG_ZH_TW)) {
-            let key = to_simplified(zh);
+            let key = to_simplified(zh).to_ascii_lowercase();
             if !terms.iter().any(|(known, _)| *known == key) {
                 terms.push((key, en));
             }
@@ -71,30 +72,45 @@ fn slang() -> &'static [(String, &'static str)] {
     })
 }
 
+/// Where a slang term stands in a line, if it does. Chinese has no spaces, so a term may
+/// sit anywhere. Latin letters and digits do form words: where a term starts or ends
+/// with one, the line must not carry on with another there, or DD would be found in
+/// "adds" and 缺T in 缺Tank.
+fn find_term(line: &str, term: &str) -> Option<usize> {
+    let word_char = |c: Option<char>| c.is_some_and(|c| c.is_ascii_alphanumeric());
+    line.match_indices(term).map(|(start, _)| start).find(|&start| {
+        let (before, after) = (line[..start].chars().next_back(), line[start + term.len()..].chars().next());
+        !(word_char(term.chars().next()) && word_char(before)) && !(word_char(term.chars().next_back()) && word_char(after))
+    })
+}
+
 /// The slang terms in a line, longest first, skipping any term that is
 /// part of a longer match (奶 inside 奶骑). At most 12 to keep prompts short.
 /// The line may be in Traditional or Simplified characters: it is matched through a
 /// Simplified copy, and each term is returned the way the line writes it.
 fn slang_in(text: &str) -> Vec<(String, &'static str)> {
-    let simplified = to_simplified(text);
+    let simplified = to_simplified(text).to_ascii_lowercase();
     // Conversion is character for character almost always; when it is, a match can be
     // cut out of the original line.
     let aligned = simplified.chars().count() == text.chars().count();
-    let as_written = |key: &str| {
-        let start = simplified.find(key).filter(|_| aligned)?;
+    let as_written = |key: &str, start: usize| {
+        if !aligned {
+            return key.to_string();
+        }
         let skipped = simplified[..start].chars().count();
-        Some(text.chars().skip(skipped).take(key.chars().count()).collect::<String>())
+        text.chars().skip(skipped).take(key.chars().count()).collect()
     };
-    let mut found: Vec<&(String, &str)> = slang().iter().filter(|(key, _)| simplified.contains(key.as_str())).collect();
-    found.sort_by_key(|(key, _)| std::cmp::Reverse(key.chars().count()));
-    let mut kept: Vec<&(String, &str)> = Vec::new();
+    let mut found: Vec<(&(String, &str), usize)> =
+        slang().iter().filter_map(|term| Some((term, find_term(&simplified, &term.0)?))).collect();
+    found.sort_by_key(|((key, _), _)| std::cmp::Reverse(key.chars().count()));
+    let mut kept: Vec<(&(String, &str), usize)> = Vec::new();
     for term in found {
-        if !kept.iter().any(|(longer, _)| longer.contains(term.0.as_str())) {
+        if !kept.iter().any(|((longer, _), _)| longer.contains(term.0 .0.as_str())) {
             kept.push(term);
         }
     }
     kept.truncate(12);
-    kept.into_iter().map(|(key, en)| (as_written(key).unwrap_or_else(|| key.clone()), *en)).collect()
+    kept.into_iter().map(|((key, en), start)| (as_written(key, start), *en)).collect()
 }
 
 /// Tencent's HY-MT models want their own prompt and no system message.
@@ -264,6 +280,20 @@ mod tests {
     }
 
     #[test]
+    fn latin_terms_match_whole_words_only() {
+        assert_eq!(slang_of("缺DD 速來"), vec![term("速來", "come quick"), term("DD", "DPS")]);
+        assert_eq!(slang_of("來個dd"), vec![term("dd", "DPS")]);
+        assert_eq!(slang_of("2 adds 來了"), vec![]);
+        assert_eq!(slang_of("DDoS"), vec![]);
+        assert_eq!(slang_of("缺T 來"), vec![term("缺T", "need a tank")]);
+        assert_eq!(slang_of("缺Tank"), vec![]);
+        assert_eq!(slang_of("PM我"), vec![], "M我 does not start inside another word");
+        assert_eq!(slang_of("要的M我"), vec![term("M我", "whisper me")]);
+        assert_eq!(find_term("dd add dd", "dd"), Some(0));
+        assert_eq!(find_term("add dd", "dd"), Some(4));
+    }
+
+    #[test]
     fn replies_come_out_in_the_chosen_chinese() {
         let drifted = "需要治疗，组我".to_string();
         assert_eq!(finish(drifted.clone(), Direction::ToChinese, ReplyVariant::Taiwan), "需要治療，組我");
@@ -400,6 +430,6 @@ mod tests {
             assert!(slang_pairs(file).all(|(zh, en)| !zh.is_empty() && !en.is_empty()));
         }
         assert_eq!(slang_pairs(SLANG_ZH_CN).count(), 221);
-        assert_eq!(slang_pairs(SLANG_ZH_TW).count(), 88);
+        assert_eq!(slang_pairs(SLANG_ZH_TW).count(), 89);
     }
 }
