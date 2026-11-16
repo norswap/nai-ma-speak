@@ -95,6 +95,7 @@ local commands = {
         ns.Print("Options panel: " .. tostring(ns.optionsSource))
         ns.Print("Lines sent: " .. ((ns.db.sourceWindow or "") == "" and "all chat" or ("what the " .. ns.db.sourceWindow .. " window shows")))
         ns.Print("Chat window copying: " .. tostring(ns.mirrorSource))
+        ns.Print("Overlay scrolling: " .. tostring(ns.wheelSource))
         local font = ChatFrame1 and ChatFrame1.GetFont and ChatFrame1:GetFont()
         ns.Print("Chat font: " .. tostring(font))
         local w, h = GetPhysicalScreenSize()

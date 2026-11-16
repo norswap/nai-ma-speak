@@ -33,6 +33,13 @@ pub fn parse(line: &str) -> Option<Vec<ChatWindow>> {
     Some(records.split('\u{1e}').filter_map(window).collect())
 }
 
+/// Parses a scroll line: "S", the name of a chat window and how many mouse wheel steps it
+/// has had since login, up counted positive. None for any other line.
+pub fn parse_scroll(line: &str) -> Option<(String, i64)> {
+    let (name, count) = line.strip_prefix("S\t")?.split_once('\t')?;
+    Some((name.to_string(), count.parse().ok()?))
+}
+
 /// Where the game's picture is on screen, worked out from the strip, which the addon
 /// draws at the picture's top-left corner with blocks of 4 game pixels.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -92,6 +99,9 @@ mod tests {
         assert_eq!((windows[1].name.as_str(), windows[1].shown, windows[1].font_size), ("翻譯", false, 16.5));
         assert_eq!(parse("12\t[Say] Lili\t你好"), None);
         assert_eq!(parse("L\t"), Some(Vec::new()));
+        assert_eq!(parse_scroll("S\t翻譯\t-4"), Some(("翻譯".into(), -4)));
+        assert_eq!(parse_scroll("S\t翻譯\tup"), None);
+        assert_eq!(parse_scroll("3\ta\tb"), None);
     }
 
     #[test]

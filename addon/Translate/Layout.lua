@@ -48,12 +48,44 @@ local function Describe()
     return "L\t" .. table.concat(records, RECORD)
 end
 
+-- Mouse wheel steps over each chat window, counted since login: up adds,
+-- down subtracts. The overlay cannot receive the wheel itself (clicks and
+-- scrolling pass through it to the game), so with the overlay on a chat tab
+-- the game window underneath gets the wheel and the count is sent as
+-- "S\t<name>\t<count>" for the overlay to scroll by the difference. A count,
+-- not single steps, so a newer one can replace one still waiting.
+local wheel = {}
+
+function ns.WheelMoved(index, delta)
+    local name = FCF_GetChatWindowInfo(index)
+    if type(name) ~= "string" or name == "" or type(delta) ~= "number" then return end
+    name = name:gsub("[%z\1-\31]", "")
+    wheel[index] = (wheel[index] or 0) + delta
+    local key = "S\t" .. name .. "\t"
+    ns.SendToStrip(key .. wheel[index], key)
+end
+
+local function WatchWheel()
+    local hooked = 0
+    for i = 1, NUM_CHAT_WINDOWS or 10 do
+        local frame = _G["ChatFrame" .. i]
+        if frame and frame.HookScript then
+            frame:HookScript("OnMouseWheel", function(_, delta) ns.WheelMoved(i, delta) end)
+            hooked = hooked + 1
+        end
+    end
+    local on = not GetCVarBool or GetCVarBool("chatMouseScroll")
+    ns.wheelSource = hooked .. " chat windows hooked" .. (on and "" or ", but mouse wheel scrolling is off in the game's chat options")
+end
+
 function ns.InitLayout()
     if not (C_Timer and C_Timer.NewTicker and FCF_GetChatWindowInfo) then
         ns.layoutSource = "none (no chat window API)"
         return
     end
     ns.layoutSource = "FCF_GetChatWindowInfo"
+    local ok, problem = pcall(WatchWheel)
+    if not ok then ns.wheelSource = "failed: " .. tostring(problem) end
     local last, sentAt = nil, 0
     local ticker
     ticker = C_Timer.NewTicker(CHECK_TIME, function()
@@ -68,7 +100,7 @@ function ns.InitLayout()
         local now = GetTime()
         if text ~= last or now - sentAt >= RESEND_TIME then
             last, sentAt = text, now
-            ns.SendToStrip(text, true)
+            ns.SendToStrip(text, "L\t")
         end
     end)
 end

@@ -7,7 +7,7 @@ use crate::markup::{self, ChatLine, Span};
 use crate::worker::{Job, UiEvent};
 use eframe::egui::text::LayoutJob;
 use eframe::egui::{self, Color32, RichText, TextFormat, ViewportBuilder, ViewportCommand, ViewportId};
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::sync::mpsc::{Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -20,6 +20,8 @@ const HIDE_LABEL: &str = "Hide when WoW is in the background";
 /// How often the whole font texture is re-sent even without new text.
 const FONT_TEXTURE_REFRESH: Duration = Duration::from_secs(5);
 
+/// How many lines one mouse wheel step scrolls the overlay.
+const WHEEL_LINES: f32 = 3.0;
 /// How far the overlay text's shadow is offset, in points.
 const SHADOW: f32 = 1.0;
 /// How much of its brightness a Chinese line keeps while it waits for its translation.
@@ -87,6 +89,10 @@ pub struct TranslateApp {
     /// The settings show the fields for typing an endpoint, or a Claude model, by hand.
     custom_endpoint: bool,
     custom_claude_model: bool,
+    /// The last mouse wheel count the addon reported for each chat window, and the steps
+    /// over the overlay's tab that the overlay has not scrolled by yet.
+    wheel_counts: HashMap<String, i64>,
+    wheel_steps: f32,
 }
 
 /// Smallest companion window that shows every control with Settings closed.
@@ -125,6 +131,8 @@ impl TranslateApp {
             overlay_hidden: false,
             custom_endpoint: draft.endpoint_preset().is_none(),
             custom_claude_model: draft.claude_preset().is_none(),
+            wheel_counts: HashMap::new(),
+            wheel_steps: 0.0,
             test_result: String::new(),
             strip_status: "Starting the pixel strip reader".into(),
             draft,
@@ -206,6 +214,17 @@ impl TranslateApp {
                 UiEvent::Strip(text) => self.strip_status = text,
                 UiEvent::WowView(view) => self.wow_view = view,
                 UiEvent::ChatWindows(windows) => self.chat_windows = windows,
+                UiEvent::Wheel { name, count } => {
+                    // The first count only sets the starting point: its steps were made
+                    // before the companion was watching.
+                    let before = self.wheel_counts.insert(name.clone(), count);
+                    let anchored = layout::anchor(&self.chat_windows, &self.draft.anchor_tab);
+                    if let (Some(before), Some(window)) = (before, anchored) {
+                        if window.name == name {
+                            self.wheel_steps += (count - before) as f32;
+                        }
+                    }
+                }
                 UiEvent::Status(text) => self.status = text,
             }
         }
@@ -505,6 +524,7 @@ impl TranslateApp {
         let anchored = anchor.is_some();
         let lines = &self.lines;
         let mut rect = self.overlay_rect;
+        let wheel_steps = std::mem::take(&mut self.wheel_steps);
 
         ctx.show_viewport_immediate(overlay_id(), builder, |root, _class| {
             let ctx = root.ctx().clone();
@@ -539,6 +559,11 @@ impl TranslateApp {
                     let font = egui::FontId::new(draft.font_size, egui::FontFamily::Name(crate::OVERLAY_FAMILY.into()));
                     let small = egui::FontId::new(draft.font_size * 0.85, font.family.clone());
                     let width = ui.available_width() - SHADOW;
+                    if wheel_steps != 0.0 {
+                        // Wheel up moves the lines down, bringing earlier ones into view.
+                        let line_height = ui.fonts_mut(|fonts| fonts.row_height(&font));
+                        ui.scroll_with_delta(egui::vec2(0.0, wheel_steps * WHEEL_LINES * line_height));
+                    }
                     let mut galleys = Vec::new();
                     for line in lines {
                         galleys.push(ui.painter().layout_job(line.job(&font, width)));
@@ -578,5 +603,40 @@ impl eframe::App for TranslateApp {
 
     fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
         [0.0, 0.0, 0.0, 0.0]
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The overlay scrolls by calling `scroll_with_delta` inside its scroll area; this
+    /// checks that doing so moves a scroll area that sticks to the bottom, and which way.
+    #[test]
+    fn wheel_steps_scroll_back_through_earlier_lines() {
+        let ctx = egui::Context::default();
+        let offset = |steps: f32| {
+            let mut offset = 0.0;
+            let mut output = ctx.run_ui(Default::default(), |ui| {
+                ui.set_max_height(100.0);
+                let area = egui::ScrollArea::vertical().stick_to_bottom(true).auto_shrink(false).animated(false);
+                let shown = area.show(ui, |ui| {
+                    if steps != 0.0 {
+                        ui.scroll_with_delta(egui::vec2(0.0, steps * 30.0));
+                    }
+                    ui.allocate_exact_size(egui::vec2(50.0, 1000.0), egui::Sense::hover());
+                });
+                offset = shown.state.offset.y;
+            });
+            output.textures_delta.clear();
+            offset
+        };
+        offset(0.0);
+        let bottom = offset(0.0);
+        assert!(bottom > 800.0, "starts at the bottom: {bottom}");
+        let up = offset(2.0);
+        assert!((bottom - up - 60.0).abs() < 1.0, "two steps up show earlier lines: {bottom} -> {up}");
+        assert!((offset(0.0) - up).abs() < 1.0, "and it stays there");
+        assert!((offset(-5.0) - bottom).abs() < 1.0, "scrolling down stops at the bottom");
     }
 }

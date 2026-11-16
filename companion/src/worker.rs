@@ -32,6 +32,8 @@ pub enum UiEvent {
     TestResult { result: Result<String, String>, seconds: f32 },
     /// The game's chat windows, in screen points, whenever the addon reports them.
     ChatWindows(Vec<crate::layout::ChatWindow>),
+    /// Mouse wheel steps a chat window has had since login, up counted positive.
+    Wheel { name: String, count: i64 },
     /// Pixel strip state: searching, or where it was found.
     Strip(String),
     /// Whether WoW has focus; None when the focused window cannot be read.
@@ -146,7 +148,7 @@ mod tests {
     #[test]
     fn only_chinese_lines_go_to_the_translator() {
         let mut next_id = 7;
-        let frame = "12\t[Say] [Lili]: \t副本缺T |cffa335ee[劍]|r \t40ff40\n0\t[小明] says: \tlf tank\tffffff\nbroken\n0\t\tBob has come online.";
+        let frame = "12\t[Say] [Lili]: \t副本缺T |cffa335ee[劍]|r \t40ff40\n0\t[小明] says: \tlf tank\tffffff\nbroken\nS\tGeneral\t3\n0\t\tBob has come online.";
         let routed = route_frame(frame, &mut next_id);
         assert_eq!(next_id, 10);
         assert_eq!(routed.len(), 3);

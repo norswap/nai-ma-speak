@@ -217,7 +217,8 @@ pub fn find(img: &RgbaImage) -> Option<Lock> {
 /// the line's own and is white when an older addon leaves it out.
 pub fn parse_payload(text: &str) -> Option<ChatLine> {
     let mut parts = text.splitn(4, '\t');
-    let _id = parts.next()?;
+    // Lines that start with a letter are not chat: the window layout and scroll counts.
+    parts.next()?.parse::<u64>().ok()?;
     let (prefix, body) = (parts.next()?, parts.next()?);
     let color = parts.next().and_then(markup::rgb).unwrap_or([255; 3]);
     let mut open = Vec::new();
@@ -371,6 +372,9 @@ pub fn spawn(jobs: Sender<Job>, ui: UiSender) {
                             };
                             let windows = windows.iter().map(|window| picture.on_screen(window)).collect();
                             ui.send(UiEvent::ChatWindows(windows));
+                        }
+                        for (name, count) in frame.text.split('\n').filter_map(crate::layout::parse_scroll) {
+                            ui.send(UiEvent::Wheel { name, count });
                         }
                         for (line, job) in crate::worker::route_frame(&frame.text, &mut next_line) {
                             ui.send(line);

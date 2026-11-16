@@ -118,15 +118,16 @@ local function Advance()
     C_Timer.After(SHOW_TIME, Advance)
 end
 
--- Urgent text is the chat window layout: it jumps the queue, so the overlay
--- follows the chat windows even with many lines waiting, and it replaces a
--- layout that is still waiting, since only the newest one matters.
-function ns.SendToStrip(text, urgent)
+-- Text sent with a key is state, not a chat line: the chat window layout or a
+-- window's scroll count. It jumps the queue, so the overlay follows the game
+-- even with many lines waiting, and it replaces waiting text that starts
+-- with the same key, since only the newest state matters.
+function ns.SendToStrip(text, key)
     if not ns.db.strip then return end
     if not frame then Build() end
-    if urgent then
+    if key then
         for i = #queue, 1, -1 do
-            if queue[i]:sub(1, 2) == "L\t" then table.remove(queue, i) end
+            if queue[i]:sub(1, #key) == key then table.remove(queue, i) end
         end
         table.insert(queue, 1, text)
     else
