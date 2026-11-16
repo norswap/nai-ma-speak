@@ -39,16 +39,71 @@ pub enum Decoded {
 }
 
 /// Maps a channel value to one of the four levels the addon draws (0, 85, 170, 255).
-fn level(v: u8) -> u8 {
-    ((v as u16 + 42) / 85).min(3) as u8
+fn level(v: f32) -> u8 {
+    ((v + 42.0) / 85.0).clamp(0.0, 3.0) as u8
 }
 
-fn symbol(img: &RgbaImage, x: u32, y: u32) -> Option<u8> {
+/// The pixel's channels, or None outside the image.
+fn pixel(img: &RgbaImage, x: u32, y: u32) -> Option<[f32; 3]> {
     if x >= img.width() || y >= img.height() {
         return None;
     }
     let p = img.get_pixel(x, y).0;
-    Some(level(p[0]) * 16 + level(p[1]) * 4 + level(p[2]))
+    Some([p[0] as f32, p[1] as f32, p[2] as f32])
+}
+
+/// Reads a sync color using only on/off per channel, which survives a display
+/// color profile that shifts the four levels into each other.
+fn sync_symbol(img: &RgbaImage, x: u32, y: u32) -> Option<u8> {
+    let [r, g, b] = pixel(img, x, y)?;
+    let on = |v: f32| if v >= 128.0 { 3 } else { 0 };
+    Some(on(r) * 16 + on(g) * 4 + on(b))
+}
+
+fn to_linear(v: f32) -> f32 {
+    (v / 255.0).powi(2)
+}
+
+fn invert(m: [[f32; 3]; 3]) -> Option<[[f32; 3]; 3]> {
+    let cofactor = |r: usize, c: usize| {
+        let (r1, r2, c1, c2) = ((r + 1) % 3, (r + 2) % 3, (c + 1) % 3, (c + 2) % 3);
+        m[r1][c1] * m[r2][c2] - m[r1][c2] * m[r2][c1]
+    };
+    let det = m[0][0] * cofactor(0, 0) + m[0][1] * cofactor(0, 1) + m[0][2] * cofactor(0, 2);
+    if det.abs() < 1e-3 {
+        return None;
+    }
+    let mut inverse = [[0.0; 3]; 3];
+    for (r, row) in inverse.iter_mut().enumerate() {
+        for (c, value) in row.iter_mut().enumerate() {
+            *value = cofactor(c, r) / det;
+        }
+    }
+    Some(inverse)
+}
+
+/// macOS screen capture returns pixels in the display's color space, so a
+/// monitor profile mixes the channels: on a Dell SE2717H, yellow (255, 255, 0)
+/// reads back as (255, 253, 45). The sync blocks are known colors, so they
+/// show how each channel was mixed, and undoing that mix recovers the colors
+/// the addon drew. Ported from github.com/hola-ai/Translate (MIT).
+fn calibration(sync: [[f32; 3]; 3]) -> Option<[[f32; 3]; 3]> {
+    let [magenta, cyan, yellow] = sync.map(|p| p.map(to_linear));
+    let mut primaries = [[0.0; 3]; 3];
+    for (channel, row) in primaries.iter_mut().enumerate() {
+        let (m, c, y) = (magenta[channel], cyan[channel], yellow[channel]);
+        *row = [(m + y - c) / 2.0, (c + y - m) / 2.0, (m + c - y) / 2.0];
+    }
+    invert(primaries)
+}
+
+fn symbol(inverse: &[[f32; 3]; 3], pixel: [f32; 3]) -> u8 {
+    let linear = pixel.map(to_linear);
+    let channel = |row: [f32; 3]| {
+        let mixed = row[0] * linear[0] + row[1] * linear[1] + row[2] * linear[2];
+        level(mixed.max(0.0).sqrt() * 255.0)
+    };
+    channel(inverse[0]) * 16 + channel(inverse[1]) * 4 + channel(inverse[2])
 }
 
 fn fletcher16(bytes: &[u8]) -> u16 {
@@ -61,17 +116,46 @@ fn fletcher16(bytes: &[u8]) -> u16 {
 }
 
 pub fn decode(img: &RgbaImage, lock: Lock) -> Decoded {
+    let center = |i: usize| {
+        (
+            lock.x + (i % COLS) as u32 * lock.block + lock.block / 2,
+            lock.y + (i / COLS) as u32 * lock.block + lock.block / 2,
+        )
+    };
+    let mut sync = [[0.0; 3]; 3];
+    for (i, expected) in SYNC.iter().enumerate() {
+        let (cx, cy) = center(i);
+        if sync_symbol(img, cx, cy) != Some(*expected) {
+            return Decoded::Missing;
+        }
+        sync[i] = pixel(img, cx, cy).expect("sync_symbol found the pixel");
+    }
+    let calibrated = match calibration(sync) {
+        Some(inverse) => read_frame(img, &center, &inverse),
+        None => Decoded::Corrupt,
+    };
+    if calibrated != Decoded::Corrupt {
+        return calibrated;
+    }
+    // Calibrating from three pixels amplifies noise near a level boundary (a
+    // lossy screenshot, say), so a frame that fails its checksum is read once
+    // more without it; that read is exactly what the strip reader did before.
+    match read_frame(img, &center, &IDENTITY) {
+        Decoded::Frame(frame) => Decoded::Frame(frame),
+        _ => Decoded::Corrupt,
+    }
+}
+
+const IDENTITY: [[f32; 3]; 3] = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
+
+fn read_frame(img: &RgbaImage, center: &dyn Fn(usize) -> (u32, u32), inverse: &[[f32; 3]; 3]) -> Decoded {
     let mut symbols = Vec::with_capacity(COLS * ROWS);
     for i in 0..COLS * ROWS {
-        let cx = lock.x + (i % COLS) as u32 * lock.block + lock.block / 2;
-        let cy = lock.y + (i / COLS) as u32 * lock.block + lock.block / 2;
-        match symbol(img, cx, cy) {
-            Some(s) => symbols.push(s),
+        let (cx, cy) = center(i);
+        match pixel(img, cx, cy) {
+            Some(p) => symbols.push(symbol(inverse, p)),
             None => return Decoded::Missing,
         }
-    }
-    if symbols[..3] != SYNC {
-        return Decoded::Missing;
     }
     let mut bytes = Vec::with_capacity((symbols.len() - 3) / 4 * 3);
     for chunk in symbols[3..].chunks_exact(4) {
@@ -94,7 +178,7 @@ pub fn decode(img: &RgbaImage, lock: Lock) -> Decoded {
 
 /// Scans a whole image for the sync blocks and returns where the strip is.
 pub fn find(img: &RgbaImage) -> Option<Lock> {
-    let is = |x: u32, y: u32, s: u8| symbol(img, x, y) == Some(s);
+    let is = |x: u32, y: u32, s: u8| sync_symbol(img, x, y) == Some(s);
     for y in 0..img.height() {
         let mut x = 0;
         while x < img.width() {
@@ -301,6 +385,33 @@ mod tests {
             other => panic!("{other:?}"),
         }
         assert_eq!(parse_payload(text), Some(("[Party] Lili".into(), "副本缺T 速来".into())));
+    }
+
+    fn fixture(bytes: &[u8]) -> RgbaImage {
+        xcap::image::load_from_memory(bytes).expect("fixture").to_rgba8()
+    }
+
+    fn assert_test_line(img: &RgbaImage) {
+        let lock = find(img).expect("strip found");
+        match decode(img, lock) {
+            Decoded::Frame(f) => assert!(f.text.ends_with("大家好 (Translate test)"), "{}", f.text),
+            other => panic!("{other:?}"),
+        }
+    }
+
+    /// A macOS screenshot of the strip on a Dell SE2717H. The display profile
+    /// turns yellow (255, 255, 0) into (255, 253, 45), so the old reader never
+    /// recognised the sync blocks.
+    #[test]
+    fn decodes_a_capture_through_a_monitor_profile() {
+        assert_test_line(&fixture(include_bytes!("../tests/fixtures/dell-se2717h-macos.png")));
+    }
+
+    /// WoW's own screenshot, saved as JPEG: calibrating amplifies the
+    /// compression noise, so the plain read has to take over.
+    #[test]
+    fn falls_back_to_the_plain_read() {
+        assert_test_line(&fixture(include_bytes!("../tests/fixtures/ingame-jpeg.png")));
     }
 
     #[test]
