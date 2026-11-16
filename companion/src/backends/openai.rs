@@ -82,17 +82,36 @@ pub fn translate(config: &Config, text: &str, direction: Direction) -> Result<St
     let is_claude = config.model.trim().to_lowercase().starts_with("claude-") || url.contains("api.anthropic.com");
     let body = request_body(&config.model, text, direction, config.reply_variant, is_claude);
 
-    let mut request = ureq::post(&url).timeout(Duration::from_secs(60));
-    if !config.api_key.is_empty() {
-        request = request.set("Authorization", &format!("Bearer {}", config.api_key));
+    let send = |body: &Value| {
+        let mut request = ureq::post(&url).timeout(Duration::from_secs(60));
+        if !config.api_key.is_empty() {
+            request = request.set("Authorization", &format!("Bearer {}", config.api_key));
+        }
+        match request.send_json(body) {
+            Ok(r) => r.into_json::<Value>().map_err(|e| (0, format!("bad JSON from {url}: {e}"))),
+            Err(ureq::Error::Status(code, r)) => Err((code, r.into_string().unwrap_or_default())),
+            Err(e) => Err((0, format!("could not reach {url}: {e}"))),
+        }
+    };
+    let mut result = send(&body);
+    // Newer reasoning models refuse sampling settings. Which models do is not knowable
+    // from the name, so when the refusal names one, the request goes out again without.
+    if let Err((400, detail)) = &result {
+        let sampling = ["temperature", "top_p", "top_k", "repeat_penalty"];
+        if sampling.iter().any(|setting| detail.contains(setting)) {
+            let mut plain = body.clone();
+            for setting in sampling {
+                plain.as_object_mut().map(|fields| fields.remove(setting));
+            }
+            result = send(&plain);
+        }
     }
-    let response: Value = match request.send_json(body) {
-        Ok(r) => r.into_json().map_err(|e| format!("bad JSON from {url}: {e}"))?,
-        Err(ureq::Error::Status(code, r)) => {
-            let detail = r.into_string().unwrap_or_default();
+    let response = match result {
+        Ok(response) => response,
+        Err((0, problem)) => return Err(problem),
+        Err((code, detail)) => {
             return Err(format!("{url} returned {code}: {}", detail.chars().take(200).collect::<String>()));
         }
-        Err(e) => return Err(format!("could not reach {url}: {e}")),
     };
 
     response["choices"][0]["message"]["content"].as_str().map(str::to_string).ok_or_else(|| {
@@ -158,6 +177,26 @@ mod tests {
         };
         assert!(prompt(ReplyVariant::Taiwan).contains("翻译为繁体中文"));
         assert!(prompt(ReplyVariant::Simplified).contains("翻译为中文"));
+    }
+
+    #[test]
+    fn sends_again_without_sampling_settings_when_the_model_refuses_them() {
+        let refusal = r#"{"error":{"message":"Unsupported parameter: 'temperature' is not supported with this model.","type":"invalid_request_error","param":"temperature"}}"#;
+        let answer = r#"{"choices":[{"message":{"role":"assistant","content":"LF healer"}}]}"#;
+        let (base, server) = mock_server(vec![(400, "", refusal), (200, "", answer)]);
+        let config = Config { api_base: base, model: "gpt-6-luna".into(), ..Config::default() };
+        assert_eq!(translate(&config, "缺奶", Direction::ToEnglish).unwrap(), "LF healer");
+        let requests = server.join().unwrap();
+        assert!(requests[0].contains(r#""temperature":0.2"#), "{}", requests[0]);
+        assert!(!requests[1].contains("temperature"), "{}", requests[1]);
+        assert!(requests[1].contains(r#""model":"gpt-6-luna""#));
+
+        // Any other refusal is reported, not retried.
+        let other = r#"{"error":{"message":"The model does not exist."}}"#;
+        let (base, server) = mock_server(vec![(400, "", other)]);
+        let config = Config { api_base: base, ..Config::default() };
+        assert!(translate(&config, "缺奶", Direction::ToEnglish).unwrap_err().contains("does not exist"));
+        assert_eq!(server.join().unwrap().len(), 1);
     }
 
     #[test]
