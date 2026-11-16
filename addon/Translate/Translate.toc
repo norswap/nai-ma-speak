@@ -1,13 +1,12 @@
 ## Interface: 16001, 120105
-## Title: Translate
-## Notes: Chinese to English chat translation, paired with the Translate companion app.
+## Title: Nai Ma Speak
+## Notes: Chinese to English chat translation, paired with the Nai Ma Speak companion app.
 ## Author: cherryroots
 ## Version: 0.1.0
 ## IconTexture: Interface\AddOns\Translate\icon
 ## SavedVariables: TranslateDB
 
 Core.lua
-UI.lua
 Strip.lua
 Chat.lua
 Layout.lua

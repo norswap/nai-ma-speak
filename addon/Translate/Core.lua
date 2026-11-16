@@ -16,7 +16,6 @@ frame:SetScript("OnEvent", function(_, event, ...)
 end)
 
 local DEFAULTS = {
-    showLinks = true, -- add a clickable [T] after Chinese chat lines
     strip = true,     -- draw new Chinese lines as a pixel strip for the companion
     allLines = true,  -- also send lines without Chinese, shown untranslated in the overlay
     sourceWindow = "", -- tab name of the chat window whose settings pick the lines sent; "" sends all
@@ -24,7 +23,7 @@ local DEFAULTS = {
 }
 
 function ns.Print(msg)
-    DEFAULT_CHAT_FRAME:AddMessage("|cff66ccffTranslate:|r " .. msg)
+    DEFAULT_CHAT_FRAME:AddMessage("|cff66ccffNai Ma Speak:|r " .. msg)
 end
 
 -- Secret values (Midnight) cannot be compared or concatenated.
@@ -60,24 +59,19 @@ function ns.ChineseNumber(n)
 end
 
 local function ShowHelp()
-    ns.Print("/tr  open the translate window on the latest Chinese line")
+    ns.Print("/tr (or /nms)  open or close the box for typing a reply")
     ns.Print("/tr hello  translate English into Chinese and copy it, to paste into chat")
     ns.Print("/tr /g hello  the same, and open the chat box on guild (or /p, /s, /w Name, /2 ...)")
-    ns.Print("/tr links  toggle the [T] links after Chinese lines")
-    ns.Print("/tr test  say a Chinese test line to check the strip and overlay")
-    ns.Print("/tr test 10  send that many short test lines to the overlay only (at most " .. TEST_MOST .. ")")
-    ns.Print("/tr options  open the options (also under Options > AddOns)")
-    ns.Print("/tr all  toggle showing lines without Chinese in the overlay too")
-    ns.Print("/tr strip  toggle the pixel strip the companion reads (top-left corner)")
-    ns.Print("/tr probe  report which client features this addon found")
+    ns.Print("/tr /options  open the options (also under Options > AddOns)")
+    ns.Print("/tr /all  toggle showing lines without Chinese in the overlay too")
+    ns.Print("/tr /strip  toggle the pixel strip the companion reads (top-left corner)")
+    ns.Print("/tr /test  say a Chinese test line to check the strip and overlay")
+    ns.Print("/tr /test 10  send that many short test lines to the overlay only (at most " .. TEST_MOST .. ")")
+    ns.Print("/tr /probe  report which client features this addon found")
+    ns.Print("/tr /help  this list")
 end
 
 local commands = {
-    [""] = function() ns.ShowLatest() end,
-    links = function()
-        ns.db.showLinks = not ns.db.showLinks
-        ns.Print("[T] links " .. (ns.db.showLinks and "on." or "off."))
-    end,
     options = function()
         if ns.OpenOptions then ns.OpenOptions() else ns.Print("No options panel on this client.") end
     end,
@@ -120,7 +114,6 @@ local commands = {
         ns.Print("Interface " .. tostring(toc))
         ns.Print("issecretvalue: " .. tostring(issecretvalue ~= nil))
         ns.Print("Chat filter API: " .. tostring(ns.filterSource))
-        ns.Print("Link click hook: " .. tostring(ns.linkSource))
         ns.Print("Chat window positions: " .. tostring(ns.layoutSource))
         ns.Print("Options panel: " .. tostring(ns.optionsSource))
         ns.Print("Lines sent: " .. ((ns.db.sourceWindow or "") == "" and "all chat" or ("what the " .. ns.db.sourceWindow .. " window shows")))
@@ -138,13 +131,19 @@ local commands = {
 
 SLASH_TRANSLATE1 = "/tr"
 SLASH_TRANSLATE2 = "/translate"
+SLASH_TRANSLATE3 = "/nms"
+-- "/tr" alone is the Translate button. A command is a word after a slash
+-- ("/tr /test 5"), so no English sentence can be taken for one; a slash word
+-- that is no command is a chat target ("/tr /g hello").
 SlashCmdList.TRANSLATE = function(input)
     local text = strtrim(input or "")
-    local cmd, argument = strlower(text):match("^(%S*)%s*(.-)$")
-    local fn = commands[cmd]
-    -- A command stands alone ("/tr test" may take a count). Anything else is
-    -- English to translate: "/tr help me please" is a reply, "/tr help" is not.
-    if fn and (argument == "" or (cmd == "test" and tonumber(argument))) then
+    if text == "" then
+        ns.SendCommand("reply")
+        return
+    end
+    local word, argument = text:match("^/(%S+)%s*(.-)$")
+    local fn = word and commands[strlower(word)]
+    if fn then
         fn(tonumber(argument))
     else
         ns.Reply(text)

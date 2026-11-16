@@ -16,7 +16,7 @@ local PLACES = {
 
 local bar
 
-local function Command(name)
+function ns.SendCommand(name)
     local line = "C\t" .. name
     ns.SendToStrip(line, line)
 end
@@ -26,7 +26,7 @@ local function MakeButton(text, width, command)
     button:SetSize(width, 20)
     button:SetText(text)
     if GameFontNormalSmall then button:SetNormalFontObject(GameFontNormalSmall) end
-    button:SetScript("OnClick", function() Command(command) end)
+    button:SetScript("OnClick", function() ns.SendCommand(command) end)
     return button
 end
 

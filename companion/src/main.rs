@@ -227,7 +227,7 @@ fn main() -> eframe::Result {
     let config = Arc::new(Mutex::new(config::load()));
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_title("WoW Translate Companion App")
+            .with_title("Nǎi Mā Speak")
             .with_inner_size(app::START_SIZE)
             .with_min_inner_size([app::MIN_WIDTH, app::MIN_HEIGHT])
             .with_icon(window_icon())
@@ -238,7 +238,7 @@ fn main() -> eframe::Result {
     };
 
     eframe::run_native(
-        "Translate companion",
+        "Nai Ma Speak",
         options,
         Box::new(move |cc| {
             add_cjk_font(&cc.egui_ctx);
@@ -253,7 +253,7 @@ fn main() -> eframe::Result {
             worker::spawn(config.clone(), interactive_rx, ui.clone(), clip_tx);
             strip::spawn(strip_tx, ui.clone());
             focus::spawn(ui.clone());
-            clipboard::spawn(clip_rx, interactive_tx.clone(), ui);
+            clipboard::spawn(clip_rx, ui);
 
             Ok(Box::new(app::TranslateApp::new(config, ui_rx, interactive_tx)))
         }),

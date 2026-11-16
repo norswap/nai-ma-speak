@@ -1,7 +1,7 @@
 #!/bin/sh
-# Builds Translate.app, a macOS app bundle around the companion, so it opens from Finder
+# Builds "Nai Ma Speak.app", a macOS app bundle around the companion, so it opens from Finder
 # or the Dock without a Terminal window. Usage: ./macos-app.sh [destination folder]
-# The app keeps config.json in the folder that holds Translate.app.
+# The app keeps config.json in the folder that holds the app.
 set -eu
 cd "$(dirname "$0")"
 dest="${1:-target/release}"
@@ -11,7 +11,7 @@ cargo build --release --locked
 
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
-app="$work/Translate.app"
+app="$work/Nai Ma Speak.app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 cp target/release/translate-companion "$app/Contents/MacOS/"
 
@@ -28,8 +28,8 @@ cat > "$app/Contents/Info.plist" <<PLIST
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <key>CFBundleName</key><string>Translate</string>
-    <key>CFBundleDisplayName</key><string>Translate</string>
+    <key>CFBundleName</key><string>Nai Ma Speak</string>
+    <key>CFBundleDisplayName</key><string>Nai Ma Speak</string>
     <key>CFBundleIdentifier</key><string>com.github.norswap.translate-companion</string>
     <key>CFBundleExecutable</key><string>translate-companion</string>
     <key>CFBundleIconFile</key><string>icon</string>
@@ -57,6 +57,7 @@ else
 fi
 
 mkdir -p "$dest"
-rm -rf "$dest/Translate.app"
+# Translate.app is what the app was called before; one left behind would be the old version.
+rm -rf "$dest/Nai Ma Speak.app" "$dest/Translate.app"
 mv "$app" "$dest/"
-echo "Built $dest/Translate.app"
+echo "Built $dest/Nai Ma Speak.app"

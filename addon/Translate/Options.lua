@@ -23,7 +23,7 @@ local function SourceOptions()
 end
 
 local function Build()
-    local category = Settings.RegisterVerticalLayoutCategory("Translate")
+    local category = Settings.RegisterVerticalLayoutCategory("Nai Ma Speak")
 
     local function Checkbox(key, label, tooltip)
         local setting = Settings.RegisterAddOnSetting(category, "Translate_" .. key, key, ns.db,
@@ -56,8 +56,6 @@ local function Build()
 
     Checkbox("allLines", "Include lines without Chinese",
         "Also send lines without Chinese. The overlay shows them untranslated, in order with the translated ones.")
-    Checkbox("showLinks", "[T] links after Chinese lines",
-        "Add a clickable [T] after each Chinese chat line, to translate it by copy and paste.")
     Checkbox("strip", "Pixel strip",
         "Draw chat lines as a small strip of colored blocks in the top-left corner, which the companion app reads. "
         .. "Without it the overlay gets no lines.")

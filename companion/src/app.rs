@@ -41,11 +41,6 @@ struct OverlayLine {
 }
 
 impl OverlayLine {
-    fn plain(prefix: String, body: String) -> Self {
-        let line = ChatLine { color: [255; 3], prefix: vec![Span::plain(prefix)], body: vec![Span::plain(body)] };
-        Self { id: 0, line, translated: None, pending: false, failed: false }
-    }
-
     /// The line as the game words and colors it, with the body in English when there is one.
     fn job(&self, font: &egui::FontId, width: f32) -> LayoutJob {
         let mut job = LayoutJob::default();
@@ -289,10 +284,6 @@ impl TranslateApp {
                         line.failed = true;
                     }
                 }
-                UiEvent::PasteReady { id, english } => {
-                    self.notice = format!("#{id} ready: press Ctrl+V in the addon window");
-                    self.push_line(OverlayLine::plain(format!("#{id}: "), english));
-                }
                 UiEvent::ReplyReady { english, chinese, copied } => {
                     self.notice = if copied {
                         format!("Copied \"{chinese}\" for \"{english}\". Paste it into WoW chat.")
@@ -361,7 +352,7 @@ impl TranslateApp {
             return;
         }
         let own = xcap::Window::all().unwrap_or_default().into_iter().find(|window| {
-            window.pid().ok() == Some(std::process::id()) && window.title().is_ok_and(|title| title.contains("Companion"))
+            window.pid().ok() == Some(std::process::id()) && window.title().is_ok_and(|title| title.contains("Speak"))
         });
         match own.map(|window| window.capture_image()) {
             Some(Ok(image)) => {
@@ -642,7 +633,7 @@ impl TranslateApp {
         let bar = egui::Frame::NONE.fill(theme::BAR).inner_margin(egui::Margin::symmetric(14, 8));
         bar.show(ui, |ui| {
             ui.horizontal(|ui| {
-                ui.label(RichText::new("WoW Translate").font(theme::heading_font(21.0)).color(theme::GOLD));
+                theme::title(ui);
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     let hint = "Hide this window; the overlay stays. The game's Settings button or the app's icon brings it back.";
                     if ui.add(theme::button("Hide")).on_hover_text(hint).clicked() {
@@ -1098,8 +1089,11 @@ impl eframe::App for TranslateApp {
         self.drain_events();
         self.control_panel(ui);
         self.show_over_game(&ctx);
-        self.overlay(&ctx);
-        self.reply_box(&ctx);
+        // A copy started only to be pictured must not put a second overlay over the game.
+        if std::env::var_os("TRANSLATE_SHOTS").is_none() {
+            self.overlay(&ctx);
+            self.reply_box(&ctx);
+        }
         self.undo_question(&ctx);
         self.keep_settings(&ctx);
         // After both windows laid out their text, so this frame's new glyphs are included.

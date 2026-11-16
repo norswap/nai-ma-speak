@@ -15,8 +15,6 @@ const TEST_MARK: &str = "(Translate test)";
 pub enum Job {
     /// A Chinese line read from the addon's pixel strip, already in the overlay as `line`.
     Incoming { line: u64, text: String },
-    /// A line copied from the addon window as "TR#<id> <text>".
-    Tagged { id: u64, text: String },
     /// English the player typed in the companion, to send as Chinese.
     Reply { text: String },
     /// The Test model button: a fixed line, never cached.
@@ -30,7 +28,6 @@ pub enum UiEvent {
     Translated { id: u64, english: String },
     /// The translation of an overlay line was given up on.
     Failed { id: u64 },
-    PasteReady { id: u64, english: String },
     /// A reply in Chinese. It is copied for pasting unless it is too long for WoW's chat
     /// box, which would cut it off.
     ReplyReady { english: String, chinese: String, copied: bool },
@@ -107,7 +104,7 @@ pub fn spawn(config: Arc<Mutex<Config>>, jobs: Receiver<Job>, ui: UiSender, clip
                 continue;
             }
             let (text, direction) = match &job {
-                Job::Incoming { text, .. } | Job::Tagged { text, .. } => (text.clone(), Direction::ToEnglish),
+                Job::Incoming { text, .. } => (text.clone(), Direction::ToEnglish),
                 Job::Reply { text } => (text.clone(), Direction::ToChinese),
                 Job::Test => unreachable!("handled above"),
             };
@@ -140,10 +137,6 @@ pub fn spawn(config: Arc<Mutex<Config>>, jobs: Receiver<Job>, ui: UiSender, clip
             };
             match job {
                 Job::Incoming { line, .. } => ui.send(UiEvent::Translated { id: line, english: translated }),
-                Job::Tagged { id, .. } => {
-                    let _ = clipboard.send(format!("TR#{id} {translated}"));
-                    ui.send(UiEvent::PasteReady { id, english: translated });
-                }
                 Job::Reply { text } => {
                     let copied = translated.len() <= crate::translate::WOW_CHAT_BYTES;
                     if copied {

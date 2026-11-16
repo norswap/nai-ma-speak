@@ -51,6 +51,28 @@ pub fn add_heading_family(fonts: &mut egui::FontDefinitions) {
     fonts.families.insert(FontFamily::Name(HEADING_FAMILY.into()), names);
 }
 
+/// The app's name, "Nǎi Mā Speak" (奶媽, the healer in Chinese players' slang), as the
+/// window's heading. The heading font has ā but no ǎ, and borrowing that one letter from
+/// another font shows. So the first a is written plain and its mark is drawn here, a
+/// small v at the height of the macron on the second.
+pub fn title(ui: &mut egui::Ui) {
+    let galley = ui.painter().layout_no_wrap("Nai Mā Speak".to_string(), heading_font(21.0), GOLD);
+    let (rect, _) = ui.allocate_exact_size(galley.size(), egui::Sense::hover());
+    let marks = galley.rows.first().map(|placed| {
+        let glyphs = &placed.row.glyphs;
+        let origin = rect.min.to_vec2() + placed.pos.to_vec2();
+        // The plain a is the second letter, the a with the macron the sixth.
+        let center = origin.x + glyphs[1].pos.x + glyphs[1].advance_width / 2.0;
+        let top = origin.y + glyphs[5].pos.y + glyphs[5].uv_rect.offset.y;
+        (center, top)
+    });
+    ui.painter().galley(rect.min, galley, GOLD);
+    if let Some((center, top)) = marks {
+        let tips = [egui::pos2(center - 3.2, top - 1.0), egui::pos2(center, top + 2.2), egui::pos2(center + 3.2, top - 1.0)];
+        ui.painter().add(egui::Shape::line(tips.to_vec(), Stroke::new(1.3, GOLD)));
+    }
+}
+
 pub fn heading_font(size: f32) -> FontId {
     FontId::new(size, FontFamily::Name(HEADING_FAMILY.into()))
 }

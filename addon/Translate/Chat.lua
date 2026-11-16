@@ -1,12 +1,11 @@
 local addonName, ns = ...
 
--- Captured Chinese lines, keyed by a running id the companion echoes back.
+-- Captured Chinese lines, keyed by a running id. A line a chat window is about
+-- to show is found here by Mirror, which then knows where its message starts.
 ns.messages = {}
-ns.translations = {}
 local nextId = 1
 local oldestId = 1
 local KEEP = 300
-local PREFIX = "TR#"
 
 local CHAT_EVENTS = {
     "CHAT_MSG_SAY", "CHAT_MSG_YELL", "CHAT_MSG_WHISPER",
@@ -130,11 +129,6 @@ end
 
 ns.Markup, ns.Plain, ns.MarkupIndex = Markup, Plain, MarkupIndex
 
-function ns.CopyText(id)
-    local entry = ns.messages[id]
-    return entry and (PREFIX .. id .. " " .. entry.text) or ""
-end
-
 -- Chat frames each run the filter, so one line can arrive several times.
 -- lineID is unique per line and maps it to a single stored id.
 local byLine = {}
@@ -148,30 +142,9 @@ local function Store(text, author, lineID)
         local old = ns.messages[oldestId]
         if old and old.lineID then byLine[old.lineID] = nil end
         ns.messages[oldestId] = nil
-        ns.translations[oldestId] = nil
         oldestId = oldestId + 1
     end
     return id
-end
-
-function ns.ShowLatest()
-    ns.ShowMessage(nextId - 1)
-end
-
--- The companion replies with "TR#<id> <english>". Without a prefix the text
--- belongs to the line currently open in the window.
-function ns.ReceiveTranslation(text, fallbackId)
-    local id, english = text:match("^%s*" .. PREFIX .. "(%d+)%s+(.+)$")
-    id = tonumber(id) or fallbackId
-    english = english or text
-    if not id or not ns.messages[id] then
-        ns.Print("That translation's line is no longer in history.")
-        return
-    end
-    ns.translations[id] = english
-    local author = ns.messages[id].author or "?"
-    DEFAULT_CHAT_FRAME:AddMessage("|cff66ccff[EN]|r " .. author .. ": " .. english)
-    ns.RefreshResult(id)
 end
 
 -- How the game words each kind of line around the speaker's name.
@@ -262,7 +235,7 @@ end
 -- With allLines on, other lines also go to the strip, with id 0, so the
 -- overlay can show the whole conversation in order; they are not stored.
 -- While a chat window is mirrored, nothing is sent from here: Chinese lines
--- are only stored, so their [T] link works and Mirror can find them.
+-- are only stored, so Mirror can find them.
 -- Arguments follow the CHAT_MSG_* payload: the 4th is the channel's full
 -- name, the 8th its number, the 11th the lineID, the 12th the sender's GUID.
 local function Capture(event, msg, author, _, channel, _, _, _, channelIndex, _, _, lineID, guid)
@@ -303,12 +276,9 @@ local function Mirror(frame, text, r, g, b)
     if ns.IsSecret(text) or ns.IsSecret(r) or ns.IsSecret(g) or ns.IsSecret(b) then return end
     if type(text) ~= "string" then return end
 
-    -- Our own [T] link names the stored line; so does the lineID in the speaker's link.
-    local linkPattern = "|Haddon:" .. addonName .. ":(%d+)|h.-|h"
-    local id = tonumber(text:match(linkPattern))
-    text = text:gsub(" *" .. linkPattern, "")
+    -- The lineID in the speaker's link names the stored line.
     local lineID = tonumber(text:match("|Hplayer:[^:|]*:(%d+)"))
-    id = id or (lineID and byLine[lineID])
+    local id = lineID and byLine[lineID]
     local entry = id and ns.messages[id]
 
     local markup = Markup(text)
@@ -349,17 +319,10 @@ function ns.MirrorLine(frame, text, r, g, b)
     if not ok then ns.mirrorSource = "failed: " .. tostring(problem) end
 end
 
+-- Runs before a chat window words and adds the line, so Mirror finds it stored.
 local function Filter(_, event, msg, author, ...)
-    local id = Capture(event, msg, author, ...)
-    if not id or not ns.db.showLinks then return false end
-    local link = "|Haddon:" .. addonName .. ":" .. id .. "|h|cff66ccff[T]|r|h"
-    return false, msg .. " " .. link, author, ...
-end
-
-local function OnLinkClicked(link)
-    if type(link) ~= "string" then return end
-    local name, id = link:match("^addon:([^:]+):(%d+)")
-    if name == addonName then ns.ShowMessage(tonumber(id)) end
+    Capture(event, msg, author, ...)
+    return false
 end
 
 function ns.InitChat()
@@ -372,7 +335,7 @@ function ns.InitChat()
     end
     if not addFilter then
         ns.filterSource = "none"
-        ns.Print("No chat filter API found. Inline [T] links are off; the overlay still works.")
+        ns.Print("No chat filter API found. A copied chat window may translate the speaker's name with the line.")
     else
         for _, event in ipairs(CHAT_EVENTS) do addFilter(event, Filter) end
     end
@@ -396,12 +359,4 @@ function ns.InitChat()
         end
     end
     ns.mirrorSource = hooked .. " chat windows hooked"
-
-    -- Clicks on |Haddon:...| links arrive through EventRegistry on Mainline.
-    if EventRegistry and EventRegistry.RegisterCallback then
-        EventRegistry:RegisterCallback("SetItemRef", function(_, link) OnLinkClicked(link) end, ns)
-        ns.linkSource = "EventRegistry SetItemRef"
-    else
-        ns.linkSource = "none (use /tr)"
-    end
 end

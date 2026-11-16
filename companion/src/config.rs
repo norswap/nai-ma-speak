@@ -163,7 +163,7 @@ impl Default for Config {
 }
 
 /// config.json lives next to the executable so the app stays portable. For a macOS app
-/// bundle that means next to `Translate.app`, not inside it, so rebuilding or replacing
+/// bundle that means next to the `.app`, not inside it, so rebuilding or replacing
 /// the app keeps the settings.
 pub fn path() -> PathBuf {
     std::env::current_exe()
