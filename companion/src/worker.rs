@@ -6,7 +6,7 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Instant;
 
-pub const TEST_LINE: &str = "大家好，今天一起打副本吗？";
+pub const TEST_LINE: &str = "大家好，今天一起打副本嗎？";
 
 pub enum Job {
     /// A Chinese line read from the addon's pixel strip, already in the overlay as `line`.
@@ -25,7 +25,9 @@ pub enum UiEvent {
     Line { id: u64, speaker: String, original: String, english: Option<String> },
     Translated { id: u64, english: String },
     PasteReady { id: u64, english: String },
-    ReplyReady { english: String, chinese: String },
+    /// A reply in Chinese. It is copied for pasting unless it is too long for WoW's chat
+    /// box, which would cut it off.
+    ReplyReady { english: String, chinese: String, copied: bool },
     TestResult { result: Result<String, String>, seconds: f32 },
     /// The game's chat windows, in screen points, whenever the addon reports them.
     ChatWindows(Vec<crate::layout::ChatWindow>),
@@ -91,7 +93,7 @@ pub fn spawn(config: Arc<Mutex<Config>>, jobs: Receiver<Job>, ui: UiSender, clip
                 Job::Reply { text } => (text.clone(), Direction::ToChinese),
                 Job::Test => unreachable!("handled above"),
             };
-            let key = format!("{}|{text}", matches!(direction, Direction::ToEnglish));
+            let key = format!("{:?}|{}|{text}", config.reply_variant, matches!(direction, Direction::ToEnglish));
             let result = match cache.get(&key) {
                 Some(hit) => Ok(hit.clone()),
                 None => translate(&config, &text, direction),
@@ -116,8 +118,11 @@ pub fn spawn(config: Arc<Mutex<Config>>, jobs: Receiver<Job>, ui: UiSender, clip
                     ui.send(UiEvent::PasteReady { id, english: translated });
                 }
                 Job::Reply { text } => {
-                    let _ = clipboard.send(translated.clone());
-                    ui.send(UiEvent::ReplyReady { english: text, chinese: translated });
+                    let copied = translated.len() <= crate::translate::WOW_CHAT_BYTES;
+                    if copied {
+                        let _ = clipboard.send(translated.clone());
+                    }
+                    ui.send(UiEvent::ReplyReady { english: text, chinese: translated, copied });
                 }
                 Job::Test => {}
             }

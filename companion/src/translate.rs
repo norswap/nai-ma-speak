@@ -1,13 +1,25 @@
-use crate::config::Config;
+use crate::config::{Config, ReplyVariant};
 use serde_json::{json, Value};
+use ferrous_opencc::config::BuiltinConfig;
+use ferrous_opencc::OpenCC;
+use std::sync::OnceLock;
 use std::time::Duration;
 
 const TO_ENGLISH: &str = "You translate World of Warcraft in-game chat from Chinese into natural, casual English, the way an English-speaking player would write it. \
+The server has Taiwanese players typing Traditional Chinese and mainland players typing Simplified Chinese, so slang can come from either side: \
+Taiwanese internet slang, Zhuyin shorthand and Hokkien-derived words, or mainland gaming slang. \
 Keep player names, numbers, item names in brackets, and English words as they are. In chat, 1 usually means yes/ready. \
 Reply with the translation only: no quotes, notes or romanization.";
 
-const TO_CHINESE: &str = "Translate the user's World of Warcraft chat message into casual Simplified Chinese, the way a Chinese player would type it in game chat. \
-Keep player names, numbers and item names as they are. Reply with the translation only.";
+const TO_TAIWANESE: &str = "Translate the user's World of Warcraft chat message into casual Traditional Chinese (繁體中文) with Taiwanese vocabulary, \
+the way a Taiwanese player would type it in game chat. Never use Simplified characters. \
+Keep player names, numbers and item names as they are. Keep it under 80 characters. Reply with the translation only.";
+
+const TO_SIMPLIFIED: &str = "Translate the user's World of Warcraft chat message into casual Simplified Chinese, the way a mainland Chinese player would type it in game chat. \
+Keep player names, numbers and item names as they are. Keep it under 80 characters. Reply with the translation only.";
+
+/// WoW's chat box takes 255 bytes; a Chinese character is 3 of them.
+pub const WOW_CHAT_BYTES: usize = 255;
 
 #[derive(Clone, Copy)]
 pub enum Direction {
@@ -15,28 +27,74 @@ pub enum Direction {
     ToChinese,
 }
 
-/// Chinese WoW slang (Classic and retail) as `zh=en` lines. Only the terms
-/// found in a line are sent with it, so a long list costs no extra tokens.
+/// Chinese WoW slang as `zh=en` lines: mainland terms in Simplified, and Taiwanese terms
+/// the mainland list lacks in Traditional. Only the terms found in a line are sent with
+/// it, so long lists cost no extra tokens.
 const SLANG_ZH_CN: &str = include_str!("slang/zh_cn.txt");
+const SLANG_ZH_TW: &str = include_str!("slang/zh_tw.txt");
 
 /// The `zh=en` pairs of a slang file; blank lines and lines starting with # are skipped.
 fn slang_pairs(file: &'static str) -> impl Iterator<Item = (&'static str, &'static str)> {
     file.lines().map(str::trim).filter(|line| !line.is_empty() && !line.starts_with('#')).filter_map(|line| line.split_once('='))
 }
 
+fn converter(config: BuiltinConfig) -> OpenCC {
+    OpenCC::from_config(config).expect("the OpenCC dictionaries are built into the program")
+}
+
+/// Rewrites Traditional Chinese in Simplified characters; Simplified text stays as it is.
+pub fn to_simplified(text: &str) -> String {
+    static T2S: OnceLock<OpenCC> = OnceLock::new();
+    T2S.get_or_init(|| converter(BuiltinConfig::T2s)).convert(text)
+}
+
+/// Rewrites Simplified Chinese in Traditional characters with Taiwanese wording
+/// (软件 becomes 軟體); text already written that way stays as it is.
+pub fn to_taiwanese(text: &str) -> String {
+    static S2TWP: OnceLock<OpenCC> = OnceLock::new();
+    S2TWP.get_or_init(|| converter(BuiltinConfig::S2twp)).convert(text)
+}
+
+/// Both slang lists keyed by the term in Simplified characters, so one lookup serves
+/// lines in either script. A term in both lists keeps its mainland entry.
+fn slang() -> &'static [(String, &'static str)] {
+    static SLANG: OnceLock<Vec<(String, &'static str)>> = OnceLock::new();
+    SLANG.get_or_init(|| {
+        let mut terms: Vec<(String, &'static str)> = Vec::new();
+        for (zh, en) in slang_pairs(SLANG_ZH_CN).chain(slang_pairs(SLANG_ZH_TW)) {
+            let key = to_simplified(zh);
+            if !terms.iter().any(|(known, _)| *known == key) {
+                terms.push((key, en));
+            }
+        }
+        terms
+    })
+}
+
 /// The slang terms in a line, longest first, skipping any term that is
 /// part of a longer match (奶 inside 奶骑). At most 12 to keep prompts short.
-fn slang_in(text: &str) -> Vec<(&'static str, &'static str)> {
-    let mut found: Vec<(&str, &str)> = slang_pairs(SLANG_ZH_CN).filter(|(zh, _)| text.contains(zh)).collect();
-    found.sort_by_key(|(zh, _)| std::cmp::Reverse(zh.chars().count()));
-    let mut kept: Vec<(&str, &str)> = Vec::new();
-    for (zh, en) in found {
-        if !kept.iter().any(|(longer, _)| longer.contains(zh)) {
-            kept.push((zh, en));
+/// The line may be in Traditional or Simplified characters: it is matched through a
+/// Simplified copy, and each term is returned the way the line writes it.
+fn slang_in(text: &str) -> Vec<(String, &'static str)> {
+    let simplified = to_simplified(text);
+    // Conversion is character for character almost always; when it is, a match can be
+    // cut out of the original line.
+    let aligned = simplified.chars().count() == text.chars().count();
+    let as_written = |key: &str| {
+        let start = simplified.find(key).filter(|_| aligned)?;
+        let skipped = simplified[..start].chars().count();
+        Some(text.chars().skip(skipped).take(key.chars().count()).collect::<String>())
+    };
+    let mut found: Vec<&(String, &str)> = slang().iter().filter(|(key, _)| simplified.contains(key.as_str())).collect();
+    found.sort_by_key(|(key, _)| std::cmp::Reverse(key.chars().count()));
+    let mut kept: Vec<&(String, &str)> = Vec::new();
+    for term in found {
+        if !kept.iter().any(|(longer, _)| longer.contains(term.0.as_str())) {
+            kept.push(term);
         }
     }
     kept.truncate(12);
-    kept
+    kept.into_iter().map(|(key, en)| (as_written(key).unwrap_or_else(|| key.clone()), *en)).collect()
 }
 
 /// Tencent's HY-MT models want their own prompt and no system message.
@@ -46,7 +104,7 @@ fn is_hy_mt(model: &str) -> bool {
 }
 
 /// Builds the request body for either prompt style.
-fn request_body(model: &str, text: &str, direction: Direction) -> Value {
+fn request_body(model: &str, text: &str, direction: Direction, variant: ReplyVariant) -> Value {
     if !is_hy_mt(model) {
         let system = match direction {
             Direction::ToEnglish => {
@@ -57,7 +115,10 @@ fn request_body(model: &str, text: &str, direction: Direction) -> Value {
                     format!("{TO_ENGLISH} Slang in this line: {}.", slang.join(", "))
                 }
             }
-            Direction::ToChinese => TO_CHINESE.to_string(),
+            Direction::ToChinese => match variant {
+                ReplyVariant::Taiwan => TO_TAIWANESE.to_string(),
+                ReplyVariant::Simplified => TO_SIMPLIFIED.to_string(),
+            },
         };
         return json!({
             "model": model,
@@ -72,7 +133,11 @@ fn request_body(model: &str, text: &str, direction: Direction) -> Value {
     // Templates and sampling settings from the HY-MT1.5 model card.
     let target = match direction {
         Direction::ToEnglish => "英语",
-        Direction::ToChinese => "中文",
+        // The model card's names for Chinese and Traditional Chinese.
+        Direction::ToChinese => match variant {
+            ReplyVariant::Taiwan => "繁体中文",
+            ReplyVariant::Simplified => "中文",
+        },
     };
     let terms: Vec<String> = match direction {
         Direction::ToEnglish => slang_in(text)
@@ -115,7 +180,7 @@ fn completions_url(base: &str) -> String {
 /// Sends one message to an OpenAI-compatible /chat/completions endpoint.
 pub fn translate(config: &Config, text: &str, direction: Direction) -> Result<String, String> {
     let url = completions_url(&config.api_base);
-    let body = request_body(&config.model, text, direction);
+    let body = request_body(&config.model, text, direction, config.reply_variant);
 
     let mut request = ureq::post(&url).timeout(Duration::from_secs(60));
     if !config.api_key.is_empty() {
@@ -134,10 +199,21 @@ pub fn translate(config: &Config, text: &str, direction: Direction) -> Result<St
         .as_str()
         .map(clean_reply)
         .filter(|s| !s.is_empty())
+        .map(|reply| finish(reply, direction, config.reply_variant))
         .ok_or_else(|| {
             let detail = response.to_string();
             format!("{url} gave no translation: {}", detail.chars().take(200).collect::<String>())
         })
+}
+
+/// The last step for every translation. A Taiwanese reply is passed through the
+/// Simplified-to-Taiwanese conversion, so no Simplified character reaches the clipboard
+/// even when the model drifts.
+fn finish(reply: String, direction: Direction, variant: ReplyVariant) -> String {
+    match (direction, variant) {
+        (Direction::ToChinese, ReplyVariant::Taiwan) => to_taiwanese(&reply),
+        _ => reply,
+    }
 }
 
 /// Models sometimes wrap the answer in quotes or add a thinking block; drop both.
@@ -161,12 +237,67 @@ mod tests {
     use std::io::{Read, Write};
     use std::net::TcpListener;
 
+    fn slang_of(text: &str) -> Vec<(String, &'static str)> {
+        slang_in(text)
+    }
+
+    fn term(zh: &str, en: &'static str) -> (String, &'static str) {
+        (zh.to_string(), en)
+    }
+
     #[test]
     fn quest_words_use_wow_meanings() {
-        let found = slang_in("我不太熟悉任务路线，谁能带我做任务");
-        assert!(found.contains(&("做任务", "questing")));
-        assert!(found.contains(&("任务路线", "quest route")));
-        assert_eq!(slang_in("还差一个任务"), vec![("任务", "quest")]);
+        let found = slang_of("我不太熟悉任务路线，谁能带我做任务");
+        assert!(found.contains(&term("做任务", "questing")));
+        assert!(found.contains(&term("任务路线", "quest route")));
+        assert_eq!(slang_of("还差一个任务"), vec![term("任务", "quest")]);
+    }
+
+    #[test]
+    fn converts_between_scripts() {
+        assert_eq!(to_simplified("副本缺補 密我"), "副本缺补 密我");
+        assert_eq!(to_simplified("黑上缺奶 金团"), "黑上缺奶 金团");
+        assert_eq!(to_taiwanese("软件"), "軟體");
+        assert_eq!(to_taiwanese("需要治疗，组我"), "需要治療，組我");
+        let taiwanese = "大家好，今天一起打副本嗎？";
+        assert_eq!(to_taiwanese(taiwanese), taiwanese, "Traditional text is left alone");
+    }
+
+    #[test]
+    fn replies_come_out_in_the_chosen_chinese() {
+        let drifted = "需要治疗，组我".to_string();
+        assert_eq!(finish(drifted.clone(), Direction::ToChinese, ReplyVariant::Taiwan), "需要治療，組我");
+        assert_eq!(finish(drifted.clone(), Direction::ToChinese, ReplyVariant::Simplified), drifted);
+        assert_eq!(finish("LF healer 治疗".into(), Direction::ToEnglish, ReplyVariant::Taiwan), "LF healer 治疗");
+
+        let system = |model: &str, variant| {
+            let body = request_body(model, "need a healer", Direction::ToChinese, variant);
+            body["messages"][0]["content"].as_str().unwrap().to_string()
+        };
+        assert!(system("gpt-4o-mini", ReplyVariant::Taiwan).contains("繁體中文"));
+        assert!(system("gpt-4o-mini", ReplyVariant::Taiwan).contains("Never use Simplified"));
+        assert!(system("gpt-4o-mini", ReplyVariant::Simplified).contains("Simplified Chinese"));
+        assert!(system("hy-mt1.5", ReplyVariant::Taiwan).contains("翻译为繁体中文"));
+        assert!(system("hy-mt1.5", ReplyVariant::Simplified).contains("翻译为中文"));
+    }
+
+    #[test]
+    fn slang_matches_traditional_and_simplified_lines() {
+        // Traditional: 副本 comes from the mainland list, 缺補 from the Taiwan list.
+        let found = slang_of("副本缺補 密我");
+        assert!(found.contains(&term("副本", "dungeon")), "{found:?}");
+        assert!(found.contains(&term("缺補", "need a healer")), "{found:?}");
+        assert!(found.contains(&term("密我", "whisper me")), "{found:?}");
+        // A mainland term typed in Traditional is found, and shown as typed.
+        assert_eq!(slang_of("奶騎來"), vec![term("奶騎", "holy paladin")]);
+        // Simplified still works, with the mainland additions.
+        let found = slang_of("黑上缺奶 金团");
+        for wanted in [term("黑上", "UBRS"), term("缺奶", "need a healer"), term("金团", "GDKP")] {
+            assert!(found.contains(&wanted), "{found:?}");
+        }
+        // Longer Taiwan terms win over the short mainland ones inside them.
+        assert_eq!(slang_of("惡魔獵人"), vec![term("惡魔獵人", "Demon Hunter")]);
+        assert_eq!(slang_of("評級戰場"), vec![term("評級戰場", "rated battleground")]);
     }
 
     #[test]
@@ -237,7 +368,7 @@ mod tests {
 
     #[test]
     fn hy_mt_uses_model_card_prompt_and_glossary() {
-        let body = request_body("hf.co/tencent/HY-MT1.5-7B-GGUF:Q4_K_M", "副本来人 缺奶", Direction::ToEnglish);
+        let body = request_body("hf.co/tencent/HY-MT1.5-7B-GGUF:Q4_K_M", "副本来人 缺奶", Direction::ToEnglish, ReplyVariant::Taiwan);
         let messages = body["messages"].as_array().unwrap();
         assert_eq!(messages.len(), 1, "HY-MT takes no system prompt");
         let prompt = messages[0]["content"].as_str().unwrap();
@@ -248,12 +379,12 @@ mod tests {
         assert!(prompt.ends_with("不要额外解释：\n副本来人 缺奶"));
         assert_eq!(body["top_k"], 20);
 
-        let plain = request_body("HY-MT1.5-7B", "你好", Direction::ToEnglish);
+        let plain = request_body("HY-MT1.5-7B", "你好", Direction::ToEnglish, ReplyVariant::Taiwan);
         assert_eq!(
             plain["messages"][0]["content"],
             "将以下文本翻译为英语，注意只需要输出翻译后的结果，不要额外解释：\n\n你好"
         );
-        let general = request_body("qwen2.5:7b", "缺奶骑", Direction::ToEnglish);
+        let general = request_body("qwen2.5:7b", "缺奶骑", Direction::ToEnglish, ReplyVariant::Taiwan);
         assert_eq!(general["messages"][0]["role"], "system");
         let system = general["messages"][0]["content"].as_str().unwrap();
         assert!(system.ends_with("Slang in this line: 缺奶 = need a healer, 奶骑 = holy paladin."), "{system}");
@@ -261,11 +392,14 @@ mod tests {
 
     #[test]
     fn slang_prefers_longest_terms() {
-        assert_eq!(slang_in("奶骑来"), vec![("奶骑", "holy paladin")]);
+        assert_eq!(slang_in("奶骑来"), vec![term("奶骑", "holy paladin")]);
         assert_eq!(slang_in("hello"), vec![]);
-        assert_eq!(slang_pairs(SLANG_ZH_CN).count(), 180);
-        assert!(slang_pairs(SLANG_ZH_CN).all(|(zh, en)| !zh.is_empty() && !en.is_empty()));
-        let lines = SLANG_ZH_CN.lines().filter(|line| !line.trim().is_empty() && !line.starts_with('#'));
-        assert_eq!(lines.count(), 180, "every line that is not a comment is a zh=en pair");
+        for file in [SLANG_ZH_CN, SLANG_ZH_TW] {
+            let lines = file.lines().filter(|line| !line.trim().is_empty() && !line.starts_with('#'));
+            assert_eq!(lines.count(), slang_pairs(file).count(), "every line that is not a comment is a zh=en pair");
+            assert!(slang_pairs(file).all(|(zh, en)| !zh.is_empty() && !en.is_empty()));
+        }
+        assert_eq!(slang_pairs(SLANG_ZH_CN).count(), 221);
+        assert_eq!(slang_pairs(SLANG_ZH_TW).count(), 88);
     }
 }

@@ -1,6 +1,28 @@
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
+/// The Chinese that replies are written in.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ReplyVariant {
+    /// Traditional characters with Taiwanese wording.
+    #[default]
+    #[serde(rename = "zh-Hant-TW")]
+    Taiwan,
+    /// Simplified characters with mainland wording.
+    #[serde(rename = "zh-Hans")]
+    Simplified,
+}
+
+impl ReplyVariant {
+    /// The variant's name in its own script, for the settings.
+    pub fn label(self) -> &'static str {
+        match self {
+            ReplyVariant::Taiwan => "繁體中文（台灣）",
+            ReplyVariant::Simplified => "简体中文",
+        }
+    }
+}
+
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Config {
@@ -9,6 +31,7 @@ pub struct Config {
     /// Left empty for local servers such as Ollama.
     pub api_key: String,
     pub model: String,
+    pub reply_variant: ReplyVariant,
     pub overlay_x: f32,
     pub overlay_y: f32,
     pub overlay_width: f32,
@@ -29,6 +52,7 @@ impl Default for Config {
             api_base: "http://localhost:11434/v1".into(),
             api_key: String::new(),
             model: "hf.co/tencent/HY-MT1.5-7B-GGUF:Q4_K_M".into(),
+            reply_variant: ReplyVariant::default(),
             overlay_x: 20.0,
             overlay_y: 420.0,
             overlay_width: 520.0,
@@ -80,6 +104,16 @@ pub fn save(config: &Config) -> std::io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn old_config_files_reply_in_taiwanese() {
+        let old: Config = serde_json::from_str(r#"{"api_base":"http://localhost:1234/v1","model":"m"}"#).unwrap();
+        assert_eq!(old.reply_variant, ReplyVariant::Taiwan);
+        assert_eq!(old.api_base, "http://localhost:1234/v1");
+        let simplified: Config = serde_json::from_str(r#"{"reply_variant":"zh-Hans"}"#).unwrap();
+        assert_eq!(simplified.reply_variant, ReplyVariant::Simplified);
+        assert!(serde_json::to_string(&Config::default()).unwrap().contains(r#""reply_variant":"zh-Hant-TW""#));
+    }
 
     #[test]
     fn config_sits_beside_the_program_or_its_app_bundle() {

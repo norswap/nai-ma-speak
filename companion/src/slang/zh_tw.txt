@@ -1,0 +1,99 @@
+# Taiwanese WoW terms, Traditional, one zh=en per line; # starts a comment.
+# Only terms the mainland list (zh_cn.txt) lacks: lines are matched against both lists
+# after conversion to Simplified, so a term written the same way in both scripts
+# belongs in zh_cn.txt alone. Sources and licences: THIRD_PARTY_NOTICES.
+# Left out on purpose: single characters and short Latin terms (補, 坦, 王, 徵, DD, 87),
+# which would match inside ordinary words, names and numbers.
+# WoW Translator 2.15 (Pirson, MIT): Taiwan wording that differs from mainland
+秘法=Arcane (mage spec)
+刺殺=Assassination (rogue spec)
+釀酒=Brewmaster (monk tank spec)
+御風=Windwalker (monk DPS spec)
+血魄=Blood (death knight tank spec)
+穢邪=Unholy (death knight spec)
+惡魔獵人=Demon Hunter
+災虐=Havoc (demon hunter DPS spec)
+傳奇+=Mythic+
+野團=pug
+配對分=MMR
+塑形=transmog
+掰掰=bye
+# WoW Translator 2.15: other terms the mainland list lacks
+卡視角=line of sight
+開荒=progression (learning a boss)
+滅團=wipe
+求購=WTB
+拾綁=bind on pickup
+裝綁=bind on equip
+隊長分配=master looter
+集合石=meeting stone
+預藥=prepot
+一波全拉=wall-to-wall pull
+磚了=key depleted
+下一把=go next
+主天賦=main spec
+副天賦=off spec
+評級戰場=rated battleground
+懲戒=Retribution (paladin DPS spec)
+敏銳=Subtlety (rogue spec)
+湮滅=Devastation (evoker DPS spec)
+恩護=Preservation (evoker healer spec)
+增效=Augmentation (evoker support spec)
+技能冷卻=cooldowns
+每秒治療=HPS
+角鬥士=Gladiator (PvP title)
+脫戰=out of combat
+踢出=kick from group
+帶老闆=carry (boosting a customer)
+日誌百分位=parse (Warcraft Logs percentile)
+# WoW Translator 2.15: dungeon, raid and city names
+羅德隆廢墟=Ruins of Lordaeron (Forever dungeon)
+黑喉要塞=Blackmaw Hold (Forever dungeon)
+塑造者殿堂=Shaper's Terrace (Forever dungeon)
+海加爾山之巔=Hyjal Summit (raid)
+怒焰裂谷=Ragefire Chasm (RFC)
+哀嚎洞穴=Wailing Caverns (WC)
+死亡礦井=Deadmines
+黑暗深淵=Blackfathom Deeps (BFD)
+影牙城堡=Shadowfang Keep (SFK)
+暴風城監獄=The Stockade
+剃刀沼澤=Razorfen Kraul (RFK)
+剃刀高地=Razorfen Downs (RFD)
+奧達曼=Uldaman
+祖爾法拉克=Zul'Farrak (ZF)
+瑪拉頓=Maraudon
+沉沒的神廟=Sunken Temple (ST)
+黑石塔下層=Lower Blackrock Spire (LBRS)
+黑石塔上層=Upper Blackrock Spire (UBRS)
+奧格瑪=Orgrimmar
+暴風城=Stormwind
+雷霆崖=Thunder Bluff
+幽暗城=Undercity
+# BabelChat additions (Yumashev, MIT), not in WoW Translator 2.15
+暴虐=Tyrannical (M+ affix)
+戰隊=Warband
+斷線=disconnected
+首領=boss
+肝帝=no-lifer, tryhard
+詞綴=M+ affix
+強韌=Fortified (M+ affix)
+寶庫=Great Vault
+地下堡=delve
+催化器=Catalyst
+# Taiwanese chat terms, not from either glossary: review before release
+缺補=need a healer
+徵補=LF healer
+補師=healer
+缺坦=need a tank
+徵坦=LF tank
+主坦=main tank
+打王=boss fight
+開團=forming a group
+徵人=LFM
+M我=whisper me
+拍賣場=auction house
+辛苦了=thanks, good work
+感恩=thanks
+母湯=don't (Taiwanese Hokkien)
+雷包=bad teammate
+划水=slacking

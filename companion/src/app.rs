@@ -1,4 +1,5 @@
-use crate::config::{self, Config};
+use crate::config::{self, Config, ReplyVariant};
+use crate::translate::WOW_CHAT_BYTES;
 use crate::focus::WowView;
 use crate::layout::{self, ChatWindow};
 use crate::worker::{Job, UiEvent};
@@ -29,6 +30,8 @@ pub struct TranslateApp {
     lines: VecDeque<OverlayLine>,
     status: String,
     notice: String,
+    /// The last reply in Chinese, and whether it was copied; shown under the reply box.
+    last_reply: Option<(String, bool)>,
     reply: String,
     locked: bool,
     overlay_start: egui::Pos2,
@@ -66,6 +69,7 @@ impl TranslateApp {
             lines: VecDeque::new(),
             status: "Ready".into(),
             notice: String::new(),
+            last_reply: None,
             reply: String::new(),
             locked: true,
             overlay_start,
@@ -108,8 +112,13 @@ impl TranslateApp {
                         english: Some(english),
                     });
                 }
-                UiEvent::ReplyReady { english, chinese } => {
-                    self.notice = format!("Copied \"{chinese}\" for \"{english}\". Paste it into WoW chat.");
+                UiEvent::ReplyReady { english, chinese, copied } => {
+                    self.notice = if copied {
+                        format!("Copied \"{chinese}\" for \"{english}\". Paste it into WoW chat.")
+                    } else {
+                        format!("Not copied: \"{chinese}\" is too long for WoW chat. Say it in fewer words.")
+                    };
+                    self.last_reply = Some((chinese, copied));
                 }
                 UiEvent::TestResult { result, seconds } => {
                     self.test_result = match result {
@@ -196,8 +205,29 @@ impl TranslateApp {
             if edit.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) && !self.reply.trim().is_empty() {
                 let _ = self.interactive.send(Job::Reply { text: self.reply.trim().to_string() });
                 self.notice = "Translating your reply".into();
+                self.last_reply = None;
                 self.reply.clear();
                 edit.request_focus();
+            }
+            // WoW's chat box holds 255 bytes, and a Chinese character takes 3 of them.
+            let mut copy_anyway = false;
+            if let Some((chinese, copied)) = &self.last_reply {
+                ui.horizontal_wrapped(|ui| {
+                    let size = format!("{}/{WOW_CHAT_BYTES} bytes", chinese.len());
+                    if *copied {
+                        ui.label(format!("{size}: {chinese}"));
+                    } else {
+                        ui.colored_label(Color32::from_rgb(255, 120, 90), format!("{size}, WoW would cut it off: {chinese}"));
+                        copy_anyway = ui.button("Copy anyway").clicked();
+                    }
+                });
+            }
+            if copy_anyway {
+                if let Some((chinese, copied)) = &mut self.last_reply {
+                    ui.ctx().copy_text(chinese.clone());
+                    *copied = true;
+                    self.notice = "Copied the long reply. WoW will cut it at 255 bytes.".into();
+                }
             }
             ui.separator();
 
@@ -234,6 +264,15 @@ impl TranslateApp {
                             ui.label(self.anchor_status());
                         }
                     });
+                    ui.end_row();
+                    ui.label("Reply in");
+                    egui::ComboBox::from_id_salt("reply_variant")
+                        .selected_text(self.draft.reply_variant.label())
+                        .show_ui(ui, |ui| {
+                            for variant in [ReplyVariant::Taiwan, ReplyVariant::Simplified] {
+                                ui.selectable_value(&mut self.draft.reply_variant, variant, variant.label());
+                            }
+                        });
                     ui.end_row();
                     ui.label("Overlay width");
                     ui.add(egui::Slider::new(&mut self.draft.overlay_width, 200.0..=1600.0));

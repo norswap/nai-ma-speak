@@ -180,3 +180,47 @@
 退组=leaving the group
 求组=LFG
 路线=route
+# Mainland forms of Taiwan-list concepts (zhCN fields of WoW Translator 2.15 / BabelChat, MIT)
+奥术=Arcane (mage spec)
+奇袭=Assassination (rogue spec)
+酒仙=Brewmaster (monk tank spec)
+踏风=Windwalker (monk DPS spec)
+浩劫=Havoc (demon hunter DPS spec)
+野队=pug
+匹配分=MMR
+幻化=transmog
+洛丹伦废墟=Ruins of Lordaeron (Forever dungeon)
+塑造者之台=Shaper's Terrace (Forever dungeon)
+海加尔峰=Hyjal Summit (raid)
+奥格瑞玛=Orgrimmar
+暴君=Tyrannical (M+ affix)
+战团=Warband
+# WoW Translator 2.15 mainland slang table (author: awaiting native-speaker review)
+最后一个=last spot
+死亡骑士=Death Knight
+英勇=Heroism (Bloodlust)
+冷却=cooldown
+眩晕=stun
+风筝=kite
+爆发=burst
+耐久=durability
+集火=focus fire
+群伤=AoE
+随机团=LFR
+团长=raid leader
+神牧=Holy priest
+黑上=UBRS
+黑下=LBRS
+纳克=Naxxramas
+卡拉赞=Karazhan
+金团=GDKP
+# Mainland gaming slang, not from either glossary: review before release
+小号=alt character
+大号=main character
+打金=gold farming
+搬砖=grinding for gold
+工作室=gold-farming studio (bots)
+鸽了=flaked, didn't show up
+退坑=quit the game
+白嫖=freeload
+氪金=spent real money
