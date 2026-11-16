@@ -8,6 +8,9 @@ use std::thread;
 use std::time::Instant;
 
 pub const TEST_LINE: &str = "大家好，今天一起打副本嗎？";
+/// The addon's "/tr test" lines end in this. They are translated afresh every time, so
+/// the same test can be run again to watch the backend at work.
+const TEST_MARK: &str = "(Translate test)";
 
 pub enum Job {
     /// A Chinese line read from the addon's pixel strip, already in the overlay as `line`.
@@ -106,7 +109,7 @@ pub fn spawn(config: Arc<Mutex<Config>>, jobs: Receiver<Job>, ui: UiSender, clip
             };
             let key =
                 format!("{:?}|{:?}|{}|{text}", config.backend, config.reply_variant, matches!(direction, Direction::ToEnglish));
-            let result = match cache.get(&key) {
+            let result = match cache.get(&key).filter(|_| !text.contains(TEST_MARK)) {
                 Some(hit) => Ok(hit.clone()),
                 None => translate(&config, &text, direction, &notify),
             };

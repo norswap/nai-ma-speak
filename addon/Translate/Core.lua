@@ -47,10 +47,21 @@ ns.On("PLAYER_LOGIN", function()
     if ns.InitOptions then ns.InitOptions() end
 end)
 
+-- The most lines "/tr test <count>" says, so a typo cannot flood /say.
+local TEST_MOST = 30
+
+-- 1 to 99 in Chinese numerals: 7 is 七, 12 is 十二, 30 is 三十.
+function ns.ChineseNumber(n)
+    local digits = { "一", "二", "三", "四", "五", "六", "七", "八", "九" }
+    local tens, ones = math.floor(n / 10), n % 10
+    return (tens > 1 and digits[tens] or "") .. (tens > 0 and "十" or "") .. (digits[ones] or "")
+end
+
 local function ShowHelp()
     ns.Print("/tr  open the translate window on the latest Chinese line")
     ns.Print("/tr links  toggle the [T] links after Chinese lines")
     ns.Print("/tr test  say a Chinese test line to check the strip and overlay")
+    ns.Print("/tr test 10  say that many short test lines (at most " .. TEST_MOST .. ")")
     ns.Print("/tr options  open the options (also under Options > AddOns)")
     ns.Print("/tr all  toggle showing lines without Chinese in the overlay too")
     ns.Print("/tr strip  toggle the pixel strip the companion reads (top-left corner)")
@@ -75,15 +86,27 @@ local commands = {
         ns.SetStripShown(ns.db.strip)
         ns.Print("Pixel strip " .. (ns.db.strip and "on." or "off. The overlay gets no new lines."))
     end,
-    test = function()
+    -- With a count, says that many short lines, each a number in Chinese, half
+    -- a second apart: enough different lines to see how the translator copes
+    -- with a burst. The companion never reuses an earlier translation for a
+    -- line marked "(Translate test)".
+    test = function(count)
         -- Mainline moved SendChatMessage into C_ChatInfo; probe both.
         local send = (C_ChatInfo and C_ChatInfo.SendChatMessage) or SendChatMessage
         if not send then
             ns.Print("No SendChatMessage on this client. Type /s 需要奶妈 by hand.")
             return
         end
-        send("大家好，今天一起打副本嗎？ (Translate test)", "SAY")
-        ns.Print("Sent a test line in /say. The companion overlay should show it in English shortly.")
+        if not count then
+            send("大家好，今天一起打副本嗎？ (Translate test)", "SAY")
+            ns.Print("Sent a test line in /say. The companion overlay should show it in English shortly.")
+            return
+        end
+        count = math.max(1, math.min(count, TEST_MOST))
+        for i = 1, count do
+            C_Timer.After((i - 1) * 0.5, function() send(ns.ChineseNumber(i) .. " (Translate test)", "SAY") end)
+        end
+        ns.Print("Saying " .. count .. " test lines in /say, half a second apart.")
     end,
     probe = function()
         local _, _, _, toc = GetBuildInfo()
@@ -108,7 +131,7 @@ local commands = {
 SLASH_TRANSLATE1 = "/tr"
 SLASH_TRANSLATE2 = "/translate"
 SlashCmdList.TRANSLATE = function(input)
-    local cmd = strlower(strtrim(input or ""))
+    local cmd, argument = strlower(strtrim(input or "")):match("^(%S*)%s*(.-)$")
     local fn = commands[cmd] or ShowHelp
-    fn()
+    fn(tonumber(argument))
 end
