@@ -11,6 +11,7 @@ mod strip;
 #[cfg(test)]
 mod testing;
 mod text;
+mod theme;
 mod translate;
 mod worker;
 
@@ -69,6 +70,7 @@ fn add_cjk_font(ctx: &egui::Context) {
         eprintln!("No usable Chinese system font found; Chinese text will show as empty boxes.");
         let mut fonts = egui::FontDefinitions::default();
         add_overlay_family(&mut fonts);
+        theme::add_heading_family(&mut fonts);
         ctx.set_fonts(fonts);
         return;
     };
@@ -80,6 +82,7 @@ fn add_cjk_font(ctx: &egui::Context) {
         fonts.families.entry(family).or_default().push("cjk".into());
     }
     add_overlay_family(&mut fonts);
+    theme::add_heading_family(&mut fonts);
     ctx.set_fonts(fonts);
 }
 
@@ -235,6 +238,7 @@ fn main() -> eframe::Result {
         options,
         Box::new(move |cc| {
             add_cjk_font(&cc.egui_ctx);
+            theme::apply(&cc.egui_ctx);
             let (ui_tx, ui_rx) = mpsc::channel();
             let ui = worker::UiSender::new(ui_tx, cc.egui_ctx.clone());
             let (clip_tx, clip_rx) = mpsc::channel();

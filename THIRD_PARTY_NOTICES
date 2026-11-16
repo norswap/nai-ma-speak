@@ -40,3 +40,12 @@ project under the same MIT License.
 
 Linked into the companion for Traditional/Simplified Chinese conversion, with its
 embedded OpenCC dictionaries. Apache License 2.0.
+
+4. The Marcellus font in companion/src/fonts/Marcellus-Regular.ttf
+
+Copyright (c) 2012, Brian J. Bonislawsky DBA Astigmatic (AOETI) (astigma@astigmatic.com),
+with Reserved Font Names "Marcellus".
+
+It is built into the companion for its headings and buttons, unmodified, under the SIL
+Open Font License, Version 1.1. The full license is in
+companion/src/fonts/Marcellus-OFL.txt.
