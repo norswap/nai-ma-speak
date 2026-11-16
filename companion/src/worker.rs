@@ -1,4 +1,5 @@
 use crate::config::Config;
+use crate::markup::ChatLine;
 use crate::translate::{translate, Direction};
 use std::collections::HashMap;
 use std::sync::mpsc::{Receiver, Sender};
@@ -20,9 +21,9 @@ pub enum Job {
 }
 
 pub enum UiEvent {
-    /// A chat line for the overlay. A Chinese line arrives without `english` and shows as
-    /// it is until `Translated` fills it in, so lines keep the order they were said in.
-    Line { id: u64, speaker: String, original: String, english: Option<String> },
+    /// A chat line for the overlay. A line with `chinese` set shows as it is until
+    /// `Translated` brings its English, so lines keep the order they were said in.
+    Line { id: u64, line: ChatLine, chinese: bool },
     Translated { id: u64, english: String },
     PasteReady { id: u64, english: String },
     /// A reply in Chinese. It is copied for pasting unless it is too long for WoW's chat
@@ -58,20 +59,18 @@ impl UiSender {
 
 /// Turns the text of one strip frame into overlay lines, numbered from `next_id`, and the
 /// translation jobs for the Chinese ones. A frame holds one or more lines, each
-/// "<id>\t<speaker>\t<text>". Lines without Chinese are shown as they are and never
-/// reach the translator.
+/// "<id>\t<prefix>\t<body>\t<color>". Lines whose body has no Chinese are shown as they
+/// are and never reach the translator, which gets the body without its color codes.
 pub fn route_frame(frame: &str, next_id: &mut u64) -> Vec<(UiEvent, Option<Job>)> {
     let lines = frame.split('\n').filter_map(crate::strip::parse_payload);
     lines
-        .map(|(speaker, text)| {
+        .map(|line| {
             let id = *next_id;
             *next_id += 1;
-            if crate::text::has_chinese(&text) {
-                let job = Job::Incoming { line: id, text: text.clone() };
-                (UiEvent::Line { id, speaker, original: text, english: None }, Some(job))
-            } else {
-                (UiEvent::Line { id, speaker, original: String::new(), english: Some(text) }, None)
-            }
+            let text = crate::markup::plain(&line.body);
+            let chinese = crate::text::has_chinese(&text);
+            let job = chinese.then(|| Job::Incoming { line: id, text: text.trim().to_string() });
+            (UiEvent::Line { id, line, chinese }, job)
         })
         .collect()
 }
@@ -147,22 +146,20 @@ mod tests {
     #[test]
     fn only_chinese_lines_go_to_the_translator() {
         let mut next_id = 7;
-        let frame = "12\t[Say] Lili\t副本缺T 速来\n0\t[Say] Bob\tlf tank\nbroken\n0\t[Guild] Ann\thi\tall";
+        let frame = "12\t[Say] [Lili]: \t副本缺T |cffa335ee[劍]|r \t40ff40\n0\t[小明] says: \tlf tank\tffffff\nbroken\n0\t\tBob has come online.";
         let routed = route_frame(frame, &mut next_id);
         assert_eq!(next_id, 10);
         assert_eq!(routed.len(), 3);
-        let (UiEvent::Line { id: 7, speaker, original, english: None }, Some(Job::Incoming { line: 7, text })) = &routed[0]
-        else {
+        let (UiEvent::Line { id: 7, line, chinese: true }, Some(Job::Incoming { line: 7, text })) = &routed[0] else {
             panic!("the Chinese line shows untranslated and is queued");
         };
-        assert_eq!((speaker.as_str(), original.as_str(), text.as_str()), ("[Say] Lili", "副本缺T 速来", "副本缺T 速来"));
-        let (UiEvent::Line { id: 8, speaker, english: Some(english), .. }, None) = &routed[1] else {
-            panic!("the English line is shown as it is");
+        assert_eq!((crate::markup::plain(&line.prefix).as_str(), text.as_str()), ("[Say] [Lili]: ", "副本缺T [劍]"));
+        assert_eq!(line.color, [0x40, 0xff, 0x40]);
+        // A Chinese name alone does not send a line to the translator.
+        assert!(matches!(&routed[1], (UiEvent::Line { id: 8, chinese: false, .. }, None)));
+        let (UiEvent::Line { id: 9, line, chinese: false }, None) = &routed[2] else {
+            panic!("the system line is shown as it is");
         };
-        assert_eq!((speaker.as_str(), english.as_str()), ("[Say] Bob", "lf tank"));
-        let (UiEvent::Line { id: 9, english: Some(english), .. }, None) = &routed[2] else {
-            panic!("the last line is shown as it is");
-        };
-        assert_eq!(english, "hi\tall");
+        assert_eq!((line.prefix.len(), crate::markup::plain(&line.body).as_str()), (0, "Bob has come online."));
     }
 }

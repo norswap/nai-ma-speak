@@ -3,6 +3,7 @@
 //! [seq][len hi][len lo][text...][fletcher16 hi][fletcher16 lo] packed
 //! 3 bytes into 4 six-bit blocks.
 
+use crate::markup::{self, ChatLine};
 use crate::worker::{Job, UiEvent, UiSender};
 use std::sync::mpsc::Sender;
 use std::thread;
@@ -211,13 +212,16 @@ pub fn find(img: &RgbaImage) -> Option<Lock> {
     None
 }
 
-/// The payload is "<id>\t<speaker>\t<text>".
-pub fn parse_payload(text: &str) -> Option<(String, String)> {
-    let mut parts = text.splitn(3, '\t');
+/// One chat line from the addon: "<id>\t<prefix>\t<body>\t<rrggbb>". Prefix and body
+/// carry WoW color codes and together make the line as the game shows it; the color is
+/// the line's own and is white when an older addon leaves it out.
+pub fn parse_payload(text: &str) -> Option<ChatLine> {
+    let mut parts = text.splitn(4, '\t');
     let _id = parts.next()?;
-    let speaker = parts.next()?.to_string();
-    let message = parts.next()?.to_string();
-    Some((speaker, message))
+    let (prefix, body) = (parts.next()?, parts.next()?);
+    let color = parts.next().and_then(markup::rgb).unwrap_or([255; 3]);
+    let mut open = Vec::new();
+    Some(ChatLine { color, prefix: markup::parse(prefix, &mut open), body: markup::parse(body, &mut open) })
 }
 
 /// The capture rectangle, in the monitor's points, that holds a strip found
@@ -441,7 +445,13 @@ mod tests {
             }
             other => panic!("{other:?}"),
         }
-        assert_eq!(parse_payload(text), Some(("[Party] Lili".into(), "副本缺T 速来".into())));
+        let line = parse_payload(text).unwrap();
+        assert_eq!((markup::plain(&line.prefix), markup::plain(&line.body)), ("[Party] Lili".into(), "副本缺T 速来".into()));
+        assert_eq!(line.color, [255; 3]);
+        let colored = parse_payload("3\t[|cff3fc7ebLili|r]: \t缺 |cffa335ee[劍]|r\t40ff40").unwrap();
+        assert_eq!(colored.color, [0x40, 0xff, 0x40]);
+        assert_eq!(colored.prefix[1], markup::Span { text: "Lili".into(), color: Some([0x3f, 0xc7, 0xeb]) });
+        assert_eq!(markup::plain(&colored.body), "缺 [劍]");
     }
 
     /// What macOS does on a scale-2 display: full and region captures both

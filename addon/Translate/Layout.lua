@@ -19,7 +19,7 @@ end
 
 -- Pure Lua, so it can be tested outside WoW.
 function ns.LayoutRecord(name, shown, left, top, width, height, fontSize, alpha)
-    name = name:gsub("%c", "")
+    name = name:gsub("[%z\1-\31]", "")
     return table.concat({ name, shown and 1 or 0, left, top, width, height, fontSize, alpha }, FIELD)
 end
 

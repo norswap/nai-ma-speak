@@ -6,6 +6,7 @@ mod clipboard;
 mod config;
 mod focus;
 mod layout;
+mod markup;
 mod strip;
 #[cfg(test)]
 mod testing;
@@ -85,16 +86,28 @@ fn add_cjk_font(ctx: &egui::Context) {
 /// Name of the font family the overlay draws with.
 pub const OVERLAY_FAMILY: &str = "overlay";
 
-/// How much smaller the overlay draws Western text than Chinese at the same font size.
-/// Latin letters fill less of their height than Chinese characters and still read well
-/// small, while Chinese needs the full size to stay legible.
+/// How much smaller the overlay draws egui's own Western fonts than Chinese at the same
+/// font size. Their letters fill less of their height than Chinese characters and still
+/// read well small, while Chinese needs the full size to stay legible.
 const OVERLAY_WESTERN_SCALE: f32 = 0.85;
 
-/// Adds the overlay's font family: the proportional fonts with every font but the Chinese
-/// one scaled down. Without it the family would not exist and drawing with it would panic,
-/// so this runs whether or not a Chinese font was found.
+/// Arial Narrow, the font the English game client draws chat with, where systems keep it.
+const CHAT_FONTS: &[&str] = &["/System/Library/Fonts/Supplemental/Arial Narrow.ttf", "C:\\Windows\\Fonts\\ARIALN.TTF"];
+
+fn chat_font() -> Option<Vec<u8>> {
+    CHAT_FONTS.iter().find_map(|path| std::fs::read(path).ok())
+}
+
+/// Adds the overlay's font family: the game's chat font first, at the size asked for, so
+/// Western text looks as it does in the game's chat; then the Chinese font; then egui's
+/// own fonts, scaled down, for what those two lack. Without the family drawing with it
+/// would panic, so this runs whether or not the system fonts were found.
 fn add_overlay_family(fonts: &mut egui::FontDefinitions) {
     let proportional = fonts.families.get(&egui::FontFamily::Proportional).cloned().unwrap_or_default();
+    let chat = chat_font().map(|bytes| {
+        fonts.font_data.insert("chat".into(), Arc::new(egui::FontData::from_owned(bytes)));
+        "chat".to_string()
+    });
     let names = proportional
         .iter()
         .map(|name| {
@@ -110,7 +123,8 @@ fn add_overlay_family(fonts: &mut egui::FontDefinitions) {
             fonts.font_data.insert(small_name.clone(), Arc::new(small));
             small_name
         })
-        .collect();
+        .collect::<Vec<_>>();
+    let names = chat.into_iter().chain(names).collect();
     fonts.families.insert(egui::FontFamily::Name(OVERLAY_FAMILY.into()), names);
 }
 
@@ -336,7 +350,7 @@ mod tests {
     }
 
     #[test]
-    fn overlay_family_shrinks_western_text_only() {
+    fn overlay_family_uses_the_chat_font_or_shrinks_western_text() {
         let ctx = egui::Context::default();
         add_cjk_font(&ctx);
         let size = 20.0;
@@ -347,7 +361,12 @@ mod tests {
                 ui.painter().layout_no_wrap(text.into(), font.clone(), egui::Color32::WHITE).size().x
             };
             let ratio = width("Need a healer", &overlay) / width("Need a healer", &normal);
-            assert!((ratio - OVERLAY_WESTERN_SCALE).abs() < 0.03, "Western ratio {ratio}");
+            if chat_font().is_some() {
+                // Arial Narrow at full size is still narrower than egui's font at full size.
+                assert!(ratio < 0.95 && (ratio - OVERLAY_WESTERN_SCALE).abs() > 0.005, "chat font ratio {ratio}");
+            } else {
+                assert!((ratio - OVERLAY_WESTERN_SCALE).abs() < 0.03, "Western ratio {ratio}");
+            }
             if ui.fonts_mut(|fonts| fonts.has_glyph(&normal, '\u{9AD4}')) {
                 assert_eq!(width("\u{7E41}\u{9AD4}", &overlay), width("\u{7E41}\u{9AD4}", &normal));
             }

@@ -41,6 +41,8 @@ local function Truncate(text, max)
     return text:sub(1, cut)
 end
 
+ns.Truncate = Truncate
+
 -- Returns COLS * ROWS symbols (0..63). Pure Lua, so it can be tested outside WoW.
 function ns.EncodeFrame(seq, text)
     text = Truncate(text, MAX_TEXT)

@@ -13,7 +13,7 @@ local function SourceOptions()
     container:Add(ALL, "All chat")
     local saved, found = ns.db.sourceWindow, false
     for _, name in ipairs(ns.ChatWindowNames()) do
-        container:Add(name, "Only what the \"" .. name .. "\" window shows")
+        container:Add(name, "Copy the \"" .. name .. "\" window")
         found = found or name == saved
     end
     if type(saved) == "string" and saved ~= ALL and not found then
@@ -35,9 +35,10 @@ local function Build()
     local source = Settings.RegisterAddOnSetting(category, "Translate_sourceWindow", "sourceWindow", ns.db,
         Settings.VarType.String, "Lines sent to the overlay", ALL)
     Settings.CreateDropdown(category, source, SourceOptions,
-        "Send every chat line, or only the lines one chat window is set up to show. "
+        "Send player chat and the game's own messages as they arrive, or copy one chat window: "
+        .. "every line it shows, worded and colored the same, including what other addons print. "
         .. "Pick the message types and channels in that window's own settings "
-        .. "(right-click its tab, Settings). The window does not have to be visible, "
+        .. "(right-click its tab, Settings). Its tab does not have to be selected, "
         .. "so a spare tab can serve just to make the selection.")
 
     Checkbox("allLines", "Include lines without Chinese",

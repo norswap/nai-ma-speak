@@ -3,8 +3,10 @@ use crate::config::{self, Backend, Config, ReplyVariant, CLAUDE_MODELS, CUSTOM_L
 use crate::translate::WOW_CHAT_BYTES;
 use crate::focus::WowView;
 use crate::layout::{self, ChatWindow};
+use crate::markup::{self, ChatLine, Span};
 use crate::worker::{Job, UiEvent};
-use eframe::egui::{self, Color32, RichText, ViewportBuilder, ViewportCommand, ViewportId};
+use eframe::egui::text::LayoutJob;
+use eframe::egui::{self, Color32, RichText, TextFormat, ViewportBuilder, ViewportCommand, ViewportId};
 use std::collections::VecDeque;
 use std::sync::mpsc::{Receiver, Sender};
 use std::sync::{Arc, Mutex};
@@ -18,13 +20,41 @@ const HIDE_LABEL: &str = "Hide when WoW is in the background";
 /// How often the whole font texture is re-sent even without new text.
 const FONT_TEXTURE_REFRESH: Duration = Duration::from_secs(5);
 
+/// How far the overlay text's shadow is offset, in points.
+const SHADOW: f32 = 1.0;
+/// How much of its brightness a Chinese line keeps while it waits for its translation.
+const PENDING_DIM: f32 = 0.6;
+
 struct OverlayLine {
     /// The number `UiEvent::Translated` refers to; 0 for lines that never get one.
     id: u64,
-    speaker: String,
-    original: String,
-    /// None while a Chinese line waits for its translation.
-    english: Option<String>,
+    line: ChatLine,
+    /// The body in English, once it arrived.
+    translated: Option<Vec<Span>>,
+    /// The body is Chinese and its translation has not arrived yet.
+    pending: bool,
+}
+
+impl OverlayLine {
+    fn plain(prefix: String, body: String) -> Self {
+        let line = ChatLine { color: [255; 3], prefix: vec![Span::plain(prefix)], body: vec![Span::plain(body)] };
+        Self { id: 0, line, translated: None, pending: false }
+    }
+
+    /// The line as the game words and colors it, with the body in English when there is one.
+    fn job(&self, font: &egui::FontId, width: f32) -> LayoutJob {
+        let mut job = LayoutJob::default();
+        job.wrap.max_width = width;
+        let body = self.translated.as_deref().unwrap_or(&self.line.body);
+        let dim = if self.pending { PENDING_DIM } else { 1.0 };
+        let parts = self.line.prefix.iter().map(|span| (span, 1.0)).chain(body.iter().map(|span| (span, dim)));
+        for (span, brightness) in parts {
+            let [r, g, b] = span.color.unwrap_or(self.line.color);
+            let color = Color32::from_rgb(r, g, b).gamma_multiply(brightness);
+            job.append(&span.text, 0.0, TextFormat::simple(font.clone(), color));
+        }
+        job
+    }
 }
 
 pub struct TranslateApp {
@@ -139,23 +169,19 @@ impl TranslateApp {
     fn drain_events(&mut self) {
         while let Ok(event) = self.events.try_recv() {
             match event {
-                UiEvent::Line { id, speaker, original, english } => {
-                    self.push_line(OverlayLine { id, speaker, original, english });
+                UiEvent::Line { id, line, chinese } => {
+                    self.push_line(OverlayLine { id, line, translated: None, pending: chinese });
                 }
                 UiEvent::Translated { id, english } => {
                     if let Some(line) = self.lines.iter_mut().rev().find(|line| line.id == id) {
-                        line.english = Some(english);
+                        line.translated = Some(markup::carry_colors(&english, &line.line.body));
+                        line.pending = false;
                         self.font_texture_stale = true;
                     }
                 }
                 UiEvent::PasteReady { id, english } => {
                     self.notice = format!("#{id} ready: press Ctrl+V in the addon window");
-                    self.push_line(OverlayLine {
-                        id: 0,
-                        speaker: format!("#{id}"),
-                        original: String::new(),
-                        english: Some(english),
-                    });
+                    self.push_line(OverlayLine::plain(format!("#{id}: "), english));
                 }
                 UiEvent::ReplyReady { english, chinese, copied } => {
                     self.notice = if copied {
@@ -500,38 +526,32 @@ impl TranslateApp {
                     }
                     ui.label(RichText::new("Drag to move. Lock it from the companion window.").color(Color32::WHITE));
                 }
-                egui::ScrollArea::vertical().stick_to_bottom(true).show(ui, |ui| {
-                    let family = egui::FontFamily::Name(crate::OVERLAY_FAMILY.into());
+                let room = ui.available_height();
+                egui::ScrollArea::vertical().stick_to_bottom(true).auto_shrink(false).show(ui, |ui| {
+                    // Chat lines sit tight together and fill the window from the bottom up.
+                    ui.spacing_mut().item_spacing.y = 0.0;
+                    let font = egui::FontId::new(draft.font_size, egui::FontFamily::Name(crate::OVERLAY_FAMILY.into()));
+                    let small = egui::FontId::new(draft.font_size * 0.85, font.family.clone());
+                    let width = ui.available_width() - SHADOW;
+                    let mut galleys = Vec::new();
                     for line in lines {
-                        // A Chinese line shows as it is, dimmed, until its translation arrives.
-                        let (shown, color) = match &line.english {
-                            Some(english) => (english, Color32::WHITE),
-                            None => (&line.original, Color32::from_gray(190)),
-                        };
-                        let mut text =
-                            RichText::new(shown).family(family.clone()).size(draft.font_size).color(color);
-                        if line.speaker.is_empty() {
-                            text = text.italics();
+                        galleys.push(ui.painter().layout_job(line.job(&font, width)));
+                        if draft.show_original && line.translated.is_some() {
+                            let original = markup::plain(&line.line.body);
+                            let format = TextFormat::simple(small.clone(), Color32::from_gray(170));
+                            let mut job = LayoutJob::single_section(original, format);
+                            job.wrap.max_width = width;
+                            galleys.push(ui.painter().layout_job(job));
                         }
-                        ui.horizontal_wrapped(|ui| {
-                            if !line.speaker.is_empty() {
-                                ui.label(
-                                    RichText::new(format!("{}:", line.speaker))
-                                        .family(family.clone())
-                                        .size(draft.font_size)
-                                        .color(Color32::from_rgb(255, 210, 120)),
-                                );
-                            }
-                            ui.label(text);
-                        });
-                        if draft.show_original && line.english.is_some() && !line.original.is_empty() {
-                            ui.label(
-                                RichText::new(&line.original)
-                                    .family(family.clone())
-                                    .size(draft.font_size * 0.85)
-                                    .color(Color32::from_gray(170)),
-                            );
-                        }
+                    }
+                    let height: f32 = galleys.iter().map(|galley| galley.size().y).sum();
+                    ui.add_space((room - height - SHADOW).max(0.0));
+                    for galley in galleys {
+                        let (rect, _) = ui.allocate_exact_size(galley.size(), egui::Sense::hover());
+                        // The game draws chat with a dark shadow one step down and right.
+                        let shadow = rect.min + egui::vec2(SHADOW, SHADOW);
+                        ui.painter().galley_with_override_text_color(shadow, galley.clone(), Color32::BLACK);
+                        ui.painter().galley(rect.min, galley, Color32::WHITE);
                     }
                 });
             });
