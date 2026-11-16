@@ -4,14 +4,19 @@ The app is shown as "Nǎi Mā Speak" (奶媽, healer in Chinese players' slang) 
 
 WoW chat translation: a Lua addon (`addon/Translate`) draws Chinese chat lines as a pixel strip, and a Rust companion (`companion/`) reads the strip off the screen, translates it and shows an overlay.
 
+## Layout
+
+- `addon/Translate/`: `Core.lua` (events, saved settings, slash commands), `Chat.lua` (which lines go to the overlay and how they are worded), `Strip.lua` (the pixel strip and its queue), `Layout.lua` (chat window positions, mouse wheel), `Buttons.lua` (in-game buttons, typed replies), `Options.lua` (options panel).
+- `companion/src/`: `strip.rs` (finds and decodes the strip), `protocol.rs` (what the addon's lines mean; the format is documented at its top), `worker.rs` (translation queue), `translate.rs` and `backends/` (prompts, slang, the three services), `app.rs` (the companion window, the overlay, the reply box), `theme.rs` and `fonts.rs` (look), `layout.rs` (placing the overlay on a chat tab), `focus.rs` (is WoW visible), `markup.rs` (WoW color codes), `config.rs`, `diag.rs` (log file).
+- The addon and the companion only meet in the strip's line format. Change both sides together.
+
 ## Commands
 
-Run from `companion/`:
-
-- `cargo test --locked` — must stay green after every commit
-- `cargo clippy --all-targets`
-- `cargo build --release --locked` — output: `target/release/translate-companion`
-- `./macos-app.sh [folder]` — builds `Nai Ma Speak.app` (opens without a Terminal window) into the folder, default `target/release`
+- `cargo test --locked` in `companion/` — must stay green after every commit
+- `cargo clippy --all-targets` in `companion/` — no warnings
+- `lua5.1 tests/addon_test.lua` from the repository root — the addon's logic against stand-ins for the game's functions. The addon cannot be run outside the game, so this and playing are the only checks it gets.
+- `cargo build --release --locked` in `companion/` — output: `target/release/translate-companion`
+- `./macos-app.sh [folder]` in `companion/` — builds `Nai Ma Speak.app` (opens without a Terminal window) into the folder, default `target/release`
 
 Needs Rust 1.95 or newer.
 

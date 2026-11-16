@@ -1,4 +1,4 @@
-//! The chat windows of the game, as the addon reports them through the strip, so the
+//! The chat windows of the game, as the addon reports them (see `protocol`), so the
 //! overlay can sit on one of them.
 
 use crate::focus::Rect;
@@ -13,48 +13,6 @@ pub struct ChatWindow {
     pub shown: bool,
     pub rect: Rect,
     pub font_size: f32,
-}
-
-/// Parses a layout line: "L", a tab, then one record per window separated by byte 30,
-/// each "name, shown, left, top, width, height, font size" separated by byte 31.
-/// None for any other line; records that do not parse are left out.
-pub fn parse(line: &str) -> Option<Vec<ChatWindow>> {
-    let records = line.strip_prefix("L\t")?;
-    let window = |record: &str| {
-        let mut fields = record.split('\u{1f}');
-        let name = fields.next()?.to_string();
-        let shown = fields.next()? == "1";
-        let mut number = || fields.next()?.parse::<f32>().ok().filter(|n| n.is_finite());
-        let rect = [number()?, number()?, number()?, number()?];
-        Some(ChatWindow { name, shown, rect, font_size: number()? })
-    };
-    Some(records.split('\u{1e}').filter_map(window).collect())
-}
-
-/// Parses a scroll line: "S", the name of a chat window and how many mouse wheel steps it
-/// has had since login, up counted positive. None for any other line.
-pub fn parse_scroll(line: &str) -> Option<(String, i64)> {
-    let (name, count) = line.strip_prefix("S\t")?.split_once('\t')?;
-    Some((name.to_string(), count.parse().ok()?))
-}
-
-/// Something the player asked for in the game: a click on one of the addon's buttons, or
-/// English typed after "/tr" to translate and copy.
-#[derive(Debug, Clone, PartialEq)]
-pub enum Command {
-    OpenReply,
-    OpenSettings,
-    Reply(String),
-}
-
-/// Parses a command line: "C", a tab and the button's name, or "R", a tab and the English.
-pub fn parse_command(line: &str) -> Option<Command> {
-    match line.split_once('\t')? {
-        ("C", "reply") => Some(Command::OpenReply),
-        ("C", "settings") => Some(Command::OpenSettings),
-        ("R", english) if !english.trim().is_empty() => Some(Command::Reply(english.trim().to_string())),
-        _ => None,
-    }
 }
 
 /// Where the game's picture is on screen, worked out from the strip, which the addon
@@ -102,34 +60,11 @@ pub fn anchor<'a>(windows: &'a [ChatWindow], tab: &str) -> Option<&'a ChatWindow
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    const LINE: &str =
-        "L\tGeneral\u{1f}1\u{1f}33\u{1f}760\u{1f}440\u{1f}180\u{1f}14\u{1e}翻譯\u{1f}0\u{1f}33\u{1f}760\u{1f}440\u{1f}180\u{1f}16.5\u{1e}bad\u{1f}1\u{1f}x";
-
-    #[test]
-    fn parses_the_windows_of_a_layout_line() {
-        let windows = parse(LINE).unwrap();
-        assert_eq!(windows.len(), 2, "the broken record is left out");
-        let general =
-            ChatWindow { name: "General".into(), shown: true, rect: [33.0, 760.0, 440.0, 180.0], font_size: 14.0 };
-        assert_eq!(windows[0], general);
-        assert_eq!((windows[1].name.as_str(), windows[1].shown, windows[1].font_size), ("翻譯", false, 16.5));
-        assert_eq!(parse("12\t[Say] Lili\t你好"), None);
-        assert_eq!(parse("L\t"), Some(Vec::new()));
-        assert_eq!(parse_scroll("S\t翻譯\t-4"), Some(("翻譯".into(), -4)));
-        assert_eq!(parse_scroll("S\t翻譯\tup"), None);
-        assert_eq!(parse_scroll("3\ta\tb"), None);
-        assert_eq!(parse_command("C\treply"), Some(Command::OpenReply));
-        assert_eq!(parse_command("C\tsettings"), Some(Command::OpenSettings));
-        assert_eq!(parse_command("R\t sure, I can heal "), Some(Command::Reply("sure, I can heal".into())));
-        assert_eq!(parse_command("R\t "), None);
-        assert_eq!(parse_command("C\tother"), None);
-        assert_eq!(parse_command("3\ta\tb"), None);
-    }
+    use crate::protocol::tests::windows;
 
     #[test]
     fn places_a_window_on_screen() {
-        let window = &parse(LINE).unwrap()[0];
+        let window = &windows()[0];
         // A plain display: the game fills a window whose picture starts at 76,30.
         let plain = Picture { monitor: (0.0, 0.0), scale: 1.0, strip: (76.0, 30.0), block: 4.0 };
         assert_eq!(plain.on_screen(window).rect, [109.0, 790.0, 440.0, 180.0]);
@@ -142,7 +77,7 @@ mod tests {
 
     #[test]
     fn finds_the_anchor_by_tab_name() {
-        let windows = parse(LINE).unwrap();
+        let windows = windows();
         assert_eq!(anchor(&windows, " general ").map(|w| w.shown), Some(true));
         assert_eq!(anchor(&windows, "翻譯").map(|w| w.shown), Some(false));
         assert_eq!(anchor(&windows, "Trade"), None);

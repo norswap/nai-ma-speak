@@ -37,7 +37,7 @@ pub enum UiEvent {
     /// A reply could not be translated.
     ReplyFailed { english: String, reason: String },
     /// A button click or a typed reply from the game.
-    Command(crate::layout::Command),
+    Command(crate::protocol::Command),
     /// Mouse wheel steps a chat window has had since login, up counted positive.
     Wheel { name: String, count: i64 },
     /// Pixel strip state: searching, or where it was found.
@@ -65,24 +65,14 @@ impl UiSender {
     }
 }
 
-/// Turns the text of one strip frame into overlay lines, numbered from `next_id`, and the
-/// translation jobs for the Chinese ones. A frame holds one or more lines, each
-/// "<id>\t<prefix>\t<body>\t<color>". Lines with id 0 are shown as they are and never
-/// reach the translator: the addon found no Chinese to translate in them, though a
-/// speaker's name in them may be Chinese. The translator gets the body of the others,
-/// without its color codes.
-pub fn route_frame(frame: &str, next_id: &mut u64) -> Vec<(UiEvent, Option<Job>)> {
-    let lines = frame.split('\n').filter_map(crate::strip::parse_payload);
-    lines
-        .map(|(addon_id, line)| {
-            let id = *next_id;
-            *next_id += 1;
-            let text = crate::markup::plain(&line.body);
-            let chinese = addon_id != 0 && crate::text::has_chinese(&text);
-            let job = chinese.then(|| Job::Incoming { line: id, text: text.trim().to_string() });
-            (UiEvent::Line { id, line, chinese }, job)
-        })
-        .collect()
+/// The overlay's line for a chat line from the addon, numbered `id`, and the job that
+/// translates it if the addon asked for that. The addon does not ask for lines in which
+/// only a speaker's name is Chinese. The translator gets the body without its color codes.
+pub fn chat_line(id: u64, translate: bool, line: ChatLine) -> (UiEvent, Option<Job>) {
+    let text = crate::markup::plain(&line.body);
+    let chinese = translate && crate::text::has_chinese(&text);
+    let job = chinese.then(|| Job::Incoming { line: id, text: text.trim().to_string() });
+    (UiEvent::Line { id, line, chinese }, job)
 }
 
 /// One thread per queue keeps the chat log from delaying click-to-translate.
@@ -153,24 +143,27 @@ pub fn spawn(config: Arc<Mutex<Config>>, jobs: Receiver<Job>, ui: UiSender, clip
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::protocol::{parse, Message};
+
+    fn chat(line: &str) -> (bool, ChatLine) {
+        match parse(line) {
+            Some(Message::Chat { translate, line }) => (translate, line),
+            other => panic!("{other:?}"),
+        }
+    }
 
     #[test]
-    fn only_chinese_lines_go_to_the_translator() {
-        let mut next_id = 7;
-        let frame = "12\t[Say] [Lili]: \t副本缺T |cffa335ee[劍]|r \t40ff40\n0\t[小明] says: \tlf tank\tffffff\nbroken\nS\tGeneral\t3\n0\t\t[小明] says: hello";
-        let routed = route_frame(frame, &mut next_id);
-        assert_eq!(next_id, 10);
-        assert_eq!(routed.len(), 3);
-        let (UiEvent::Line { id: 7, line, chinese: true }, Some(Job::Incoming { line: 7, text })) = &routed[0] else {
+    fn only_lines_the_addon_marks_go_to_the_translator() {
+        let (translate, line) = chat("1\t[Say] [Lili]: \t副本缺T |cffa335ee[劍]|r \t40ff40");
+        let (UiEvent::Line { id: 7, chinese: true, .. }, Some(Job::Incoming { line: 7, text })) = chat_line(7, translate, line) else {
             panic!("the Chinese line shows untranslated and is queued");
         };
-        assert_eq!((crate::markup::plain(&line.prefix).as_str(), text.as_str()), ("[Say] [Lili]: ", "副本缺T [劍]"));
-        assert_eq!(line.color, [0x40, 0xff, 0x40]);
-        // A Chinese name alone does not send a line to the translator.
-        assert!(matches!(&routed[1], (UiEvent::Line { id: 8, chinese: false, .. }, None)));
-        let (UiEvent::Line { id: 9, line, chinese: false }, None) = &routed[2] else {
-            panic!("a copied line with only a Chinese name is shown as it is");
-        };
-        assert_eq!((line.prefix.len(), crate::markup::plain(&line.body).as_str()), (0, "[小明] says: hello"));
+        assert_eq!(text, "副本缺T [劍]");
+        // A copied line with only a Chinese name is shown as it is.
+        let (translate, line) = chat("0\t\t[小明] says: hello");
+        assert!(matches!(chat_line(8, translate, line), (UiEvent::Line { id: 8, chinese: false, .. }, None)));
+        // So is a marked line that turns out to have no Chinese.
+        let (translate, line) = chat("1\t\thello");
+        assert!(matches!(chat_line(9, translate, line), (UiEvent::Line { chinese: false, .. }, None)));
     }
 }

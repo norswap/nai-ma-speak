@@ -3,7 +3,7 @@
 //! [seq][len hi][len lo][text...][fletcher16 hi][fletcher16 lo] packed
 //! 3 bytes into 4 six-bit blocks.
 
-use crate::markup::{self, ChatLine};
+use crate::protocol::{self, Message};
 use crate::worker::{Job, UiEvent, UiSender};
 use std::sync::mpsc::Sender;
 use std::thread;
@@ -212,20 +212,6 @@ pub fn find(img: &RgbaImage) -> Option<Lock> {
     None
 }
 
-/// One chat line from the addon: "<id>\t<prefix>\t<body>\t<rrggbb>". Prefix and body
-/// carry WoW color codes and together make the line as the game shows it; the color is
-/// the line's own and is white when an older addon leaves it out. Returned with the id,
-/// which is 0 for a line the addon found nothing to translate in.
-pub fn parse_payload(text: &str) -> Option<(u64, ChatLine)> {
-    let mut parts = text.splitn(4, '\t');
-    // Lines that start with a letter are not chat: the window layout and scroll counts.
-    let id = parts.next()?.parse::<u64>().ok()?;
-    let (prefix, body) = (parts.next()?, parts.next()?);
-    let color = parts.next().and_then(markup::rgb).unwrap_or([255; 3]);
-    let mut open = Vec::new();
-    Some((id, ChatLine { color, prefix: markup::parse(prefix, &mut open), body: markup::parse(body, &mut open) }))
-}
-
 /// The capture rectangle, in the monitor's points, that holds a strip found
 /// at `lock` in a full capture taken in pixels. macOS takes regions in points
 /// but captures in pixels, so on a HiDPI display (scale 2) the pixel
@@ -360,33 +346,36 @@ pub fn spawn(jobs: Sender<Job>, ui: UiSender) {
                         // still new to the overlay, so it is shown too.
                         let first = last_seen.is_none();
                         last_seen = Some((frame.seq, frame.checksum));
-                        if let Some(windows) = frame.text.split('\n').find_map(crate::layout::parse) {
-                            let scale = if cfg!(target_os = "macos") {
-                                monitor.scale_factor().unwrap_or(1.0).max(1.0)
-                            } else {
-                                1.0
-                            };
-                            let picture = crate::layout::Picture {
-                                monitor: (monitor.x().unwrap_or(0) as f32, monitor.y().unwrap_or(0) as f32),
-                                scale,
-                                strip: (lock.x as f32, lock.y as f32),
-                                block: lock.block as f32,
-                            };
-                            let windows = windows.iter().map(|window| picture.on_screen(window)).collect();
-                            ui.send(UiEvent::ChatWindows(windows));
-                        }
-                        // A command still on the strip when the companion starts was given
-                        // before it was watching, perhaps long ago, and is not acted on.
-                        for command in frame.text.split('\n').filter_map(crate::layout::parse_command).filter(|_| !first) {
-                            ui.send(UiEvent::Command(command));
-                        }
-                        for (name, count) in frame.text.split('\n').filter_map(crate::layout::parse_scroll) {
-                            ui.send(UiEvent::Wheel { name, count });
-                        }
-                        for (line, job) in crate::worker::route_frame(&frame.text, &mut next_line) {
-                            ui.send(line);
-                            if let Some(job) = job {
-                                let _ = jobs.send(job);
+                        for message in frame.text.split('\n').filter_map(protocol::parse) {
+                            match message {
+                                Message::Windows(windows) => {
+                                    let scale = if cfg!(target_os = "macos") {
+                                        monitor.scale_factor().unwrap_or(1.0).max(1.0)
+                                    } else {
+                                        1.0
+                                    };
+                                    let picture = crate::layout::Picture {
+                                        monitor: (monitor.x().unwrap_or(0) as f32, monitor.y().unwrap_or(0) as f32),
+                                        scale,
+                                        strip: (lock.x as f32, lock.y as f32),
+                                        block: lock.block as f32,
+                                    };
+                                    let windows = windows.iter().map(|window| picture.on_screen(window)).collect();
+                                    ui.send(UiEvent::ChatWindows(windows));
+                                }
+                                // A command still on the strip when the companion starts was
+                                // given before it was watching, perhaps long ago.
+                                Message::Command(_) if first => {}
+                                Message::Command(command) => ui.send(UiEvent::Command(command)),
+                                Message::Wheel { name, count } => ui.send(UiEvent::Wheel { name, count }),
+                                Message::Chat { translate, line } => {
+                                    let (event, job) = crate::worker::chat_line(next_line, translate, line);
+                                    next_line += 1;
+                                    ui.send(event);
+                                    if let Some(job) = job {
+                                        let _ = jobs.send(job);
+                                    }
+                                }
                             }
                         }
                     }
@@ -456,14 +445,6 @@ mod tests {
             }
             other => panic!("{other:?}"),
         }
-        let (id, line) = parse_payload(text).unwrap();
-        assert_eq!(id, 7);
-        assert_eq!((markup::plain(&line.prefix), markup::plain(&line.body)), ("[Party] Lili".into(), "副本缺T 速来".into()));
-        assert_eq!(line.color, [255; 3]);
-        let colored = parse_payload("3\t[|cff3fc7ebLili|r]: \t缺 |cffa335ee[劍]|r\t40ff40").unwrap().1;
-        assert_eq!(colored.color, [0x40, 0xff, 0x40]);
-        assert_eq!(colored.prefix[1], markup::Span { text: "Lili".into(), color: Some([0x3f, 0xc7, 0xeb]) });
-        assert_eq!(markup::plain(&colored.body), "缺 [劍]");
     }
 
     /// What macOS does on a scale-2 display: full and region captures both
