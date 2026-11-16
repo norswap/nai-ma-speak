@@ -85,6 +85,8 @@ pub struct TranslateApp {
     test_result: String,
     strip_status: String,
     passes: crate::diag::Passes,
+    /// The tab the overlay was anchored to before anchoring was turned off.
+    last_anchor: Option<String>,
     /// The tab being pictured and since when; see `shots`.
     shot: Option<(usize, Instant)>,
     wow_view: WowView,
@@ -193,6 +195,7 @@ impl TranslateApp {
             overlay_start,
             overlay_rect: None,
             passes: crate::diag::Passes::new(),
+            last_anchor: None,
             shot: None,
             wow_view: WowView::Unknown,
             font_texture_sent: Instant::now(),
@@ -778,7 +781,46 @@ impl TranslateApp {
     }
 
     fn overlay_tab(&mut self, ui: &mut egui::Ui) {
-        ui.horizontal_wrapped(|ui| {
+        if ui.add(theme::button("Clear overlay")).clicked() {
+            self.lines.clear();
+        }
+        ui.checkbox(&mut self.draft.show_original, "Show Chinese too");
+        ui.checkbox(&mut self.draft.hide_when_unfocused, HIDE_LABEL);
+        ui.spacing_mut().slider_width = (ui.available_width() - 70.0).max(120.0);
+        ui.label(theme::label("Lines kept (scrollback)"));
+        ui.add(egui::Slider::new(&mut self.draft.max_lines, 1..=500));
+
+        // On a chat tab the overlay takes the tab's place, size, text size and
+        // background. Placed by hand, it has its own, and can be unlocked to drag it.
+        let mut anchoring = !self.draft.anchor_tab.trim().is_empty();
+        if ui.checkbox(&mut anchoring, "Anchor to chat tab").changed() {
+            if anchoring {
+                // Back on the tab used last, or failing that the game's first.
+                let first = self.chat_windows.first().map(|window| window.name.clone());
+                self.draft.anchor_tab = std::mem::take(&mut self.last_anchor).or(first).unwrap_or_default();
+                self.locked = true;
+                if self.draft.anchor_tab.is_empty() {
+                    self.notice = "The addon has not reported the game's chat tabs yet, so there is none to anchor to.".into();
+                }
+            } else {
+                self.last_anchor = Some(std::mem::take(&mut self.draft.anchor_tab));
+            }
+        }
+        if !self.draft.anchor_tab.trim().is_empty() {
+            ui.label(theme::label("Chat tab"));
+            let chosen = self.draft.anchor_tab.clone();
+            let known = self.chat_windows.iter().any(|window| window.name == chosen);
+            egui::ComboBox::from_id_salt("anchor_tab").width(ui.available_width()).selected_text(&chosen).show_ui(ui, |ui| {
+                for window in &self.chat_windows {
+                    ui.selectable_value(&mut self.draft.anchor_tab, window.name.clone(), &window.name);
+                }
+                if !known {
+                    // A tab saved earlier that the game does not have now stays listed.
+                    ui.selectable_value(&mut self.draft.anchor_tab, chosen.clone(), format!("{chosen} (not in the game now)"));
+                }
+            });
+            ui.label(RichText::new(self.anchor_status()).color(theme::MUTED));
+        } else {
             let label = if self.locked { "Unlock overlay to move it" } else { "Lock overlay" };
             if ui.add(theme::button(label)).clicked() {
                 self.locked = !self.locked;
@@ -786,24 +828,6 @@ impl TranslateApp {
                     self.save();
                 }
             }
-            if ui.add(theme::button("Clear overlay")).clicked() {
-                self.lines.clear();
-            }
-        });
-        ui.checkbox(&mut self.draft.show_original, "Show Chinese too");
-        ui.checkbox(&mut self.draft.hide_when_unfocused, HIDE_LABEL);
-
-        ui.label(theme::label("Anchor to chat tab"));
-        ui.add(theme::field(&mut self.draft.anchor_tab).hint_text("tab name, or empty"));
-        if !self.draft.anchor_tab.trim().is_empty() {
-            ui.label(RichText::new(self.anchor_status()).color(theme::MUTED));
-        }
-        // On a chat tab the overlay takes the tab's place, size, text size and
-        // background, so its own are only offered while it is placed by hand.
-        let on_tab = layout::anchor(&self.chat_windows, &self.draft.anchor_tab).is_some();
-        let waiting = !self.draft.anchor_tab.trim().is_empty() && self.chat_windows.is_empty();
-        ui.spacing_mut().slider_width = (ui.available_width() - 70.0).max(120.0);
-        if !on_tab && !waiting {
             ui.label(theme::label("Overlay width"));
             ui.add(egui::Slider::new(&mut self.draft.overlay_width, 200.0..=1600.0));
             ui.label(theme::label("Overlay height"));
@@ -813,8 +837,6 @@ impl TranslateApp {
             ui.label(theme::label("Text size"));
             ui.add(egui::Slider::new(&mut self.draft.font_size, 10.0..=32.0));
         }
-        ui.label(theme::label("Lines kept (scrollback)"));
-        ui.add(egui::Slider::new(&mut self.draft.max_lines, 1..=500));
         self.save_row(ui);
     }
 
