@@ -116,15 +116,12 @@ end
 
 ns.Markup, ns.Plain, ns.MarkupIndex = Markup, Plain, MarkupIndex
 
--- The chat lines already handled, by the game's lineID: false for a line
--- without Chinese, and for one with Chinese its plain text and what was or
--- would be sent for it. Every chat window reports a line, so this is how a
--- line is sent once, how Mirror knows where the message starts in the line a
--- window words around it, and what a [T] link sends again. Forgets the oldest
--- beyond KEEP: a chat window keeps its last 128 lines, but a quiet window's
--- oldest line can be thousands of lines old across all of chat, and its [T]
--- link should still work.
+-- The chat lines already handled, by the game's lineID: the message's plain
+-- text if it has Chinese, false if not. Every chat window reports a line, so
+-- this is how a line is sent once, and how the message is found in the line a
+-- window words around it. Forgets the oldest beyond KEEP.
 local KEEP = 5000
+local KEEP = 300
 local handled, order, first = {}, {}, 1
 
 local function Remember(lineID, value)
@@ -219,11 +216,8 @@ local function Capture(event, msg, author, _, channel, _, _, _, channelIndex, _,
     if type(msg) ~= "string" then return end
     if lineID ~= nil and handled[lineID] ~= nil then return handled[lineID] and lineID end
     local chinese = HasChinese(msg)
-    local wanted = not MirroredWindow() and (chinese or ns.db.allLines)
-    if not (chinese or wanted) then
-        if lineID ~= nil then Remember(lineID, false) end
-        return
-    end
+    if lineID ~= nil then Remember(lineID, chinese and Plain(Markup(msg))) end
+    if MirroredWindow() or not (chinese or ns.db.allLines) then return chinese and lineID end
 
     local name = type(author) == "string" and author ~= "" and Ambiguate(author, "short") or nil
     local color, info = LineColor(event, channelIndex)
@@ -235,47 +229,26 @@ local function Capture(event, msg, author, _, channel, _, _, _, channelIndex, _,
     elseif around and name then
         prefix = around[1] .. NameMarkup(name, guid, info) .. around[2]
     end
-    prefix, msg = Markup(prefix), Markup(msg)
-    if lineID ~= nil then
-        Remember(lineID, chinese and { text = Plain(msg), prefix = prefix, body = msg, color = color })
-    end
-    if wanted then Send(chinese and "1" or "0", prefix, msg, color) end
+    Send(chinese and "1" or "0", Markup(prefix), Markup(msg), color)
     return chinese and lineID
 end
 
--- Sends a Chinese line to the overlay again when its [T] link is clicked. The
--- companion marks it as asked for.
-local function SendAgain(lineID)
-    local line = handled[lineID]
-    if not line then
-        ns.Print("That line is too old to send again.")
-        return
-    end
-    Send("T", line.prefix, line.body, line.color)
-end
-
--- Copies a line the mirrored chat window just added, so the overlay shows
--- what that window shows: every kind of line, worded and colored the same,
--- including what other addons print. Only the Chinese part after the
--- speaker is translated.
-local function Mirror(frame, text, r, g, b)
-    if not ns.db or frame ~= MirroredWindow() then return end
-    if ns.IsSecret(text) or ns.IsSecret(r) or ns.IsSecret(g) or ns.IsSecret(b) then return end
-    if type(text) ~= "string" then return end
-
+-- Breaks a line, as a chat window words it, into the part before the message
+-- and the message, both as markup. Without Chinese in the message there is
+-- nothing to translate: then returns nil and the whole line.
+local function Split(text)
     -- The overlay has no use for our own [T] link. The lineID in the speaker's
-    -- link names the line Capture remembered.
+    -- link names the message Capture remembered.
     text = text:gsub(" *|Haddon:" .. addonName .. ":%d+|h.-|h", "")
     local lineID = tonumber(text:match("|Hplayer:[^:|]*:(%d+)"))
-    local message = lineID and handled[lineID] and handled[lineID].text
+    local message = lineID and handled[lineID]
 
     local markup = Markup(text)
     local plain = Plain(markup)
-    local color = ns.Hex(r, g, b)
     local prefix, body = "", markup
     if HasChinese(plain) then
         -- The message starts where its remembered text is found, or failing
-        -- that (icons, other addons' edits) after the first ": ".
+        -- that (icons, other addons' edits, a line long past) after the first ": ".
         local at = message and plain:find(message, 1, true)
         if not at then
             local _, last = plain:find(": ", 1, true)
@@ -286,12 +259,46 @@ local function Mirror(frame, text, r, g, b)
             prefix, body = markup:sub(1, cut - 1), markup:sub(cut)
         end
     end
-    if HasChinese(Plain(body)) then
-        Send("1", prefix, body, color)
+    -- Without Chinese in the body, only the speaker's name is Chinese, or nothing is.
+    if HasChinese(Plain(body)) then return prefix, body end
+    return nil, markup
+end
+
+-- Copies a line the mirrored chat window just added, so the overlay shows
+-- what that window shows: every kind of line, worded and colored the same,
+-- including what other addons print. Only the Chinese part after the
+-- speaker is translated.
+local function Mirror(frame, text, r, g, b)
+    if not ns.db or frame ~= MirroredWindow() then return end
+    if ns.IsSecret(text) or ns.IsSecret(r) or ns.IsSecret(g) or ns.IsSecret(b) then return end
+    if type(text) ~= "string" then return end
+    local prefix, body = Split(text)
+    if prefix then
+        Send("1", prefix, body, ns.Hex(r, g, b))
     elseif ns.db.allLines then
-        -- Nothing to translate, or only the speaker's name is Chinese.
-        Send("0", "", markup, color)
+        Send("0", "", body, ns.Hex(r, g, b))
     end
+end
+
+-- Sends a line to the overlay again when its [T] link is clicked, read back
+-- from the chat window it was clicked in, so any line still on show can be
+-- asked for. The companion marks it as asked for and translates it first.
+local function SendAgain(lineID, clicked)
+    local link = "|Haddon:" .. addonName .. ":" .. lineID .. "|h"
+    local windows = { clicked }
+    for i = 1, NUM_CHAT_WINDOWS or 10 do windows[#windows + 1] = _G["ChatFrame" .. i] end
+    for _, window in ipairs(windows) do
+        local count = window.GetNumMessages and window:GetNumMessages()
+        for i = 1, type(count) == "number" and count or 0 do
+            local text, r, g, b = window:GetMessageInfo(i)
+            if type(text) == "string" and not ns.IsSecret(text) and text:find(link, 1, true) then
+                local prefix, body = Split(text)
+                if prefix then Send("T", prefix, body, ns.Hex(r, g, b)) end
+                return
+            end
+        end
+    end
+    ns.Print("That line is no longer in a chat window, so it cannot be sent again.")
 end
 
 -- A made-up Chinese line for the overlay, as if someone had said it.
@@ -351,9 +358,9 @@ function ns.InitChat()
 
     -- Clicks on |Haddon:...| links arrive through EventRegistry.
     if EventRegistry and EventRegistry.RegisterCallback then
-        EventRegistry:RegisterCallback("SetItemRef", function(_, link)
+        EventRegistry:RegisterCallback("SetItemRef", function(_, link, _, _, window)
             local name, lineID = tostring(link):match("^addon:([^:]+):(%d+)")
-            if name == addonName then SendAgain(tonumber(lineID)) end
+            if name == addonName then SendAgain(lineID, type(window) == "table" and window or nil) end
         end, ns)
         ns.linkSource = "EventRegistry SetItemRef"
     else

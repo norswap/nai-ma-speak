@@ -15,7 +15,9 @@ end
 local function ChatWindow()
     local window = Dummy()
     window.added, window.scripts, window.isDocked = {}, {}, true
-    window.AddMessage = function(self, text) self.added[#self.added + 1] = text end
+    window.AddMessage = function(self, text, r, g, b) self.added[#self.added + 1] = { text, r, g, b } end
+    window.GetNumMessages = function(self) return #self.added end
+    window.GetMessageInfo = function(self, i) return unpack(self.added[i]) end
     window.HookScript = function(self, script, fn) self.scripts[script] = fn end
     return window
 end
@@ -50,7 +52,9 @@ RAID_CLASS_COLORS = { MAGE = { colorStr = "ff3fc7eb" } }
 function GetPlayerInfoByGUID() return "Mage", "MAGE" end
 RED_FONT_COLOR = { r = 1, g = 0.125, b = 0.125 }
 local clickLink
-EventRegistry = { RegisterCallback = function(_, _, fn) clickLink = function(link) fn(nil, link) end end }
+EventRegistry = {
+    RegisterCallback = function(_, _, fn) clickLink = function(link, window) fn(nil, link, "[T]", "LeftButton", window) end end,
+}
 
 -- Load the addon as the game does, in the order of Translate.toc, and log in.
 local ns = {}
@@ -128,18 +132,22 @@ local _, plainLine = Chat("CHAT_MSG_SAY", "no link here")
 Check("a Chinese line gets a [T] link", withLink, "缺補 |Haddon:Translate:" .. asked .. "|h|cff66ccff[T]|r|h")
 Check("other lines get none", plainLine, "no link here")
 Frames()
+-- The line as a chat window shows it, long after the addon forgot the message itself.
+ChatFrame1:AddMessage("|Hplayer:Bob:424242:GUILD|h[|cff3fc7ebBob|r]|h: " .. withLink, 0.25, 1, 0.25)
+ChatFrame1:AddMessage("|Hplayer:小明:424243:SAY|h[小明]|h says: hi |Haddon:Translate:77|h[T]|h", 1, 1, 1)
 ns.SendToStrip("0\t\twaiting 1")
 ns.SendToStrip("0\t\twaiting 2")
-clickLink("addon:Translate:" .. asked)
-clickLink("addon:Other:" .. asked)
-clickLink("item:1")
-Check("a click sends the line again, ahead of what is waiting", Frames(), {
+clickLink("addon:Translate:" .. asked, ChatFrame1)
+clickLink("addon:Other:" .. asked, ChatFrame1)
+clickLink("item:1", ChatFrame1)
+clickLink("addon:Translate:77")
+Check("a click sends the line again, read from the window, ahead of what is waiting", Frames(), {
     "0 |  | waiting 1",
-    "T | [Guild] [|cff3fc7ebBob|r]:  | 缺補 | 40ff40\n0 |  | waiting 2",
+    "T | [|cff3fc7ebBob|r]:  | 缺補 | 40ff40\n0 |  | waiting 2",
 })
 printed = {}
-clickLink("addon:Translate:99999")
-Check("a line too old to send again says so", #printed, 1)
+clickLink("addon:Translate:99999", ChatFrame1)
+Check("a line no window shows any more says so", #printed, 1)
 TranslateDB.showLinks = false
 local _, unlinked = Chat("CHAT_MSG_GUILD", "缺坦")
 Check("no links with the option off", unlinked, "缺坦")
