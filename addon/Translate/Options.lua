@@ -42,7 +42,7 @@ local function Build()
         .. "so a spare tab can serve just to make the selection.")
 
     local buttons = Settings.RegisterAddOnSetting(category, "Translate_buttons", "buttons", ns.db,
-        Settings.VarType.String, "Reply and Settings buttons", "tabs")
+        Settings.VarType.String, "Translate and Settings buttons", "tabs")
     Settings.CreateDropdown(category, buttons, function()
         local container = Settings.CreateControlTextContainer()
         container:Add("tabs", "On the tab row")
@@ -50,7 +50,7 @@ local function Build()
         container:Add("bottom", "Bottom right of the chat window")
         container:Add("hidden", "Hidden")
         return container:GetData()
-    end, "Where the two buttons sit on the main chat window. Reply opens the companion's reply box; "
+    end, "Where the two buttons sit on the main chat window. Translate opens and closes the box for typing a reply; "
         .. "Settings brings the companion's window over the game.")
     Settings.SetOnValueChangedCallback("Translate_buttons", function() ns.PlaceButtons() end, ns)
 

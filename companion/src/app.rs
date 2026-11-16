@@ -110,9 +110,10 @@ pub struct TranslateApp {
     reply_box_focus: bool,
     /// The game's Settings button asked for this window to come forward.
     show_window: bool,
-    /// While this window is hidden: where it was, and whether it has lost the keyboard
-    /// since. It is parked off screen, not minimized, so the overlay keeps being drawn.
-    parked: Option<(egui::Pos2, bool)>,
+    /// This window was hidden with its Hide button.
+    window_hidden: bool,
+    /// Whether the companion was the app in front at the last look.
+    was_active: bool,
 }
 
 /// Where a reply typed in English stands.
@@ -147,12 +148,13 @@ enum Tab {
 }
 
 impl Tab {
+    /// Typing a reply here comes last: in the game its own Translate button does that.
     const ALL: [(Tab, &'static str); 5] = [
-        (Tab::Reply, "Reply"),
         (Tab::Translation, "Translation"),
         (Tab::Overlay, "Overlay"),
         (Tab::Status, "Status"),
         (Tab::History, "Chat history"),
+        (Tab::Reply, "Translate"),
     ];
 }
 
@@ -196,12 +198,13 @@ impl TranslateApp {
             custom_claude_model: draft.claude_preset().is_none(),
             wheel_counts: HashMap::new(),
             wheel_steps: 0.0,
-            tab: Tab::Reply,
+            tab: Tab::Translation,
             reply_state: ReplyState::Idle,
             reply_box: false,
             reply_box_focus: false,
             show_window: false,
-            parked: None,
+            window_hidden: false,
+            was_active: true,
             test_result: String::new(),
             strip_status: "Starting the pixel strip reader".into(),
             draft,
@@ -281,8 +284,9 @@ impl TranslateApp {
                     self.reply_state = ReplyState::Failed(reason);
                 }
                 UiEvent::Command(Command::OpenReply) => {
-                    self.reply_box = true;
-                    self.reply_box_focus = true;
+                    // The game's button opens the box, and closes it when it is open.
+                    self.reply_box = !self.reply_box;
+                    self.reply_box_focus = self.reply_box;
                 }
                 UiEvent::Command(Command::OpenSettings) => self.show_window = true,
                 UiEvent::Command(Command::Reply(english)) => self.send_reply(english),
@@ -323,7 +327,7 @@ impl TranslateApp {
         self.last_reply = None;
     }
 
-    /// The small window for typing a reply, opened by the game's Reply button above the
+    /// The small window for typing a reply, opened by the game's Translate button above the
     /// chat window. Enter sends the text off and closes it at once, so it never sits over
     /// the game while the translation is on its way; the overlay's pill shows that.
     fn reply_box(&mut self, ctx: &egui::Context) {
@@ -368,7 +372,7 @@ impl TranslateApp {
                 .inner_margin(egui::Margin::symmetric(12, 10));
             egui::CentralPanel::default().frame(frame).show(root, |ui| {
                 ui.horizontal(|ui| {
-                    ui.label(RichText::new("Reply").font(theme::heading_font(16.0)).color(theme::GOLD));
+                    ui.label(RichText::new("Translate").font(theme::heading_font(16.0)).color(theme::GOLD));
                     let edit = ui.add(egui::TextEdit::singleline(reply).desired_width(f32::INFINITY));
                     if edit.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
                         submit = !reply.trim().is_empty();
@@ -416,8 +420,8 @@ impl TranslateApp {
             ReplyState::Idle => None,
             ReplyState::Translating => Some(("Translating".into(), theme::TEXT, true)),
             ReplyState::Copied(_) => Some(("Copied, paste it".into(), theme::GOOD, false)),
-            ReplyState::Failed(_) => Some(("Reply failed: press Reply".into(), theme::BAD, false)),
-            ReplyState::TooLong => Some(("Reply too long: press Reply".into(), theme::GOLD, false)),
+            ReplyState::Failed(_) => Some(("Not translated: press Translate".into(), theme::BAD, false)),
+            ReplyState::TooLong => Some(("Too long: press Translate".into(), theme::GOLD, false)),
         }
     }
 
@@ -425,28 +429,33 @@ impl TranslateApp {
     /// Settings button asks for it.
     fn show_over_game(&mut self, ctx: &egui::Context) {
         let root = ViewportId::ROOT;
-        // A hidden window comes back where it was when it gets the keyboard again, which
-        // is what clicking the app's icon does.
-        let focused = ctx.input(|i| i.viewport().focused) == Some(true);
-        if let Some((at, lost_focus)) = &mut self.parked {
-            if !focused {
-                *lost_focus = true;
-            } else if *lost_focus && !self.show_window {
-                ctx.send_viewport_cmd_to(root, ViewportCommand::OuterPosition(*at));
-                self.parked = None;
-            }
+        let away = self.window_hidden || ctx.input(|i| i.viewport().minimized) == Some(true);
+        // A click on the app's icon makes the companion the app in front, but macOS
+        // leaves its window hidden or minimized, because the overlay counts as a
+        // window already showing. So the window is brought back here. Opening the
+        // reply box also puts the companion in front, and must not bring it back.
+        let active = crate::focus::app_is_active().unwrap_or(false);
+        let activated = active && !self.was_active && !self.reply_box;
+        self.was_active = active;
+        if away {
+            // Nothing else may ask for a pass while the app waits to be clicked.
+            ctx.request_repaint_after(Duration::from_millis(300));
         }
-        if !std::mem::take(&mut self.show_window) {
+        let asked = std::mem::take(&mut self.show_window);
+        if !asked && !(away && activated) {
             return;
         }
-        ctx.send_viewport_cmd_to(root, ViewportCommand::WindowLevel(egui::WindowLevel::AlwaysOnTop));
-        let was = self.parked.take().map(|(at, _)| at);
-        let beside_chat = layout::anchor(&self.chat_windows, &self.draft.anchor_tab).map(|window| {
-            let [x, y, width, height] = window.rect;
-            egui::pos2(x + width + 24.0, (y + height - self.fitted_height).max(y - 300.0))
-        });
-        if let Some(at) = beside_chat.or(was) {
-            ctx.send_viewport_cmd_to(root, ViewportCommand::OuterPosition(at));
+        self.window_hidden = false;
+        ctx.send_viewport_cmd_to(root, ViewportCommand::Visible(true));
+        ctx.send_viewport_cmd_to(root, ViewportCommand::Minimized(false));
+        if asked {
+            // From the game: stay above it, next to the chat window.
+            ctx.send_viewport_cmd_to(root, ViewportCommand::WindowLevel(egui::WindowLevel::AlwaysOnTop));
+            if let Some(window) = layout::anchor(&self.chat_windows, &self.draft.anchor_tab) {
+                let [x, y, width, height] = window.rect;
+                let top = (y + height - self.fitted_height).max(y - 300.0);
+                ctx.send_viewport_cmd_to(root, ViewportCommand::OuterPosition(egui::pos2(x + width + 24.0, top)));
+            }
         }
         ctx.send_viewport_cmd_to(root, ViewportCommand::Focus);
     }
@@ -523,12 +532,10 @@ impl TranslateApp {
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     let hint = "Hide this window; the overlay stays. The game's Settings button or the app's icon brings it back.";
                     if ui.button("Hide").on_hover_text(hint).clicked() {
-                        let at = ui.ctx().input(|i| i.viewport().outer_rect).map_or(egui::pos2(80.0, 80.0), |r| r.min);
-                        self.parked = Some((at, false));
-                        let level = ViewportCommand::WindowLevel(egui::WindowLevel::Normal);
-                        ui.ctx().send_viewport_cmd_to(ViewportId::ROOT, level);
-                        let away = ViewportCommand::OuterPosition(egui::pos2(OFF_SCREEN, OFF_SCREEN));
-                        ui.ctx().send_viewport_cmd_to(ViewportId::ROOT, away);
+                        self.window_hidden = true;
+                        let root = ViewportId::ROOT;
+                        ui.ctx().send_viewport_cmd_to(root, ViewportCommand::WindowLevel(egui::WindowLevel::Normal));
+                        ui.ctx().send_viewport_cmd_to(root, ViewportCommand::Visible(false));
                         crate::focus::activate_wow();
                     }
                     if ui.button("Restart").on_hover_text("Quit and start the companion again. Unsaved settings are lost.").clicked() {
@@ -590,7 +597,7 @@ impl TranslateApp {
     }
 
     fn reply_tab(&mut self, ui: &mut egui::Ui) {
-        ui.label(theme::label("Reply in Chinese"));
+        ui.label(theme::label("Translate into Chinese"));
         let edit = ui.add(
             egui::TextEdit::singleline(&mut self.reply)
                 .desired_width(f32::INFINITY)

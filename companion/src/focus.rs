@@ -54,6 +54,18 @@ pub fn activate_wow() {
     }
 }
 
+/// Whether the companion is the app in front, the one with the keyboard. Only known on
+/// macOS and on the main thread.
+pub fn app_is_active() -> Option<bool> {
+    #[cfg(target_os = "macos")]
+    {
+        let main_thread = objc2::MainThreadMarker::new()?;
+        Some(objc2_app_kit::NSApplication::sharedApplication(main_thread).isActive())
+    }
+    #[cfg(not(target_os = "macos"))]
+    None
+}
+
 fn overlap(a: Rect, b: Rect) -> bool {
     a[0] < b[0] + b[2] && b[0] < a[0] + a[2] && a[1] < b[1] + b[3] && b[1] < a[1] + a[3]
 }

@@ -20,6 +20,9 @@ ferrous-opencc = "0.4"
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2-core-foundation = "0.3.2"
 objc2-core-graphics = "0.3.2"
+# Whether the app is the active one, to bring its window back on a click on its Dock icon.
+objc2 = "0.6"
+objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "NSApplication", "NSResponder"] }
 
 [profile.release]
 opt-level = 3

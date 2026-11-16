@@ -1,6 +1,6 @@
 local addonName, ns = ...
 
--- The Reply and Settings buttons on the chat window, and replies typed as
+-- The Translate and Settings buttons on the chat window, and replies typed as
 -- "/tr /g hello". The addon cannot reach the companion except through the
 -- pixel strip, so a click or a reply is sent as a strip line:
 --   "C\treply" or "C\tsettings"   a button was clicked
@@ -32,9 +32,9 @@ end
 
 local function Build()
     bar = CreateFrame("Frame", "TranslateButtons", UIParent)
-    bar:SetSize(118, 20)
+    bar:SetSize(138, 20)
     bar:SetFrameStrata("MEDIUM")
-    local reply = MakeButton("Reply", 52, "reply")
+    local reply = MakeButton("Translate", 72, "reply")
     reply:SetPoint("LEFT", bar, "LEFT", 0, 0)
     local settings = MakeButton("Settings", 64, "settings")
     settings:SetPoint("LEFT", reply, "RIGHT", 2, 0)

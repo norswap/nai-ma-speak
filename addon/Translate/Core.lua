@@ -20,7 +20,7 @@ local DEFAULTS = {
     strip = true,     -- draw new Chinese lines as a pixel strip for the companion
     allLines = true,  -- also send lines without Chinese, shown untranslated in the overlay
     sourceWindow = "", -- tab name of the chat window whose settings pick the lines sent; "" sends all
-    buttons = "tabs", -- where the Reply and Settings buttons sit: "tabs", "top", "bottom" or "hidden"
+    buttons = "tabs", -- where the Translate and Settings buttons sit: "tabs", "top", "bottom" or "hidden"
 }
 
 function ns.Print(msg)
