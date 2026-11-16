@@ -13,8 +13,9 @@ use std::time::{Duration, Instant};
 const SPACING: Duration = Duration::from_millis(300);
 /// The wait after a rate-limit answer doubles from one second up to this.
 const LONGEST_WAIT: Duration = Duration::from_secs(30);
-/// How many times one line is tried before it is given up.
-const ATTEMPTS: u32 = 4;
+/// How many times one line is tried before it is given up: with the doubling wait, a
+/// line outlasts about half a minute of rate-limiting.
+const ATTEMPTS: u32 = 6;
 
 /// When the next request may go out, and the wait to impose after the next rate-limit
 /// answer. Shared by all lines, so a limit met by one slows the ones after it too.

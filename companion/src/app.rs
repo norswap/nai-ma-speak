@@ -35,12 +35,14 @@ struct OverlayLine {
     translated: Option<Vec<Span>>,
     /// The body is Chinese and its translation has not arrived yet.
     pending: bool,
+    /// The translation was given up on; the body stays in Chinese.
+    failed: bool,
 }
 
 impl OverlayLine {
     fn plain(prefix: String, body: String) -> Self {
         let line = ChatLine { color: [255; 3], prefix: vec![Span::plain(prefix)], body: vec![Span::plain(body)] };
-        Self { id: 0, line, translated: None, pending: false }
+        Self { id: 0, line, translated: None, pending: false, failed: false }
     }
 
     /// The line as the game words and colors it, with the body in English when there is one.
@@ -55,6 +57,12 @@ impl OverlayLine {
             let color = Color32::from_rgb(r, g, b).gamma_multiply(brightness);
             job.append(&span.text, 0.0, TextFormat::simple(font.clone(), color));
         }
+        let note = match (self.pending, self.failed) {
+            (_, true) => " (translation failed)",
+            (true, _) => " (translation pending)",
+            _ => "",
+        };
+        job.append(note, 0.0, TextFormat::simple(font.clone(), Color32::from_gray(150)));
         job
     }
 }
@@ -178,13 +186,19 @@ impl TranslateApp {
         while let Ok(event) = self.events.try_recv() {
             match event {
                 UiEvent::Line { id, line, chinese } => {
-                    self.push_line(OverlayLine { id, line, translated: None, pending: chinese });
+                    self.push_line(OverlayLine { id, line, translated: None, pending: chinese, failed: false });
                 }
                 UiEvent::Translated { id, english } => {
                     if let Some(line) = self.lines.iter_mut().rev().find(|line| line.id == id) {
                         line.translated = Some(markup::carry_colors(&english, &line.line.body));
                         line.pending = false;
                         self.font_texture_stale = true;
+                    }
+                }
+                UiEvent::Failed { id } => {
+                    if let Some(line) = self.lines.iter_mut().rev().find(|line| line.id == id) {
+                        line.pending = false;
+                        line.failed = true;
                     }
                 }
                 UiEvent::PasteReady { id, english } => {
@@ -358,7 +372,7 @@ impl TranslateApp {
                     match self.draft.backend {
                         Backend::GoogleFree => {
                             ui.label("");
-                            ui.label("No slang hints. Service might encounter disruption.");
+                            ui.label("No slang hints. Rate-limited and service might be disrupted.");
                             ui.end_row();
                         }
                         Backend::Claude => {

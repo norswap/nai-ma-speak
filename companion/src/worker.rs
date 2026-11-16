@@ -25,6 +25,8 @@ pub enum UiEvent {
     /// `Translated` brings its English, so lines keep the order they were said in.
     Line { id: u64, line: ChatLine, chinese: bool },
     Translated { id: u64, english: String },
+    /// The translation of an overlay line was given up on.
+    Failed { id: u64 },
     PasteReady { id: u64, english: String },
     /// A reply in Chinese. It is copied for pasting unless it is too long for WoW's chat
     /// box, which would cut it off.
@@ -121,6 +123,9 @@ pub fn spawn(config: Arc<Mutex<Config>>, jobs: Receiver<Job>, ui: UiSender, clip
                 }
                 Err(e) => {
                     ui.send(UiEvent::Status(format!("Translation failed: {e}")));
+                    if let Job::Incoming { line, .. } = job {
+                        ui.send(UiEvent::Failed { id: line });
+                    }
                     continue;
                 }
             };
