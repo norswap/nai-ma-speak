@@ -15,38 +15,19 @@ pub enum Direction {
     ToChinese,
 }
 
-/// Chinese WoW slang (Classic and retail) as `zh=en` pairs. Only the terms
+/// Chinese WoW slang (Classic and retail) as `zh=en` lines. Only the terms
 /// found in a line are sent with it, so a long list costs no extra tokens.
-const SLANG: &str = "\
-奶妈=healer;奶=healer;治疗=healer;坦克=tank;缺T=need a tank;缺奶=need a healer;输出=DPS;近战=melee;远程=ranged;\
-战士=warrior;防战=prot warrior;狂暴战=fury warrior;武器战=arms warrior;圣骑=paladin;奶骑=holy paladin;防骑=prot paladin;惩戒骑=ret paladin;\
-猎人=hunter;兽王猎=BM hunter;射击猎=MM hunter;生存猎=survival hunter;盗贼=rogue;牧师=priest;奶牧=holy priest;戒律=disc priest;暗牧=shadow priest;\
-萨满=shaman;奶萨=resto shaman;增强萨=enh shaman;元素萨=ele shaman;法师=mage;冰法=frost mage;火法=fire mage;奥法=arcane mage;\
-术士=warlock;痛苦术=affli lock;毁灭术=destro lock;恶魔术=demo lock;德鲁伊=druid;小德=druid;奶德=resto druid;熊德=bear tank;猫德=feral druid;鸟德=boomkin;\
-死骑=death knight;武僧=monk;恶魔猎手=demon hunter;唤魔师=evoker;\
-组队=LFG;来人=LF more;缺人=LF more;满了=full;速来=come quick;集合=meet up;拉怪=pull;开怪=pull;别拉=don't pull;团灭=wipe;灭了=wiped;\
-跑尸=corpse run;掉线=disconnected;进本=entering the dungeon;副本=dungeon;团本=raid;地下城=dungeon;大秘境=Mythic+;大米=Mythic+;钥石=keystone;\
-英雄=heroic;史诗=mythic;老一=first boss;老二=second boss;尾王=last boss;小怪=trash;拉人=summon;召唤=summon;车队=group run;开车=starting the run;\
-老板=buyer;打工=booster;带人=carry;求带=LF carry;代练=boosting;需求=need;贪婪=greed;分装=loot split;毕业=BiS;拍卖行=AH;收购=WTB;出售=WTS;\
-公会=guild;工会=guild;收人=recruiting;招人=recruiting;散人=pug;大佬=pro;萌新=new player;菜鸟=noob;稍等=one sec;马上=coming;挂机=AFK;下线=logging off;\
-战场=battleground;竞技场=arena;部落=Horde;联盟=Alliance;\
-熔火之心=Molten Core;黑翼=BWL;祖格=ZG;安其拉=AQ;纳克萨玛斯=Naxx;死矿=Deadmines;血色=Scarlet Monastery;斯坦索姆=Stratholme;通灵学院=Scholomance;黑石深渊=BRD;厄运之槌=Dire Maul;\
-任务=quest;做任务=questing;接任务=pick up the quest;交任务=turn in the quest;任务线=quest chain;任务路线=quest route;主线=main questline;支线=side quest;\
-日常=dailies;周常=weeklies;声望=reputation;崇拜=exalted;崇敬=revered;练级=leveling;满级=max level;经验=XP;\
-刷本=farming dungeons;打本=running dungeons;刷怪=grinding mobs;精英=elite;稀有=rare;世界首领=world boss;野外=open world;\
-坐骑=mount;飞行点=flight path;炉石=hearthstone;传送门=portal;邮箱=mailbox;金币=gold;装等=item level;装备=gear;附魔=enchant;宝石=gem;\
-专业=profession;采药=herbalism;挖矿=mining;剥皮=skinning;锻造=blacksmithing;炼金=alchemy;裁缝=tailoring;工程=engineering;珠宝=jewelcrafting;铭文=inscription;烹饪=cooking;钓鱼=fishing;急救=first aid;\
-仇恨=aggro;嘲讽=taunt;打断=interrupt;驱散=dispel;变羊=sheep;复活=res;战复=battle res;嗜血=Bloodlust;没蓝=OOM;回蓝=drinking;喝水=drinking;\
-邀请=invite;组我=invite me;密我=whisper me;退组=leaving the group;求组=LFG;路线=route";
+const SLANG_ZH_CN: &str = include_str!("slang/zh_cn.txt");
+
+/// The `zh=en` pairs of a slang file; blank lines and lines starting with # are skipped.
+fn slang_pairs(file: &'static str) -> impl Iterator<Item = (&'static str, &'static str)> {
+    file.lines().map(str::trim).filter(|line| !line.is_empty() && !line.starts_with('#')).filter_map(|line| line.split_once('='))
+}
 
 /// The slang terms in a line, longest first, skipping any term that is
 /// part of a longer match (奶 inside 奶骑). At most 12 to keep prompts short.
 fn slang_in(text: &str) -> Vec<(&'static str, &'static str)> {
-    let mut found: Vec<(&str, &str)> = SLANG
-        .split(';')
-        .filter_map(|pair| pair.split_once('='))
-        .filter(|(zh, _)| text.contains(zh))
-        .collect();
+    let mut found: Vec<(&str, &str)> = slang_pairs(SLANG_ZH_CN).filter(|(zh, _)| text.contains(zh)).collect();
     found.sort_by_key(|(zh, _)| std::cmp::Reverse(zh.chars().count()));
     let mut kept: Vec<(&str, &str)> = Vec::new();
     for (zh, en) in found {
@@ -282,6 +263,9 @@ mod tests {
     fn slang_prefers_longest_terms() {
         assert_eq!(slang_in("奶骑来"), vec![("奶骑", "holy paladin")]);
         assert_eq!(slang_in("hello"), vec![]);
-        assert!(SLANG.split(';').all(|pair| pair.split_once('=').is_some_and(|(zh, en)| !zh.is_empty() && !en.is_empty())));
+        assert_eq!(slang_pairs(SLANG_ZH_CN).count(), 180);
+        assert!(slang_pairs(SLANG_ZH_CN).all(|(zh, en)| !zh.is_empty() && !en.is_empty()));
+        let lines = SLANG_ZH_CN.lines().filter(|line| !line.trim().is_empty() && !line.starts_with('#'));
+        assert_eq!(lines.count(), 180, "every line that is not a comment is a zh=en pair");
     }
 }
