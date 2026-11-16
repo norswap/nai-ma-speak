@@ -45,6 +45,7 @@ const CJK_FONTS: &[(&str, &str)] = &[
     // Current macOS has no PingFang.ttc there. Its PingFang (PingFangUI.ttc, in a private
     // framework) stores glyphs in Apple's `hvgl` table, which egui cannot draw: every
     // character comes out blank. Heiti has ordinary outlines.
+    ("/System/Library/Fonts/STHeiti Medium.ttc", "Heiti TC"),
     ("/System/Library/Fonts/STHeiti Light.ttc", "Heiti TC"),
     ("/System/Library/Fonts/Hiragino Sans GB.ttc", ""),
     ("/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc", "Noto Sans CJK TC"),
@@ -61,6 +62,9 @@ fn add_cjk_font(ctx: &egui::Context) {
     });
     let Some((path, index, bytes)) = found else {
         eprintln!("No usable Chinese system font found; Chinese text will show as empty boxes.");
+        let mut fonts = egui::FontDefinitions::default();
+        add_overlay_family(&mut fonts);
+        ctx.set_fonts(fonts);
         return;
     };
     eprintln!("Chinese font: {path} (face {index})");
@@ -70,7 +74,40 @@ fn add_cjk_font(ctx: &egui::Context) {
     for family in [egui::FontFamily::Proportional, egui::FontFamily::Monospace] {
         fonts.families.entry(family).or_default().push("cjk".into());
     }
+    add_overlay_family(&mut fonts);
     ctx.set_fonts(fonts);
+}
+
+/// Name of the font family the overlay draws with.
+pub const OVERLAY_FAMILY: &str = "overlay";
+
+/// How much smaller the overlay draws Western text than Chinese at the same font size.
+/// Latin letters fill less of their height than Chinese characters and still read well
+/// small, while Chinese needs the full size to stay legible.
+const OVERLAY_WESTERN_SCALE: f32 = 0.85;
+
+/// Adds the overlay's font family: the proportional fonts with every font but the Chinese
+/// one scaled down. Without it the family would not exist and drawing with it would panic,
+/// so this runs whether or not a Chinese font was found.
+fn add_overlay_family(fonts: &mut egui::FontDefinitions) {
+    let proportional = fonts.families.get(&egui::FontFamily::Proportional).cloned().unwrap_or_default();
+    let names = proportional
+        .iter()
+        .map(|name| {
+            if name == "cjk" {
+                return name.clone();
+            }
+            let Some(font) = fonts.font_data.get(name) else {
+                return name.clone();
+            };
+            let mut small = (**font).clone();
+            small.tweak.scale *= OVERLAY_WESTERN_SCALE;
+            let small_name = format!("{name}-overlay");
+            fonts.font_data.insert(small_name.clone(), Arc::new(small));
+            small_name
+        })
+        .collect();
+    fonts.families.insert(egui::FontFamily::Name(OVERLAY_FAMILY.into()), names);
 }
 
 fn u16_at(font: &[u8], at: usize) -> Option<usize> {
@@ -269,5 +306,25 @@ mod tests {
                 assert_eq!(draws_chinese(font), Some(true), "{path} face {index}");
             }
         }
+    }
+
+    #[test]
+    fn overlay_family_shrinks_western_text_only() {
+        let ctx = egui::Context::default();
+        add_cjk_font(&ctx);
+        let size = 20.0;
+        let normal = egui::FontId::new(size, egui::FontFamily::Proportional);
+        let overlay = egui::FontId::new(size, egui::FontFamily::Name(OVERLAY_FAMILY.into()));
+        let mut output = ctx.run_ui(Default::default(), |ui| {
+            let width = |text: &str, font: &egui::FontId| {
+                ui.painter().layout_no_wrap(text.into(), font.clone(), egui::Color32::WHITE).size().x
+            };
+            let ratio = width("Need a healer", &overlay) / width("Need a healer", &normal);
+            assert!((ratio - OVERLAY_WESTERN_SCALE).abs() < 0.03, "Western ratio {ratio}");
+            if ui.fonts_mut(|fonts| fonts.has_glyph(&normal, '\u{9AD4}')) {
+                assert_eq!(width("\u{7E41}\u{9AD4}", &overlay), width("\u{7E41}\u{9AD4}", &normal));
+            }
+        });
+        output.textures_delta.clear();
     }
 }

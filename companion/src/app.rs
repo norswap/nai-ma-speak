@@ -273,8 +273,12 @@ impl TranslateApp {
                     ui.label(RichText::new("Drag to move. Lock it from the companion window.").color(Color32::WHITE));
                 }
                 egui::ScrollArea::vertical().stick_to_bottom(true).show(ui, |ui| {
+                    let family = egui::FontFamily::Name(crate::OVERLAY_FAMILY.into());
                     for line in lines {
-                        let mut text = RichText::new(&line.english).size(draft.font_size).color(Color32::WHITE);
+                        let mut text = RichText::new(&line.english)
+                            .family(family.clone())
+                            .size(draft.font_size)
+                            .color(Color32::WHITE);
                         if line.speaker.is_empty() {
                             text = text.italics();
                         }
@@ -282,6 +286,7 @@ impl TranslateApp {
                             if !line.speaker.is_empty() {
                                 ui.label(
                                     RichText::new(format!("{}:", line.speaker))
+                                        .family(family.clone())
                                         .size(draft.font_size)
                                         .color(Color32::from_rgb(255, 210, 120)),
                                 );
@@ -291,6 +296,7 @@ impl TranslateApp {
                         if draft.show_original && !line.original.is_empty() {
                             ui.label(
                                 RichText::new(&line.original)
+                                    .family(family.clone())
                                     .size(draft.font_size * 0.85)
                                     .color(Color32::from_gray(170)),
                             );
