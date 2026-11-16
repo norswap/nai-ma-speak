@@ -161,6 +161,8 @@ pub const MIN_WIDTH: f32 = 560.0;
 pub const MIN_HEIGHT: f32 = 150.0;
 
 const OFF_SCREEN: f32 = -32000.0;
+/// Whether a hidden overlay is moved off screen; see `overlay`.
+const PARK_HIDDEN_OVERLAY: bool = !cfg!(target_os = "macos");
 
 fn overlay_id() -> ViewportId {
     ViewportId::from_hash_of("overlay")
@@ -816,28 +818,31 @@ impl TranslateApp {
             Some(window) => [window.rect[2].max(40.0), window.rect[3].max(20.0)],
             None => [self.draft.overlay_width, self.draft.overlay_height],
         };
-        let builder = ViewportBuilder::default()
-            .with_title("Translate overlay")
-            .with_decorations(false)
-            .with_transparent(true)
-            .with_always_on_top()
-            .with_taskbar(false)
-            .with_mouse_passthrough(self.locked)
-            .with_position(self.overlay_start)
-            .with_inner_size(size);
-
         let locked = self.locked;
-        // Hiding parks the window off screen instead of closing or hiding it:
-        // showing a window again can take focus from WoW, and Windows still
-        // draws a border around an empty transparent window.
+        // A hidden overlay is not closed or hidden: showing a window again can take
+        // focus from WoW. On macOS it stays where it is and draws nothing. It must stay
+        // on screen there: the app only runs while one of its windows can be seen, so
+        // with the overlay parked and this window behind the game, nothing would run
+        // and the overlay would never come back. Elsewhere it is parked off screen,
+        // because Windows draws a border around an empty transparent window.
         let area = match &anchor {
             Some(window) => Some(window.rect),
             None => self.overlay_rect.map(|r| [r.min.x, r.min.y, r.width(), r.height()]),
         };
         let covered = locked && self.draft.hide_when_unfocused && !self.wow_view.shows_overlay(area);
         let hidden = covered || anchor.as_ref().is_some_and(|window| !window.shown);
+        let builder = ViewportBuilder::default()
+            .with_title("Translate overlay")
+            .with_decorations(false)
+            .with_transparent(true)
+            .with_always_on_top()
+            .with_taskbar(false)
+            .with_mouse_passthrough(self.locked || hidden)
+            .with_position(self.overlay_start)
+            .with_inner_size(size);
+
         let pos = match &anchor {
-            _ if hidden => egui::pos2(OFF_SCREEN, OFF_SCREEN),
+            _ if hidden && PARK_HIDDEN_OVERLAY => egui::pos2(OFF_SCREEN, OFF_SCREEN),
             Some(window) => egui::pos2(window.rect[0], window.rect[1]),
             None => self.overlay_rect.map_or(self.overlay_start, |r| r.min),
         };
