@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(default)]
@@ -40,12 +40,22 @@ impl Default for Config {
     }
 }
 
-/// config.json lives next to the executable so the app stays portable.
+/// config.json lives next to the executable so the app stays portable. For a macOS app
+/// bundle that means next to `Translate.app`, not inside it, so rebuilding or replacing
+/// the app keeps the settings.
 pub fn path() -> PathBuf {
     std::env::current_exe()
         .ok()
-        .and_then(|p| p.parent().map(|d| d.join("config.json")))
+        .and_then(|exe| Some(config_dir(&exe)?.join("config.json")))
         .unwrap_or_else(|| PathBuf::from("config.json"))
+}
+
+fn config_dir(exe: &Path) -> Option<&Path> {
+    let dir = exe.parent()?;
+    let bundle = dir.parent().and_then(Path::parent).filter(|bundle| {
+        dir.ends_with("Contents/MacOS") && bundle.extension().is_some_and(|extension| extension == "app")
+    });
+    bundle.and_then(Path::parent).or(Some(dir))
 }
 
 pub fn load() -> Config {
@@ -62,4 +72,20 @@ pub fn load() -> Config {
 pub fn save(config: &Config) -> std::io::Result<()> {
     let text = serde_json::to_string_pretty(config).expect("config serializes");
     std::fs::write(path(), text)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn config_sits_beside_the_program_or_its_app_bundle() {
+        let dir = |exe: &str| config_dir(Path::new(exe)).unwrap().to_str().unwrap().to_owned();
+        assert_eq!(dir("/Applications/wow-translate/translate-companion"), "/Applications/wow-translate");
+        assert_eq!(
+            dir("/Applications/wow-translate/Translate.app/Contents/MacOS/translate-companion"),
+            "/Applications/wow-translate"
+        );
+        assert_eq!(dir("/opt/Contents/MacOS/translate-companion"), "/opt/Contents/MacOS");
+    }
 }
