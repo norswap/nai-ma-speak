@@ -9,7 +9,7 @@ This is a fork of [cherryroots/Translate](https://github.com/cherryroots/Transla
 - **`addon/Translate`**: the in-game addon, listed in the game as "Nai Ma Speak". One folder loads in both WoW: Forever and retail (`## Interface: 16001, 120105`).
 - **`companion`**: a small Rust app that runs next to the game, translates, and draws the result over your chat window.
 
-Development and testing so far have been on macOS with WoW: Forever. The Windows and Linux builds compile but are untested since the fork.
+> **Tested only on macOS with WoW: Forever.** Retail WoW, Windows and Linux are untested since the fork: the addon declares the retail interface and the companion compiles for the other systems, but nobody has run them.
 
 ## How it works
 
