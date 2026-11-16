@@ -121,8 +121,10 @@ ns.Markup, ns.Plain, ns.MarkupIndex = Markup, Plain, MarkupIndex
 -- would be sent for it. Every chat window reports a line, so this is how a
 -- line is sent once, how Mirror knows where the message starts in the line a
 -- window words around it, and what a [T] link sends again. Forgets the oldest
--- beyond KEEP.
-local KEEP = 300
+-- beyond KEEP: a chat window keeps its last 128 lines, but a quiet window's
+-- oldest line can be thousands of lines old across all of chat, and its [T]
+-- link should still work.
+local KEEP = 5000
 local handled, order, first = {}, {}, 1
 
 local function Remember(lineID, value)
