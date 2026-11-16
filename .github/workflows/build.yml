@@ -112,21 +112,27 @@ jobs:
         env:
           MATRIX_TARGET: ${{ matrix.target }}
 
-      # Upload the program itself rather than an archive of it.
-      - name: Rename
+      # Windows and Linux get the program itself. macOS gets the app bundle, zipped: the
+      # bundle is what gives the app its icon, its name and its own permissions.
+      - name: Package
         run: |
           mkdir -p ../dist
-          ext=""; [ "${{ runner.os }}" = "Windows" ] && ext=".exe"
-          out=../dist/translate-companion-${{ matrix.name }}$ext
           bins=()
           for t in ${MATRIX_TARGET//,/ }; do bins+=("target/$t/release/${{ matrix.exe }}"); done
-          if [ ${#bins[@]} -gt 1 ]; then lipo -create -output "$out" "${bins[@]}"; else cp "${bins[0]}" "$out"; fi
+          case "${{ runner.os }}" in
+            Windows) cp "${bins[0]}" ../dist/nai-ma-speak-windows-x64.exe ;;
+            Linux) cp "${bins[0]}" ../dist/nai-ma-speak-linux-x64 ;;
+            macOS)
+              lipo -create -output target/universal "${bins[@]}"
+              COMPANION_BINARY=target/universal ./macos-app.sh target/app
+              ditto -c -k --keepParent "target/app/Nai Ma Speak.app" ../dist/Nai-Ma-Speak-macos.zip ;;
+          esac
         env:
           MATRIX_TARGET: ${{ matrix.target }}
 
       - uses: actions/upload-artifact@v7
         with:
-          path: dist/translate-companion-${{ matrix.name }}*
+          path: dist/*
           archive: false
 
   addon:
@@ -146,7 +152,7 @@ jobs:
       # GitHub zips folder artifacts once on download; the zip holds the Translate folder.
       - uses: actions/upload-artifact@v7
         with:
-          name: Translate-addon
+          name: Nai-Ma-Speak-addon
           path: addon/
 
   # Gathers every build into one release. On pull requests and plain builds
@@ -165,10 +171,10 @@ jobs:
       - name: Zip the addon
         run: |
           cd dist
-          zip -qr Translate-addon.zip Translate
+          zip -qr Nai-Ma-Speak-addon.zip Translate
           rm -r Translate
           ls -l
-          for f in Translate-addon.zip translate-companion-windows-x64.exe translate-companion-macos-universal translate-companion-linux-x64; do
+          for f in Nai-Ma-Speak-addon.zip nai-ma-speak-windows-x64.exe Nai-Ma-Speak-macos.zip nai-ma-speak-linux-x64; do
             test -s "$f" || { echo "missing $f"; exit 1; }
           done
 

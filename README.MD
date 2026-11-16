@@ -9,7 +9,7 @@ This is a fork of [cherryroots/Translate](https://github.com/cherryroots/Transla
 - **`addon/Translate`**: the in-game addon, listed in the game as "Nai Ma Speak". One folder loads in both WoW: Forever and retail (`## Interface: 16001, 120105`).
 - **`companion`**: a small Rust app that runs next to the game, translates, and draws the result over your chat window.
 
-> **Tested only on macOS with WoW: Forever.** Retail WoW, Windows and Linux are untested since the fork: the addon declares the retail interface and the companion compiles for the other systems, but nobody has run them.
+> **Tested only on macOS with WoW: Forever.** Retail WoW, Windows and Linux are untested since the fork: the addon declares the retail interface and the companion builds and passes its tests on the other systems, but nobody has run them with the game.
 
 ## How it works
 
@@ -35,11 +35,18 @@ Reading the strip is screen capture: it only reads pixels and never sends input 
 
 ## Install
 
-There is no release of this fork yet, so both parts come from this repository.
+Download both parts from the [latest release](https://github.com/norswap/nai-ma-speak/releases/latest):
+
+| File | What it is |
+| --- | --- |
+| `Nai-Ma-Speak-addon.zip` | The addon |
+| `Nai-Ma-Speak-macos.zip` | The companion app for macOS (Apple silicon and Intel) |
+| `nai-ma-speak-windows-x64.exe` | The companion for Windows (untested) |
+| `nai-ma-speak-linux-x64` | The companion for Linux (untested) |
 
 ### The addon
 
-Copy or link the `addon/Translate` folder into the AddOns folder of the client you play, keeping the folder name `Translate`:
+Unzip `Nai-Ma-Speak-addon.zip` into the AddOns folder of the client you play, so the files end up in a folder named `Translate`:
 
 ```
 Forever: World of Warcraft/_forever_/Interface/AddOns/Translate/
@@ -50,12 +57,15 @@ Restart the client if "Nai Ma Speak" does not appear in the addon list. If retai
 
 ### The companion
 
-It needs Rust 1.95 or newer.
+Give it a folder of its own: it keeps `config.json` and `translate.log` next to the program (next to the `.app` on macOS). `config.json` holds your API keys in plain text.
 
-- **macOS:** run `./macos-app.sh <folder>` inside `companion/`. It builds `Nai Ma Speak.app` into that folder. macOS asks for the Screen Recording permission the first time, so the companion can read the strip. Run `./macos-signing-cert.sh` once beforehand to sign builds with a local certificate, so the permission survives rebuilds.
-- **Windows and Linux:** run `cargo build --release` inside `companion/`; the program is `target/release/translate-companion`. Linux also needs the PipeWire, X11 and Wayland development packages listed in `.github/workflows/build.yml`.
+- **macOS:** unzip `Nai-Ma-Speak-macos.zip`. The app is not signed by a registered developer, so the first time, right-click it and choose Open, or run `xattr -dr com.apple.quarantine "Nai Ma Speak.app"`. macOS then asks for the Screen Recording permission, so the companion can read the strip; a new version may ask again.
+- **Windows:** run the `.exe`.
+- **Linux:** run `chmod +x nai-ma-speak-linux-x64` once, then start it.
 
-The companion keeps `config.json` and `translate.log` next to the program (next to the `.app` on macOS), so give it a folder of its own. `config.json` holds your API keys in plain text.
+### Building it yourself
+
+It needs Rust 1.95 or newer. On macOS, `./macos-app.sh <folder>` inside `companion/` builds `Nai Ma Speak.app` into that folder; run `./macos-signing-cert.sh` once beforehand to sign your builds with a local certificate, so the Screen Recording permission survives rebuilds. Elsewhere, `cargo build --release` inside `companion/` makes `target/release/translate-companion`; Linux also needs the PipeWire, X11 and Wayland development packages listed in `.github/workflows/build.yml`.
 
 Run WoW in **windowed** or **windowed (fullscreen)** mode: overlays cannot draw over exclusive fullscreen, and screen capture may see a black screen there.
 
@@ -119,8 +129,6 @@ Chat lines are sent to whichever backend you choose. Only a local model keeps th
 ## Making a release
 
 Run the **Build** workflow from the Actions tab with a tag such as `v0.2.0` in the *release* box, or push a `v*` tag. The workflow builds everything and publishes the release with notes generated from the merged pull requests. The tag sets the version: a `v0.2.0` run first commits "Release v0.2.0" to main with `## Version` in `Translate.toc` and the companion version in `companion/Cargo.toml` and `Cargo.lock` set to 0.2.0, then builds and tags that commit. Prefer the release box: a pushed tag stays on the commit you tagged, before the version commit.
-
-The workflow still names its files after the original project (`Translate-addon.zip`, `translate-companion-*`), and its macOS build is a bare program, not the app bundle that `macos-app.sh` makes.
 
 ## License and credits
 

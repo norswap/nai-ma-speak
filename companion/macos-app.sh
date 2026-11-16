@@ -7,13 +7,19 @@ cd "$(dirname "$0")"
 dest="${1:-target/release}"
 version="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)"
 
-cargo build --release --locked
+# COMPANION_BINARY names a program built already, such as a universal one; without it
+# the program is built here for this Mac.
+binary="${COMPANION_BINARY:-}"
+if [ -z "$binary" ]; then
+    cargo build --release --locked
+    binary=target/release/translate-companion
+fi
 
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 app="$work/Nai Ma Speak.app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
-cp target/release/translate-companion "$app/Contents/MacOS/"
+cp "$binary" "$app/Contents/MacOS/translate-companion"
 
 icons="$work/icon.iconset"
 mkdir "$icons"
