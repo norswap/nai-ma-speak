@@ -41,9 +41,23 @@ local function StripCodes(text)
     return text
 end
 
+-- A named color code (|cnNAME:) as an ordinary one, looked up among the
+-- game's color objects. A name the game does not know stays as it is, and its
+-- text then takes the color around it.
+local function NamedColor(name)
+    local color = _G[name]
+    if type(color) ~= "table" or type(color.r) ~= "number" or type(color.g) ~= "number"
+        or type(color.b) ~= "number" then
+        return nil
+    end
+    return "|cff" .. ns.Hex(color.r, color.g, color.b)
+end
+
 -- A line as the overlay draws it: links become their text, icons go, and the
--- color codes (|cAARRGGBB, |cnNAME: and |r) stay for the companion to apply.
+-- color codes (|cAARRGGBB, |r, and |cnNAME: for unknown names) stay for the
+-- companion to apply.
 local function Markup(text)
+    text = text:gsub("|cn([^:|]*):", NamedColor)
     text = text:gsub("|H.-|h(.-)|h", "%1")
     text = text:gsub("|T.-|t", "")
     text = text:gsub("|A.-|a", "")
@@ -97,7 +111,7 @@ local function MarkupIndex(markup, count)
     return i
 end
 
-local function Hex(r, g, b)
+function ns.Hex(r, g, b)
     local function Byte(v)
         v = type(v) == "number" and v or 1
         return math.floor(math.max(0, math.min(1, v)) * 255 + 0.5)
@@ -114,7 +128,7 @@ local function Send(id, prefix, body, color)
     ns.SendToStrip(id .. "\t" .. prefix .. "\t" .. ns.Truncate(body, math.max(room, 0)) .. "\t" .. color)
 end
 
-ns.Markup, ns.Plain, ns.MarkupIndex, ns.Hex = Markup, Plain, MarkupIndex, Hex
+ns.Markup, ns.Plain, ns.MarkupIndex = Markup, Plain, MarkupIndex
 
 function ns.CopyText(id)
     local entry = ns.messages[id]
@@ -182,7 +196,7 @@ local function LineColor(event, channelIndex)
         info = ChatTypeInfo["CHANNEL" .. channelIndex] or info
     end
     if not info then return "ffffff", nil end
-    return Hex(info.r, info.g, info.b), info
+    return ns.Hex(info.r, info.g, info.b), info
 end
 
 -- The name in its class color, when the player turned that on for this kind of line.
@@ -299,7 +313,7 @@ local function Mirror(frame, text, r, g, b)
 
     local markup = Markup(text)
     local plain = Plain(markup)
-    local color = Hex(r, g, b)
+    local color = ns.Hex(r, g, b)
     local prefix, body = "", markup
     if HasChinese(plain) then
         -- The message starts where its stored text is found, or failing that

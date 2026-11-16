@@ -333,7 +333,7 @@ impl TranslateApp {
                     match self.draft.backend {
                         Backend::GoogleFree => {
                             ui.label("");
-                            ui.label("No setup. Chat lines are sent to Google. No slang hints;\nGoogle may slow down or stop this free service.");
+                            ui.label("No slang hints. Service might encounter disruption.");
                             ui.end_row();
                         }
                         Backend::Claude => {
@@ -413,18 +413,24 @@ impl TranslateApp {
                             }
                         });
                     ui.end_row();
-                    ui.label("Overlay width");
-                    ui.add(egui::Slider::new(&mut self.draft.overlay_width, 200.0..=1600.0));
-                    ui.end_row();
-                    ui.label("Overlay height");
-                    ui.add(egui::Slider::new(&mut self.draft.overlay_height, 80.0..=1000.0));
-                    ui.end_row();
-                    ui.label("Background opacity").on_hover_text("Not used on a chat tab, which has its own background.");
-                    ui.add(egui::Slider::new(&mut self.draft.overlay_opacity, 0.0..=1.0));
-                    ui.end_row();
-                    ui.label("Text size");
-                    ui.add(egui::Slider::new(&mut self.draft.font_size, 10.0..=32.0));
-                    ui.end_row();
+                    // On a chat tab the overlay takes the tab's place, size, text size and
+                    // background, so its own are only offered while it is placed by hand.
+                    let on_tab = layout::anchor(&self.chat_windows, &self.draft.anchor_tab).is_some();
+                    let waiting = !self.draft.anchor_tab.trim().is_empty() && self.chat_windows.is_empty();
+                    if !on_tab && !waiting {
+                        ui.label("Overlay width");
+                        ui.add(egui::Slider::new(&mut self.draft.overlay_width, 200.0..=1600.0));
+                        ui.end_row();
+                        ui.label("Overlay height");
+                        ui.add(egui::Slider::new(&mut self.draft.overlay_height, 80.0..=1000.0));
+                        ui.end_row();
+                        ui.label("Background opacity");
+                        ui.add(egui::Slider::new(&mut self.draft.overlay_opacity, 0.0..=1.0));
+                        ui.end_row();
+                        ui.label("Text size");
+                        ui.add(egui::Slider::new(&mut self.draft.font_size, 10.0..=32.0));
+                        ui.end_row();
+                    }
                     ui.label("Lines kept (scrollback)");
                     ui.add(egui::Slider::new(&mut self.draft.max_lines, 1..=500));
                     ui.end_row();
