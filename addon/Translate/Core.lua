@@ -47,8 +47,8 @@ ns.On("PLAYER_LOGIN", function()
     if ns.InitOptions then ns.InitOptions() end
 end)
 
--- The most lines "/tr test <count>" says, so a typo cannot flood /say.
-local TEST_MOST = 30
+-- The most lines "/tr test <count>" sends: 1 to 99 is what ChineseNumber writes.
+local TEST_MOST = 99
 
 -- 1 to 99 in Chinese numerals: 7 is 七, 12 is 十二, 30 is 三十.
 function ns.ChineseNumber(n)
@@ -61,7 +61,7 @@ local function ShowHelp()
     ns.Print("/tr  open the translate window on the latest Chinese line")
     ns.Print("/tr links  toggle the [T] links after Chinese lines")
     ns.Print("/tr test  say a Chinese test line to check the strip and overlay")
-    ns.Print("/tr test 10  say that many short test lines (at most " .. TEST_MOST .. ")")
+    ns.Print("/tr test 10  send that many short test lines to the overlay only (at most " .. TEST_MOST .. ")")
     ns.Print("/tr options  open the options (also under Options > AddOns)")
     ns.Print("/tr all  toggle showing lines without Chinese in the overlay too")
     ns.Print("/tr strip  toggle the pixel strip the companion reads (top-left corner)")
@@ -86,27 +86,29 @@ local commands = {
         ns.SetStripShown(ns.db.strip)
         ns.Print("Pixel strip " .. (ns.db.strip and "on." or "off. The overlay gets no new lines."))
     end,
-    -- With a count, says that many short lines, each a number in Chinese, half
-    -- a second apart: enough different lines to see how the translator copes
-    -- with a burst. The companion never reuses an earlier translation for a
-    -- line marked "(Translate test)".
+    -- With a count, sends that many short lines, each a number in Chinese,
+    -- straight to the overlay: enough different lines to see how the
+    -- translator copes with a burst. Nothing is said in chat: the game only
+    -- lets an addon talk in /say right on a key press, not from a timer. The
+    -- companion never reuses an earlier translation for a line marked
+    -- "(Translate test)".
     test = function(count)
+        if count then
+            count = math.max(1, math.min(count, TEST_MOST))
+            for i = 1, count do
+                ns.SendTestLine(ns.ChineseNumber(i) .. " (Translate test)")
+            end
+            ns.Print("Sent " .. count .. " test lines to the overlay. They are not said in chat.")
+            return
+        end
         -- Mainline moved SendChatMessage into C_ChatInfo; probe both.
         local send = (C_ChatInfo and C_ChatInfo.SendChatMessage) or SendChatMessage
         if not send then
             ns.Print("No SendChatMessage on this client. Type /s 需要奶妈 by hand.")
             return
         end
-        if not count then
-            send("大家好，今天一起打副本嗎？ (Translate test)", "SAY")
-            ns.Print("Sent a test line in /say. The companion overlay should show it in English shortly.")
-            return
-        end
-        count = math.max(1, math.min(count, TEST_MOST))
-        for i = 1, count do
-            C_Timer.After((i - 1) * 0.5, function() send(ns.ChineseNumber(i) .. " (Translate test)", "SAY") end)
-        end
-        ns.Print("Saying " .. count .. " test lines in /say, half a second apart.")
+        send("大家好，今天一起打副本嗎？ (Translate test)", "SAY")
+        ns.Print("Sent a test line in /say. The companion overlay should show it in English shortly.")
     end,
     probe = function()
         local _, _, _, toc = GetBuildInfo()

@@ -338,6 +338,11 @@ local function Mirror(frame, text, r, g, b)
     Send(id, prefix, body, color)
 end
 
+-- A made-up Chinese line for the overlay, as if someone had said it.
+function ns.SendTestLine(text)
+    Send(Store(text, "Test", nil), "[Test]: ", text, "ffffff")
+end
+
 -- Runs Mirror for tests, and behind the hook where an error must not reach the chat window.
 function ns.MirrorLine(frame, text, r, g, b)
     local ok, problem = pcall(Mirror, frame, text, r, g, b)
