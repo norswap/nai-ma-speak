@@ -112,6 +112,8 @@ pub struct TranslateApp {
     show_window: bool,
     /// This window was hidden with its Hide button.
     window_hidden: bool,
+    /// The game's Settings button brought this window over the game, where it still is.
+    window_summoned: bool,
     /// Whether the companion was the app in front at the last look.
     was_active: bool,
 }
@@ -130,7 +132,7 @@ enum ReplyState {
 /// How long the overlay says a reply was copied.
 const COPIED_SHOWN: Duration = Duration::from_secs(6);
 /// Size of the reply box, and how far above the chat window it opens, past the tab row.
-const REPLY_BOX_HEIGHT: f32 = 78.0;
+const REPLY_BOX_HEIGHT: f32 = 86.0;
 const REPLY_BOX_GAP: f32 = 34.0;
 
 fn reply_id() -> ViewportId {
@@ -150,7 +152,7 @@ enum Tab {
 impl Tab {
     /// Typing a reply here comes last: in the game its own Translate button does that.
     const ALL: [(Tab, &'static str); 5] = [
-        (Tab::Translation, "Translation"),
+        (Tab::Translation, "Backend"),
         (Tab::Overlay, "Overlay"),
         (Tab::Status, "Status"),
         (Tab::History, "Chat history"),
@@ -204,6 +206,7 @@ impl TranslateApp {
             reply_box_focus: false,
             show_window: false,
             window_hidden: false,
+            window_summoned: false,
             was_active: true,
             test_result: String::new(),
             strip_status: "Starting the pixel strip reader".into(),
@@ -373,7 +376,7 @@ impl TranslateApp {
             egui::CentralPanel::default().frame(frame).show(root, |ui| {
                 ui.horizontal(|ui| {
                     ui.label(RichText::new("Translate").font(theme::heading_font(16.0)).color(theme::GOLD));
-                    let edit = ui.add(egui::TextEdit::singleline(reply).desired_width(f32::INFINITY));
+                    let edit = ui.add(theme::field(reply));
                     if edit.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
                         submit = !reply.trim().is_empty();
                     } else {
@@ -383,7 +386,7 @@ impl TranslateApp {
                 });
                 ui.horizontal(|ui| {
                     if too_long {
-                        copy_anyway = ui.small_button("Copy anyway").clicked();
+                        copy_anyway = ui.add(theme::button("Copy anyway").small()).clicked();
                     }
                     ui.add(egui::Label::new(RichText::new(&note).size(11.5).color(if edge == theme::BORDER { theme::MUTED } else { edge })).truncate());
                 });
@@ -427,22 +430,44 @@ impl TranslateApp {
 
     /// Brings this window over the game, next to the chat window, when the game's
     /// Settings button asks for it.
+    /// Hides this window and gives the keyboard back to the game. The overlay stays.
+    fn hide_window(&mut self, ctx: &egui::Context) {
+        let root = ViewportId::ROOT;
+        self.window_hidden = true;
+        self.window_summoned = false;
+        ctx.send_viewport_cmd_to(root, ViewportCommand::WindowLevel(egui::WindowLevel::Normal));
+        ctx.send_viewport_cmd_to(root, ViewportCommand::Minimized(false));
+        ctx.send_viewport_cmd_to(root, ViewportCommand::Visible(false));
+        crate::focus::activate_wow();
+    }
+
+    /// Shows, hides and brings back this window: over the game, next to the chat window,
+    /// when the game's Settings button asks for it, and away again on a second click.
     fn show_over_game(&mut self, ctx: &egui::Context) {
         let root = ViewportId::ROOT;
-        let away = self.window_hidden || ctx.input(|i| i.viewport().minimized) == Some(true);
+        // The yellow button would minimize the window, and macOS then ignores a click
+        // on the app's icon as long as the companion is the app in front. Hiding the
+        // window instead behaves the same as the Hide button, which comes back.
+        if ctx.input(|i| i.viewport().minimized) == Some(true) {
+            self.hide_window(ctx);
+        }
         // A click on the app's icon makes the companion the app in front, but macOS
-        // leaves its window hidden or minimized, because the overlay counts as a
-        // window already showing. So the window is brought back here. Opening the
-        // reply box also puts the companion in front, and must not bring it back.
+        // leaves its window hidden, because the overlay counts as a window already
+        // showing. So the window is brought back here. Opening the reply box also puts
+        // the companion in front, and must not bring it back.
         let active = crate::focus::app_is_active().unwrap_or(false);
         let activated = active && !self.was_active && !self.reply_box;
         self.was_active = active;
-        if away {
+        if self.window_hidden {
             // Nothing else may ask for a pass while the app waits to be clicked.
             ctx.request_repaint_after(Duration::from_millis(300));
         }
         let asked = std::mem::take(&mut self.show_window);
-        if !asked && !(away && activated) {
+        if asked && !self.window_hidden && (self.window_summoned || active) {
+            self.hide_window(ctx);
+            return;
+        }
+        if !asked && !(self.window_hidden && activated) {
             return;
         }
         self.window_hidden = false;
@@ -450,6 +475,7 @@ impl TranslateApp {
         ctx.send_viewport_cmd_to(root, ViewportCommand::Minimized(false));
         if asked {
             // From the game: stay above it, next to the chat window.
+            self.window_summoned = true;
             ctx.send_viewport_cmd_to(root, ViewportCommand::WindowLevel(egui::WindowLevel::AlwaysOnTop));
             if let Some(window) = layout::anchor(&self.chat_windows, &self.draft.anchor_tab) {
                 let [x, y, width, height] = window.rect;
@@ -504,9 +530,12 @@ impl TranslateApp {
     }
 
     fn control_contents(&mut self, ui: &mut egui::Ui) {
+        // The title bar, the tabs and the page touch, with no gap showing between them.
+        let spacing = std::mem::replace(&mut ui.spacing_mut().item_spacing.y, 0.0);
         self.title_bar(ui);
         self.tab_bar(ui);
         egui::Frame::NONE.inner_margin(egui::Margin::symmetric(18, 14)).show(ui, |ui| {
+            ui.spacing_mut().item_spacing.y = spacing;
             // Text takes the window's width and wraps; nothing is cut off at the edge.
             ui.set_width(ui.available_width());
             if !self.notice.is_empty() {
@@ -528,17 +557,13 @@ impl TranslateApp {
         let bar = egui::Frame::NONE.fill(theme::BAR).inner_margin(egui::Margin::symmetric(14, 8));
         bar.show(ui, |ui| {
             ui.horizontal(|ui| {
-                ui.label(RichText::new("Translate").font(theme::heading_font(20.0)).color(theme::GOLD));
+                ui.label(RichText::new("WoW Translate").font(theme::heading_font(21.0)).color(theme::GOLD));
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     let hint = "Hide this window; the overlay stays. The game's Settings button or the app's icon brings it back.";
-                    if ui.button("Hide").on_hover_text(hint).clicked() {
-                        self.window_hidden = true;
-                        let root = ViewportId::ROOT;
-                        ui.ctx().send_viewport_cmd_to(root, ViewportCommand::WindowLevel(egui::WindowLevel::Normal));
-                        ui.ctx().send_viewport_cmd_to(root, ViewportCommand::Visible(false));
-                        crate::focus::activate_wow();
+                    if ui.add(theme::button("Hide")).on_hover_text(hint).clicked() {
+                        self.hide_window(ui.ctx());
                     }
-                    if ui.button("Restart").on_hover_text("Quit and start the companion again. Unsaved settings are lost.").clicked() {
+                    if ui.add(theme::button("Restart")).on_hover_text("Quit and start the companion again. Unsaved settings are lost.").clicked() {
                         match config::start_again() {
                             Ok(()) => ui.ctx().send_viewport_cmd_to(ViewportId::ROOT, ViewportCommand::Close),
                             Err(e) => self.notice = format!("Could not restart: {e}"),
@@ -550,7 +575,7 @@ impl TranslateApp {
                         let (rect, _) = ui.allocate_exact_size(egui::vec2(8.0, 8.0), egui::Sense::hover());
                         ui.painter().circle_filled(rect.center(), 4.0, if working { theme::GOOD } else { theme::BAD });
                         // Chat lines leave this computer for the service named here, unless it runs locally.
-                        let status = format!("{} · {}", self.status, self.draft.backend.label());
+                        let status = format!("{} · {}", self.status, self.draft.backend.short_label());
                         ui.add(egui::Label::new(status).truncate());
                     });
                 });
@@ -558,38 +583,50 @@ impl TranslateApp {
         });
     }
 
+    /// The tabs stand on a line; the chosen one is open at the bottom, joined to its page.
     fn tab_bar(&mut self, ui: &mut egui::Ui) {
-        let bar = egui::Frame::NONE.fill(theme::BAR).inner_margin(egui::Margin { left: 14, right: 14, top: 2, bottom: 0 });
-        bar.show(ui, |ui| {
+        let bar = egui::Frame::NONE.fill(theme::BAR).inner_margin(egui::Margin { left: 14, right: 14, top: 4, bottom: 0 });
+        let mut chosen = egui::Rect::NOTHING;
+        let row = bar.show(ui, |ui| {
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = 4.0;
                 for (tab, name) in Tab::ALL {
                     let selected = self.tab == tab;
-                    let (fill, text, edge) = if selected {
-                        (theme::BACKGROUND, Color32::WHITE, theme::BORDER)
-                    } else {
-                        (theme::BAR, theme::GOLD, theme::BORDER_DIM)
+                    let color = if selected { Color32::WHITE } else { theme::GOLD };
+                    let text = ui.painter().layout_no_wrap(name.to_string(), theme::heading_font(15.0), color);
+                    let (rect, response) = ui.allocate_exact_size(text.size() + egui::vec2(28.0, 14.0), egui::Sense::click());
+                    // The other tabs are a little lower and darker.
+                    let shape = if selected { rect } else { rect.with_min_y(rect.top() + 3.0) };
+                    let (fill, edge) = match (selected, response.hovered()) {
+                        (true, _) => (theme::BACKGROUND, theme::BORDER),
+                        (false, true) => (theme::BACKGROUND, theme::BORDER_FIELD),
+                        (false, false) => (theme::FIELD, theme::BORDER_DIM),
                     };
                     let corners = egui::CornerRadius { nw: 6, ne: 6, sw: 0, se: 0 };
-                    let button = egui::Button::new(RichText::new(name).color(text))
-                        .fill(fill)
-                        .stroke(egui::Stroke::new(1.0, edge))
-                        .corner_radius(corners);
-                    if ui.add(button).clicked() {
+                    ui.painter().rect(shape, corners, fill, egui::Stroke::new(1.0, edge), egui::StrokeKind::Inside);
+                    ui.painter().galley(shape.center() - text.size() / 2.0, text, color);
+                    if selected {
+                        chosen = rect;
+                    }
+                    if response.clicked() {
                         self.tab = tab;
                     }
                 }
                 ui.add_space(ui.available_width());
             });
         });
-        let line = ui.available_rect_before_wrap();
-        ui.painter().hline(line.x_range(), line.top(), egui::Stroke::new(1.0, theme::BORDER));
+        let bottom = row.response.rect.bottom();
+        let painter = ui.painter();
+        painter.hline(row.response.rect.x_range(), bottom - 0.5, egui::Stroke::new(1.0, theme::BORDER));
+        // Rub the line out under the chosen tab, between its side edges.
+        let gap = (chosen.left() + 1.0)..=(chosen.right() - 1.0);
+        painter.hline(gap, bottom - 0.5, egui::Stroke::new(1.0, theme::BACKGROUND));
     }
 
     fn save_row(&mut self, ui: &mut egui::Ui) {
         ui.add_space(6.0);
         ui.horizontal(|ui| {
-            if ui.button("Save settings").clicked() {
+            if ui.add(theme::main_button("Save settings")).clicked() {
                 self.save();
             }
             ui.label(RichText::new("Changes apply when saved.").color(theme::MUTED));
@@ -599,9 +636,7 @@ impl TranslateApp {
     fn reply_tab(&mut self, ui: &mut egui::Ui) {
         ui.label(theme::label("Translate into Chinese"));
         let edit = ui.add(
-            egui::TextEdit::singleline(&mut self.reply)
-                .desired_width(f32::INFINITY)
-                .hint_text("Type in English, press Enter, then paste into WoW chat"),
+            theme::field(&mut self.reply).hint_text("Type in English, press Enter, then paste into WoW chat"),
         );
         if edit.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) && !self.reply.trim().is_empty() {
             let english = std::mem::take(&mut self.reply).trim().to_string();
@@ -617,7 +652,7 @@ impl TranslateApp {
                 ui.label(format!("{size}: {chinese}"));
             } else {
                 ui.label(RichText::new(format!("{size}, WoW would cut it off: {chinese}")).color(theme::BAD));
-                copy_anyway = ui.button("Copy anyway").clicked();
+                copy_anyway = ui.add(theme::button("Copy anyway")).clicked();
             }
         }
         if copy_anyway {
@@ -643,7 +678,7 @@ impl TranslateApp {
             }
             Backend::Claude => {
                 ui.label(theme::label("Claude API key"));
-                ui.add(egui::TextEdit::singleline(&mut self.draft.claude_api_key).password(true).desired_width(f32::INFINITY));
+                ui.add(theme::field(&mut self.draft.claude_api_key).password(true));
                 if let Some(problem) = key_problem(&self.draft.claude_api_key) {
                     ui.label(RichText::new(problem).color(theme::BAD));
                 }
@@ -663,7 +698,7 @@ impl TranslateApp {
                 });
                 if chosen.is_none() {
                     ui.label(theme::label("Model ID"));
-                    ui.add(egui::TextEdit::singleline(&mut self.draft.claude_model).desired_width(f32::INFINITY));
+                    ui.add(theme::field(&mut self.draft.claude_model));
                 }
             }
             Backend::OpenAiCompatible => {
@@ -684,13 +719,12 @@ impl TranslateApp {
                 });
                 if chosen.is_none() {
                     ui.label(theme::label("API base URL"));
-                    ui.add(egui::TextEdit::singleline(&mut self.draft.api_base).desired_width(f32::INFINITY));
+                    ui.add(theme::field(&mut self.draft.api_base));
                     ui.label(theme::label("Model"));
-                    ui.add(egui::TextEdit::singleline(&mut self.draft.model).desired_width(f32::INFINITY));
+                    ui.add(theme::field(&mut self.draft.model));
                 }
                 ui.label(theme::label("API key"));
-                let key = egui::TextEdit::singleline(&mut self.draft.api_key).password(true).hint_text("empty for Ollama");
-                ui.add(key.desired_width(f32::INFINITY));
+                ui.add(theme::field(&mut self.draft.api_key).password(true).hint_text("empty for Ollama"));
             }
         }
         ui.label(theme::label("Reply in"));
@@ -711,7 +745,7 @@ impl TranslateApp {
             .inner_margin(10);
         boxed.show(ui, |ui| {
             ui.set_width(ui.available_width());
-            if ui.button("Test translation").clicked() {
+            if ui.add(theme::button("Test translation")).clicked() {
                 // Test what is chosen here, even before Save.
                 *self.config.lock().unwrap() = self.draft.clone();
                 let _ = self.interactive.send(Job::Test);
@@ -727,13 +761,13 @@ impl TranslateApp {
     fn overlay_tab(&mut self, ui: &mut egui::Ui) {
         ui.horizontal_wrapped(|ui| {
             let label = if self.locked { "Unlock overlay to move it" } else { "Lock overlay" };
-            if ui.button(label).clicked() {
+            if ui.add(theme::button(label)).clicked() {
                 self.locked = !self.locked;
                 if self.locked {
                     self.save();
                 }
             }
-            if ui.button("Clear overlay").clicked() {
+            if ui.add(theme::button("Clear overlay")).clicked() {
                 self.lines.clear();
             }
         });
@@ -741,7 +775,7 @@ impl TranslateApp {
         ui.checkbox(&mut self.draft.hide_when_unfocused, HIDE_LABEL);
 
         ui.label(theme::label("Anchor to chat tab"));
-        ui.add(egui::TextEdit::singleline(&mut self.draft.anchor_tab).hint_text("tab name, or empty").desired_width(f32::INFINITY));
+        ui.add(theme::field(&mut self.draft.anchor_tab).hint_text("tab name, or empty"));
         if !self.draft.anchor_tab.trim().is_empty() {
             ui.label(RichText::new(self.anchor_status()).color(theme::MUTED));
         }
@@ -791,7 +825,7 @@ impl TranslateApp {
 
     fn status_tab(&mut self, ui: &mut egui::Ui) {
         ui.label(theme::label("Translation"));
-        ui.label(format!("{} · translating with {}", self.status, self.draft.backend.label()));
+        ui.label(format!("{} · translating with {}", self.status, self.draft.backend.short_label()));
         ui.label(theme::label("Pixel strip"));
         ui.label(&self.strip_status);
         ui.label(theme::label("Chat windows"));

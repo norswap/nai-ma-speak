@@ -88,6 +88,15 @@ impl Backend {
         }
     }
 
+    /// The name without the examples, for the status line.
+    pub fn short_label(self) -> &'static str {
+        match self {
+            Backend::GoogleFree => "Google Translate",
+            Backend::Claude => "Claude",
+            Backend::OpenAiCompatible => "OpenAI compatible",
+        }
+    }
+
     /// A config file written before backends existed could only use this one.
     fn before_backends() -> Self {
         Backend::OpenAiCompatible

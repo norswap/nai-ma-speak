@@ -69,6 +69,7 @@ fn add_cjk_font(ctx: &egui::Context) {
     let Some((path, index, bytes)) = found else {
         eprintln!("No usable Chinese system font found; Chinese text will show as empty boxes.");
         let mut fonts = egui::FontDefinitions::default();
+        theme::add_body_font(&mut fonts);
         add_overlay_family(&mut fonts);
         theme::add_heading_family(&mut fonts);
         ctx.set_fonts(fonts);
@@ -76,6 +77,7 @@ fn add_cjk_font(ctx: &egui::Context) {
     };
     eprintln!("Chinese font: {path} (face {index})");
     let mut fonts = egui::FontDefinitions::default();
+    theme::add_body_font(&mut fonts);
     let data = egui::FontData { index, ..egui::FontData::from_owned(bytes) };
     fonts.font_data.insert("cjk".into(), Arc::new(data));
     for family in [egui::FontFamily::Proportional, egui::FontFamily::Monospace] {
@@ -108,7 +110,7 @@ fn chat_font() -> Option<Vec<u8>> {
 fn add_overlay_family(fonts: &mut egui::FontDefinitions) {
     let proportional = fonts.families.get(&egui::FontFamily::Proportional).cloned().unwrap_or_default();
     let chat = chat_font().map(|bytes| {
-        fonts.font_data.insert("chat".into(), Arc::new(egui::FontData::from_owned(bytes)));
+        fonts.font_data.insert("chat".into(), Arc::new(theme::crisp(egui::FontData::from_owned(bytes))));
         "chat".to_string()
     });
     let names = proportional
@@ -223,7 +225,7 @@ fn main() -> eframe::Result {
     let config = Arc::new(Mutex::new(config::load()));
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_title("Translate companion")
+            .with_title("WoW Translate Companion App")
             .with_inner_size([app::MIN_WIDTH, app::MIN_HEIGHT])
             .with_min_inner_size([app::MIN_WIDTH, app::MIN_HEIGHT])
             .with_icon(window_icon())
