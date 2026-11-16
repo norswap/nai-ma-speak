@@ -3591,6 +3591,8 @@ version = "0.1.0"
 dependencies = [
  "arboard",
  "eframe",
+ "objc2-core-foundation",
+ "objc2-core-graphics",
  "serde",
  "serde_json",
  "ureq",

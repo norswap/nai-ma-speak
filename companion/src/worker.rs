@@ -27,7 +27,7 @@ pub enum UiEvent {
     /// Pixel strip state: searching, or where it was found.
     Strip(String),
     /// Whether WoW has focus; None when the focused window cannot be read.
-    WowFocused(Option<bool>),
+    WowView(crate::focus::WowView),
     Status(String),
 }
 

@@ -1,9 +1,15 @@
 use crate::config::{self, Config};
+use crate::focus::WowView;
 use crate::worker::{Job, UiEvent};
 use eframe::egui::{self, Color32, RichText, ViewportBuilder, ViewportCommand, ViewportId};
 use std::collections::VecDeque;
 use std::sync::mpsc::{Receiver, Sender};
 use std::sync::{Arc, Mutex};
+
+#[cfg(target_os = "macos")]
+const HIDE_LABEL: &str = "Hide when WoW is hidden or covered";
+#[cfg(not(target_os = "macos"))]
+const HIDE_LABEL: &str = "Hide when WoW is in the background";
 
 struct OverlayLine {
     speaker: String,
@@ -26,7 +32,7 @@ pub struct TranslateApp {
     test_result: String,
     strip_status: String,
     fitted_height: f32,
-    wow_focused: Option<bool>,
+    wow_view: WowView,
     overlay_hidden: bool,
 }
 
@@ -57,7 +63,7 @@ impl TranslateApp {
             overlay_start,
             overlay_rect: None,
             fitted_height: 0.0,
-            wow_focused: None,
+            wow_view: WowView::Unknown,
             overlay_hidden: false,
             test_result: String::new(),
             strip_status: "Starting the pixel strip reader".into(),
@@ -94,7 +100,7 @@ impl TranslateApp {
                     };
                 }
                 UiEvent::Strip(text) => self.strip_status = text,
-                UiEvent::WowFocused(focused) => self.wow_focused = focused,
+                UiEvent::WowView(view) => self.wow_view = view,
                 UiEvent::Status(text) => self.status = text,
             }
         }
@@ -184,7 +190,7 @@ impl TranslateApp {
                     self.lines.clear();
                 }
                 ui.checkbox(&mut self.draft.show_original, "Show Chinese too");
-                ui.checkbox(&mut self.draft.hide_when_unfocused, "Hide when WoW is in the background");
+                ui.checkbox(&mut self.draft.hide_when_unfocused, HIDE_LABEL);
             });
 
             egui::CollapsingHeader::new("Settings").default_open(false).show(ui, |ui| {
@@ -236,7 +242,8 @@ impl TranslateApp {
         // Hiding parks the window off screen instead of closing or hiding it:
         // showing a window again can take focus from WoW, and Windows still
         // draws a border around an empty transparent window.
-        let hidden = locked && self.draft.hide_when_unfocused && self.wow_focused == Some(false);
+        let area = self.overlay_rect.map(|r| [r.min.x, r.min.y, r.width(), r.height()]);
+        let hidden = locked && self.draft.hide_when_unfocused && !self.wow_view.shows_overlay(area);
         if hidden != self.overlay_hidden {
             let pos = if hidden {
                 egui::pos2(OFF_SCREEN, OFF_SCREEN)
