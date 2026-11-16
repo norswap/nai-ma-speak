@@ -272,6 +272,7 @@ pub fn spawn(jobs: Sender<Job>, ui: UiSender) {
     thread::spawn(move || {
         let mut locked: Option<(usize, Lock)> = None;
         let mut last_seen: Option<(u8, u16)> = None;
+        let mut next_line: u64 = 1;
         let mut last_good = Instant::now();
         let mut said_searching = false;
         let mut said_capture_error = false;
@@ -352,8 +353,11 @@ pub fn spawn(jobs: Sender<Job>, ui: UiSender) {
                         // The first frame after locking may be an old line; it is
                         // still new to the overlay, so it is shown too.
                         last_seen = Some((frame.seq, frame.checksum));
-                        if let Some((speaker, text)) = parse_payload(&frame.text) {
-                            let _ = jobs.send(Job::Incoming { speaker, text });
+                        for (line, job) in crate::worker::route_frame(&frame.text, &mut next_line) {
+                            ui.send(line);
+                            if let Some(job) = job {
+                                let _ = jobs.send(job);
+                            }
                         }
                     }
                 }

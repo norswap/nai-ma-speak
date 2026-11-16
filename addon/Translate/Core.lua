@@ -18,6 +18,7 @@ end)
 local DEFAULTS = {
     showLinks = true, -- add a clickable [T] after Chinese chat lines
     strip = true,     -- draw new Chinese lines as a pixel strip for the companion
+    allLines = true,  -- also send lines without Chinese, shown untranslated in the overlay
 }
 
 function ns.Print(msg)
@@ -47,6 +48,7 @@ local function ShowHelp()
     ns.Print("/tr  open the translate window on the latest Chinese line")
     ns.Print("/tr links  toggle the [T] links after Chinese lines")
     ns.Print("/tr test  say a Chinese test line to check the strip and overlay")
+    ns.Print("/tr all  toggle showing lines without Chinese in the overlay too")
     ns.Print("/tr strip  toggle the pixel strip the companion reads (top-left corner)")
     ns.Print("/tr probe  report which client features this addon found")
 end
@@ -56,6 +58,10 @@ local commands = {
     links = function()
         ns.db.showLinks = not ns.db.showLinks
         ns.Print("[T] links " .. (ns.db.showLinks and "on." or "off."))
+    end,
+    all = function()
+        ns.db.allLines = not ns.db.allLines
+        ns.Print("The overlay shows " .. (ns.db.allLines and "all chat lines." or "Chinese lines only."))
     end,
     strip = function()
         ns.db.strip = not ns.db.strip

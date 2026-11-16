@@ -33,7 +33,7 @@ impl Default for Config {
             overlay_height: 260.0,
             overlay_opacity: 0.55,
             font_size: 15.0,
-            max_lines: 12,
+            max_lines: 100,
             show_original: false,
             hide_when_unfocused: true,
         }

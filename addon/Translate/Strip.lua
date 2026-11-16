@@ -9,13 +9,14 @@ local addonName, ns = ...
 --   3 sync blocks (magenta, cyan, yellow), then the payload bytes
 --   [seq] [length hi] [length lo] [text...] [fletcher16 hi] [fletcher16 lo]
 --   packed 3 bytes -> 4 blocks, padded with black.
+-- The text holds one or more chat lines, separated by newlines.
 local COLS, ROWS = 64, 8
 local BLOCK = 4 -- physical screen pixels per block side
 local SYNC = { 51, 15, 60 } -- (3,0,3) magenta, (0,3,3) cyan, (3,3,0) yellow
 local CAPACITY = math.floor((COLS * ROWS - #SYNC) / 4) * 3
 local MAX_TEXT = CAPACITY - 5
 local SHOW_TIME = 0.25 -- seconds each frame stays up; the app polls faster
-local MAX_QUEUE = 50
+local MAX_QUEUE = 200
 
 ns.STRIP = { cols = COLS, rows = ROWS, block = BLOCK, maxText = MAX_TEXT }
 
@@ -104,8 +105,13 @@ local function Advance()
         ticking = false
         return
     end
+    -- Short lines share a frame, so a busy channel does not fall behind.
+    local text = table.remove(queue, 1)
+    while queue[1] and #text + 1 + #queue[1] <= MAX_TEXT do
+        text = text .. "\n" .. table.remove(queue, 1)
+    end
     seq = (seq + 1) % 256
-    Paint(ns.EncodeFrame(seq, table.remove(queue, 1)))
+    Paint(ns.EncodeFrame(seq, text))
     ticking = true
     C_Timer.After(SHOW_TIME, Advance)
 end

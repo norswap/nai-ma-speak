@@ -12,9 +12,12 @@ const HIDE_LABEL: &str = "Hide when WoW is hidden or covered";
 const HIDE_LABEL: &str = "Hide when WoW is in the background";
 
 struct OverlayLine {
+    /// The number `UiEvent::Translated` refers to; 0 for lines that never get one.
+    id: u64,
     speaker: String,
     original: String,
-    english: String,
+    /// None while a Chinese line waits for its translation.
+    english: Option<String>,
 }
 
 pub struct TranslateApp {
@@ -70,21 +73,31 @@ impl TranslateApp {
         }
     }
 
+    fn push_line(&mut self, line: OverlayLine) {
+        self.lines.push_back(line);
+        while self.lines.len() > self.draft.max_lines.max(1) {
+            self.lines.pop_front();
+        }
+    }
+
     fn drain_events(&mut self) {
         while let Ok(event) = self.events.try_recv() {
             match event {
-                UiEvent::Line { speaker, original, english } => {
-                    self.lines.push_back(OverlayLine { speaker, original, english });
-                    while self.lines.len() > self.draft.max_lines.max(1) {
-                        self.lines.pop_front();
+                UiEvent::Line { id, speaker, original, english } => {
+                    self.push_line(OverlayLine { id, speaker, original, english });
+                }
+                UiEvent::Translated { id, english } => {
+                    if let Some(line) = self.lines.iter_mut().rev().find(|line| line.id == id) {
+                        line.english = Some(english);
                     }
                 }
                 UiEvent::PasteReady { id, english } => {
                     self.notice = format!("#{id} ready: press Ctrl+V in the addon window");
-                    self.lines.push_back(OverlayLine {
+                    self.push_line(OverlayLine {
+                        id: 0,
                         speaker: format!("#{id}"),
                         original: String::new(),
-                        english,
+                        english: Some(english),
                     });
                 }
                 UiEvent::ReplyReady { english, chinese } => {
@@ -216,8 +229,8 @@ impl TranslateApp {
                     ui.label("Text size");
                     ui.add(egui::Slider::new(&mut self.draft.font_size, 10.0..=32.0));
                     ui.end_row();
-                    ui.label("Lines kept");
-                    ui.add(egui::Slider::new(&mut self.draft.max_lines, 1..=50));
+                    ui.label("Lines kept (scrollback)");
+                    ui.add(egui::Slider::new(&mut self.draft.max_lines, 1..=500));
                     ui.end_row();
                 });
                 if ui.button("Save settings").clicked() {
@@ -282,10 +295,13 @@ impl TranslateApp {
                 egui::ScrollArea::vertical().stick_to_bottom(true).show(ui, |ui| {
                     let family = egui::FontFamily::Name(crate::OVERLAY_FAMILY.into());
                     for line in lines {
-                        let mut text = RichText::new(&line.english)
-                            .family(family.clone())
-                            .size(draft.font_size)
-                            .color(Color32::WHITE);
+                        // A Chinese line shows as it is, dimmed, until its translation arrives.
+                        let (shown, color) = match &line.english {
+                            Some(english) => (english, Color32::WHITE),
+                            None => (&line.original, Color32::from_gray(190)),
+                        };
+                        let mut text =
+                            RichText::new(shown).family(family.clone()).size(draft.font_size).color(color);
                         if line.speaker.is_empty() {
                             text = text.italics();
                         }
@@ -300,7 +316,7 @@ impl TranslateApp {
                             }
                             ui.label(text);
                         });
-                        if draft.show_original && !line.original.is_empty() {
+                        if draft.show_original && line.english.is_some() && !line.original.is_empty() {
                             ui.label(
                                 RichText::new(&line.original)
                                     .family(family.clone())

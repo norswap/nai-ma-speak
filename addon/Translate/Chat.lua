@@ -26,6 +26,7 @@ local function StripCodes(text)
     text = text:gsub("|H.-|h(.-)|h", "%1")
     text = text:gsub("|c%x%x%x%x%x%x%x%x", "")
     text = text:gsub("|r", "")
+    text = text:gsub("[\r\n]", " ") -- a newline separates lines on the strip
     return text
 end
 
@@ -81,23 +82,49 @@ local LABELS = {
     CHAT_MSG_GUILD = "Guild", CHAT_MSG_OFFICER = "Officer",
 }
 
+-- Lines without Chinese that were already sent, so each goes out once
+-- although every chat frame reports it. Forgets the oldest beyond KEEP.
+local plainSeen, plainOrder, plainFirst = {}, {}, 1
+
+local function SeenPlain(lineID)
+    if not lineID then return false end
+    if plainSeen[lineID] then return true end
+    plainSeen[lineID] = true
+    plainOrder[#plainOrder + 1] = lineID
+    if #plainOrder - plainFirst >= KEEP then
+        plainSeen[plainOrder[plainFirst]] = nil
+        plainOrder[plainFirst] = nil
+        plainFirst = plainFirst + 1
+    end
+    return false
+end
+
 -- Stores a Chinese line once and sends it to the pixel strip. Returns its id,
 -- or nil when the line is not Chinese or cannot be read (secret values).
+-- With allLines on, other lines also go to the strip, with id 0, so the
+-- overlay can show the whole conversation in order; they are not stored.
 -- Arguments follow the CHAT_MSG_* payload; lineID is the 11th.
 local function Capture(event, msg, author, _, channel, _, _, _, _, _, _, lineID)
     if ns.IsSecret(msg) or ns.IsSecret(author) or ns.IsSecret(channel) or ns.IsSecret(lineID) then
         return nil
     end
-    if type(msg) ~= "string" or not HasChinese(msg) then return nil end
-    if lineID and byLine[lineID] then return byLine[lineID] end
+    if type(msg) ~= "string" then return nil end
+    local chinese = HasChinese(msg)
+    if not chinese and not ns.db.allLines then return nil end
+    if chinese and lineID and byLine[lineID] then return byLine[lineID] end
+    if not chinese and SeenPlain(lineID) then return nil end
 
     local name = type(author) == "string" and Ambiguate(author, "short") or "?"
-    local id = Store(msg, name, lineID)
     local label = LABELS[event]
     if event == "CHAT_MSG_CHANNEL" and type(channel) == "string" and channel ~= "" then
         label = channel
     end
     local speaker = label and ("[" .. label .. "] " .. name) or name
+    if not chinese then
+        ns.SendToStrip("0\t" .. speaker .. "\t" .. StripCodes(msg))
+        return nil
+    end
+    local id = Store(msg, name, lineID)
     ns.SendToStrip(id .. "\t" .. speaker .. "\t" .. ns.messages[id].text)
     return id
 end
