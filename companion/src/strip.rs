@@ -158,7 +158,7 @@ fn read_frame(img: &RgbaImage, center: &dyn Fn(usize) -> (u32, u32), inverse: &[
         }
     }
     let mut bytes = Vec::with_capacity((symbols.len() - 3) / 4 * 3);
-    for chunk in symbols[3..].chunks_exact(4) {
+    for chunk in symbols[3..].as_chunks::<4>().0 {
         let v = (chunk[0] as u32) << 18 | (chunk[1] as u32) << 12 | (chunk[2] as u32) << 6 | chunk[3] as u32;
         bytes.extend_from_slice(&[(v >> 16) as u8, (v >> 8) as u8, v as u8]);
     }
