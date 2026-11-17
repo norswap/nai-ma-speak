@@ -39,7 +39,7 @@ Reading the strip is screen capture: it only reads pixels and never sends input 
 - **In-game buttons.** "Translate" and "App" buttons on the chat window open the reply box and the companion app's window.
 - **Translate again on request.** Chinese lines in the game's own chat windows end in a `[T]` link. Clicking it sends that line to the overlay again, ahead of everything waiting, marked "[On request]": for a line that scrolled away, or was dropped when chat was too busy.
 - **Scrollback.** With the overlay on a chat tab, the mouse wheel over that tab scrolls the overlay.
-- **Chat history.** The companion keeps the recent lines in a tab where text can be selected and copied.
+- **Chat history.** The companion keeps the recent lines in a tab where text can be selected and copied. Restarting the companion brings back the lines of the last ten minutes.
 
 ## Install
 
@@ -65,7 +65,7 @@ Restart the client if "Nai Ma Speak" does not appear in the addon list. If retai
 
 ### The companion
 
-Give it a folder of its own: it keeps `config.json` and `translate.log` next to the program (next to the `.app` on macOS). `config.json` holds your API keys in plain text.
+Give it a folder of its own: it keeps `config.json`, `translate.log` and `backlog.json` next to the program (next to the `.app` on macOS). `config.json` holds your API keys in plain text, and `backlog.json` the overlay's recent chat lines.
 
 - **macOS:** unzip `Nai-Ma-Speak-macos.zip`. The app is not signed by a registered developer, so macOS refuses to open it the first time. To let it through, do one of these once:
   - Right-click (or Control-click) the app and choose **Open**, then **Open** again in the dialog.

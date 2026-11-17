@@ -2,6 +2,7 @@
 
 mod app;
 mod backends;
+mod backlog;
 mod clipboard;
 mod config;
 mod diag;

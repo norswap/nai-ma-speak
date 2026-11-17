@@ -4,6 +4,7 @@ use crate::translate::WOW_CHAT_BYTES;
 use crate::focus::WowView;
 use crate::layout::{self, ChatWindow};
 use crate::protocol::Command;
+use crate::backlog;
 use crate::markup::{self, ChatLine, Span};
 use crate::theme;
 use crate::worker::{Awaiting, Job, UiEvent};
@@ -30,8 +31,11 @@ const SHADOW: f32 = 1.0;
 const PENDING_DIM: f32 = 0.6;
 
 struct OverlayLine {
-    /// The number `UiEvent::Translated` refers to.
+    /// The number `UiEvent::Translated` refers to; 0 for a line brought back from the
+    /// last run, which nothing refers to any more.
     id: u64,
+    /// When the line arrived, in seconds since 1970.
+    seen: u64,
     line: ChatLine,
     translation: Translation,
 }
@@ -47,6 +51,23 @@ enum Translation {
 }
 
 impl OverlayLine {
+    /// A line as it is written to the backlog file. One still waiting is kept without
+    /// its translation.
+    fn kept(&self) -> backlog::Kept {
+        let done = match &self.translation {
+            Translation::Done(spans) => Some(spans.clone()),
+            _ => None,
+        };
+        backlog::Kept { seen: self.seen, line: self.line.clone(), done }
+    }
+
+    /// A line of the last run, back in the overlay. What it was still waiting for then
+    /// will not come now, so it is shown as it is; its [T] link asks again.
+    fn restored(kept: backlog::Kept) -> Self {
+        let translation = kept.done.map_or(Translation::NotNeeded, Translation::Done);
+        Self { id: 0, seen: kept.seen, line: kept.line, translation }
+    }
+
     /// The line as the game words and colors it, with the body in English when there is
     /// one. With `names`, the speaker's name is followed by what it is in English, once
     /// that is known.
@@ -98,6 +119,9 @@ pub struct TranslateApp {
     test_result: String,
     strip_status: String,
     passes: crate::diag::Passes,
+    /// The overlay's lines changed since the backlog file was written, and when it was.
+    backlog_changed: bool,
+    backlog_written: Instant,
     /// Chinese player names and what they are in English; `None` once asked for and
     /// until answered, or when there was nothing to add.
     names: HashMap<String, Option<String>>,
@@ -157,6 +181,8 @@ enum ReplyState {
     TooLong(String),
 }
 
+/// The backlog file is written at most this often.
+const BACKLOG_EVERY: Duration = Duration::from_secs(2);
 /// How long settings are left alone before they are written to the file.
 const SAVE_AFTER: Duration = Duration::from_millis(500);
 /// How long the overlay says a reply was copied.
@@ -237,7 +263,7 @@ impl TranslateApp {
             config,
             events,
             interactive,
-            lines: VecDeque::new(),
+            lines: backlog::load().into_iter().map(OverlayLine::restored).collect(),
             status: "Ready".into(),
             notice: String::new(),
             reply: String::new(),
@@ -245,6 +271,8 @@ impl TranslateApp {
             overlay_start,
             overlay_rect: None,
             passes: crate::diag::Passes::new(),
+            backlog_changed: false,
+            backlog_written: Instant::now(),
             names: HashMap::new(),
             last_anchor: None,
             saved: draft.clone(),
@@ -283,6 +311,26 @@ impl TranslateApp {
             self.lines.pop_front();
         }
         self.font_texture_stale = true;
+        self.backlog_changed = true;
+    }
+
+    /// Writes the overlay's lines to the backlog file a little after they change, so a
+    /// burst of chat is one write.
+    fn keep_backlog(&mut self, ctx: &egui::Context) {
+        if !self.backlog_changed {
+            return;
+        }
+        match BACKLOG_EVERY.checked_sub(self.backlog_written.elapsed()) {
+            Some(left) => ctx.request_repaint_after(left),
+            None => self.write_backlog(),
+        }
+    }
+
+    fn write_backlog(&mut self) {
+        let kept: Vec<backlog::Kept> = self.lines.iter().map(OverlayLine::kept).collect();
+        backlog::save(&kept);
+        self.backlog_changed = false;
+        self.backlog_written = Instant::now();
     }
 
     /// Sends the whole font atlas to the GPU again, after new overlay text and
@@ -317,18 +365,20 @@ impl TranslateApp {
             match event {
                 UiEvent::Line { id, line, awaiting } => {
                     let translation = awaiting.map_or(Translation::NotNeeded, Translation::Pending);
-                    self.push_line(OverlayLine { id, line, translation });
+                    self.push_line(OverlayLine { id, seen: backlog::now(), line, translation });
                 }
                 UiEvent::Translated { id, english } => {
                     if let Some(line) = self.lines.iter_mut().rev().find(|line| line.id == id) {
                         line.translation = Translation::Done(markup::carry_colors(&english, &line.line.body));
                         self.font_texture_stale = true;
+                        self.backlog_changed = true;
                     }
                 }
                 UiEvent::Explained { id, explanation } => {
                     if let Some(line) = self.lines.iter_mut().rev().find(|line| line.id == id) {
                         line.translation = Translation::Done(explanation);
                         self.font_texture_stale = true;
+                        self.backlog_changed = true;
                     }
                 }
                 UiEvent::Named { name, english } => {
@@ -719,6 +769,7 @@ impl TranslateApp {
                     }
                     if ui.add(theme::button("Restart")).on_hover_text("Quit and start the companion again.").clicked() {
                         self.save();
+                        self.write_backlog();
                         match config::start_again() {
                             Ok(()) => ui.ctx().send_viewport_cmd_to(ViewportId::ROOT, ViewportCommand::Close),
                             Err(e) => self.notice = format!("Could not restart: {e}"),
@@ -889,6 +940,7 @@ impl TranslateApp {
     fn overlay_tab(&mut self, ui: &mut egui::Ui) {
         if ui.add(theme::button("Clear overlay")).clicked() {
             self.lines.clear();
+            self.backlog_changed = true;
         }
         ui.checkbox(&mut self.draft.show_original, "Show Chinese too");
         ui.checkbox(&mut self.draft.translate_names, "Translate player names")
@@ -1149,6 +1201,7 @@ impl eframe::App for TranslateApp {
         }
         self.undo_question(&ctx);
         self.keep_settings(&ctx);
+        self.keep_backlog(&ctx);
         // After both windows laid out their text, so this frame's new glyphs are included.
         self.refresh_font_texture(&ctx);
         self.shots(&ctx);

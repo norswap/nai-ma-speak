@@ -4,7 +4,7 @@
 pub type Rgb = [u8; 3];
 
 /// A stretch of text in one color; `None` is the color of the line it is in.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Span {
     pub text: String,
     pub color: Option<Rgb>,
@@ -12,7 +12,7 @@ pub struct Span {
 
 /// A chat line as the game shows it: `prefix` then `body`, in `color` where the spans
 /// name none. The body is the part that gets translated.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ChatLine {
     /// The speaker's name as the game shows it; empty for a line nobody said.
     pub speaker: String,
