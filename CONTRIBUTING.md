@@ -27,4 +27,4 @@ New WoW terms go in the `SLANG` string in `companion/src/translate.rs` as `ä¸­æ–
 
 ## Pixel strip
 
-If you change the strip format, change both `addon/Translate/Strip.lua` and `companion/src/strip.rs`, and keep the `finds_and_decodes` test passing.
+If you change the strip format, change both `addon/Translate/Strip.lua` and `companion/src/strip.rs`, and keep the tests in `strip.rs` passing; its `encode` is a copy of the addon's encoder.

@@ -210,7 +210,6 @@ Check("state jumps the queue and replaces older state of its kind", Frames(), {
 local symbols = encode(7, "hi")
 Check("a frame fills the strip", #symbols, ns.STRIP.cols * ns.STRIP.rows)
 Check("and starts with the sync blocks", table.concat({ symbols[1], symbols[2], symbols[3] }, ","), "51,15,60")
-Check("and ends with the reference block", symbols[#symbols], 24)
 
 -- Buttons and slash commands -------------------------------------------------------------
 

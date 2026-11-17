@@ -3,19 +3,21 @@ local _, ns = ...
 -- The pixel strip: the only live way out of the game. New Chinese lines are
 -- drawn as a small grid of colored blocks that the companion app reads off
 -- the screen. Each block carries 6 bits: 4 brightness levels per channel,
--- far enough apart that small color shifts still decode correctly.
+-- 64 colors in all.
 --
 -- Frame layout, row by row from the top-left block:
 --   3 sync blocks (magenta, cyan, yellow), then the payload bytes
 --   [seq] [length hi] [length lo] [text...] [fletcher16 hi] [fletcher16 lo]
 --   packed 3 bytes -> 4 blocks, padded with black.
--- The last block is a reference color: the game and the display bend the two
--- middle brightness levels, and this block shows the companion where they landed.
 -- The text holds one or more chat lines, separated by newlines.
-local COLS, ROWS = 64, 8
+--
+-- Under the frame sits the palette: one more row with the 64 colors in order.
+-- A display's color profile, the game's gamma setting and the like change
+-- every color on the way to the companion; it reads a block by finding the
+-- palette color it looks like, so it need not know what was changed.
+local COLS, ROWS = 64, 8 -- of the frame; the palette row comes after
 local BLOCK = 4 -- physical screen pixels per block side
 local SYNC = { 51, 15, 60 } -- (3,0,3) magenta, (0,3,3) cyan, (3,3,0) yellow
-local REFERENCE = 24 -- (1,2,0): red at the second level, green at the third
 local CAPACITY = math.floor((COLS * ROWS - #SYNC) / 4) * 3
 local MAX_TEXT = CAPACITY - 5
 local SHOW_TIME = 0.25 -- seconds each frame stays up; the app polls faster
@@ -46,7 +48,7 @@ end
 
 ns.Truncate = Truncate
 
--- Returns COLS * ROWS symbols (0..63). Pure Lua, so it can be tested outside WoW.
+-- Returns the frame's COLS * ROWS symbols (0..63). Pure Lua, so it can be tested outside WoW.
 function ns.EncodeFrame(seq, text)
     text = Truncate(text, MAX_TEXT)
     local bytes = { seq % 256, math.floor(#text / 256), #text % 256 }
@@ -64,8 +66,7 @@ function ns.EncodeFrame(seq, text)
         symbols[#symbols + 1] = math.floor(v / 64) % 64
         symbols[#symbols + 1] = v % 64
     end
-    for i = #symbols + 1, COLS * ROWS - 1 do symbols[i] = 0 end
-    symbols[COLS * ROWS] = REFERENCE
+    for i = #symbols + 1, COLS * ROWS do symbols[i] = 0 end
     return symbols
 end
 
@@ -87,23 +88,26 @@ local function Build()
     frame = CreateFrame("Frame", "TranslateStrip", UIParent)
     frame:SetIgnoreParentScale(true)
     frame:SetFrameStrata("TOOLTIP")
-    frame:SetSize(COLS * BLOCK, ROWS * BLOCK)
+    frame:SetSize(COLS * BLOCK, (ROWS + 1) * BLOCK)
     textures = {}
-    for i = 0, COLS * ROWS - 1 do
+    for i = 0, COLS * (ROWS + 1) - 1 do
         local t = frame:CreateTexture(nil, "OVERLAY")
         t:SetSize(BLOCK, BLOCK)
         t:SetPoint("TOPLEFT", (i % COLS) * BLOCK, -math.floor(i / COLS) * BLOCK)
-        t:SetColorTexture(0, 0, 0, 1)
         textures[i + 1] = t
     end
+    for color = 0, COLS - 1 do ns.PaintBlock(COLS * ROWS + color + 1, color) end
     ns.PlaceStrip()
 end
 
+-- Colors the block at `index` (from 1) with one of the 64 colors.
+function ns.PaintBlock(index, color)
+    local r, g, b = math.floor(color / 16) % 4, math.floor(color / 4) % 4, color % 4
+    textures[index]:SetColorTexture(r / 3, g / 3, b / 3, 1)
+end
+
 local function Paint(symbols)
-    for i, s in ipairs(symbols) do
-        local r, g, b = math.floor(s / 16) % 4, math.floor(s / 4) % 4, s % 4
-        textures[i]:SetColorTexture(r / 3, g / 3, b / 3, 1)
-    end
+    for i, s in ipairs(symbols) do ns.PaintBlock(i, s) end
 end
 
 local function Advance()

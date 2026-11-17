@@ -21,7 +21,7 @@ This is a fork of [cherryroots/Translate](https://github.com/cherryroots/Transla
 
 WoW addons cannot reach the internet, so the two parts talk through the screen:
 
-1. **Game to companion.** The addon draws each new chat line as a small strip of colored blocks in the top-left corner of the screen (256 x 32 pixels). The companion finds the strip, decodes it and translates the Chinese lines.
+1. **Game to companion.** The addon draws each new chat line as a small strip of colored blocks in the top-left corner of the screen (256 x 36 pixels). The companion finds the strip, decodes it and translates the Chinese lines. The strip's last row shows every color it uses, so it is read correctly whatever the display's color profile or the game's gamma setting does to the colors.
 2. **Overlay.** The companion shows the lines in a see-through, click-through window. It can sit exactly on one of your chat tabs, taking its place, size and text size, and it draws lines the way the game does: same colors, wording, class-colored names, chat font and text shadow. A Chinese line appears at once, marked "(translation pending)", and turns into English when the translation arrives.
 3. **Replies.** You type English, and the Chinese is put on your clipboard to paste into the game's chat box. The companion only ever writes to the clipboard.
 
@@ -115,14 +115,14 @@ Settings take effect as you change them and are saved by themselves. **Undo** pu
   - *Claude* needs a key from the [Claude Console](https://console.anthropic.com). Haiku is the default, and enough for chat lines.
   - *OpenAI-compatible* has presets for OpenAI and for Tencent's translation model [HY-MT1.5-7B](https://huggingface.co/tencent/HY-MT1.5-7B-GGUF) on a local [Ollama](https://ollama.com) server (`ollama pull hf.co/tencent/HY-MT1.5-7B-GGUF:Q4_K_M`, 4.6 GB, free and offline). "Custom" takes any base URL and model; a bare address like `http://localhost:1234` gets `/v1` added.
 - **Overlay:** whether to show the Chinese under each translation, whether to translate player names, when to hide the overlay, how many lines to keep, and where it sits. "Anchor to chat tab" puts it on one of the game's chat tabs; a spare, empty tab works best. Unticked, you unlock the overlay, drag it into place and set its size and text size yourself. Keep it off the top-left corner, where the strip is.
-- **Status:** whether the strip was found, and which chat tabs the game reported.
+- **Status:** whether the strip was found and whether it can be read, and which chat tabs the game reported.
 - **Chat history** and **Translate:** the recent lines, and a field for translating a reply outside the game.
 
 Chat lines are sent to whichever backend you choose. Only a local model keeps them on your computer.
 
 ## Troubleshooting
 
-- **The overlay stays empty.** Open the Status tab: it says whether the pixel strip was found. The strip must be visible in the top-left corner of the game, and on macOS the companion needs the Screen Recording permission. `/tr /probe` in the game reports what the addon found, and `/tr /test` sends a line through.
+- **The overlay stays empty.** Open the Status tab: it says whether the pixel strip was found, and whether it can be read. "Found, but cannot read it" with a note about the palette row means the addon is older than the companion: update both from the same release. The strip must be visible in the top-left corner of the game, and on macOS the companion needs the Screen Recording permission. `/tr /probe` in the game reports what the addon found, and `/tr /test` sends a line through.
 - **To check a screenshot for the strip,** run `translate-companion --decode screenshot.png`.
 - **The companion froze or misbehaved.** `translate.log`, next to `config.json`, records crashes and stalls.
 
