@@ -3,7 +3,7 @@
 //! It is plain machine translation: it takes no instructions and no slang hints.
 
 use crate::config::{Config, ReplyVariant};
-use crate::translate::Direction;
+use crate::translate::Task;
 use serde_json::Value;
 use std::sync::Mutex;
 use std::thread;
@@ -34,12 +34,15 @@ fn parse(answer: &Value) -> Option<String> {
     (!text.is_empty()).then_some(text)
 }
 
-pub fn translate(config: &Config, text: &str, direction: Direction, notify: &dyn Fn(String)) -> Result<String, String> {
+pub fn translate(config: &Config, text: &str, task: Task, notify: &dyn Fn(String)) -> Result<String, String> {
     let url = format!("{}/translate_a/single", config.google_free_base.trim().trim_end_matches('/'));
-    let (source, target) = match (direction, config.reply_variant) {
-        (Direction::ToEnglish, _) => ("auto", "en"),
-        (Direction::ToChinese, ReplyVariant::Taiwan) => ("en", "zh-TW"),
-        (Direction::ToChinese, ReplyVariant::Simplified) => ("en", "zh-CN"),
+    let (source, target) = match (task, config.reply_variant) {
+        (Task::ToEnglish, _) => ("auto", "en"),
+        (Task::ToChinese, ReplyVariant::Taiwan) => ("en", "zh-TW"),
+        (Task::ToChinese, ReplyVariant::Simplified) => ("en", "zh-CN"),
+        (Task::Explain(_), _) => {
+            return Err("Google Translate cannot explain a line. Choose Claude or an OpenAI-compatible model on the Backend tab.".into())
+        }
     };
     let advice = "Try again later, or pick another backend in Settings.";
 
@@ -114,7 +117,7 @@ mod tests {
     #[test]
     fn asks_google_without_a_key() {
         let (base, server) = mock_server(vec![(200, "", r#"[[["Need a healer","缺補",null,null,10]],null,"zh-TW"]"#)]);
-        let english = translate(&config(base), "缺補 密我", Direction::ToEnglish, &|_| ()).unwrap();
+        let english = translate(&config(base), "缺補 密我", Task::ToEnglish, &|_| ()).unwrap();
         assert_eq!(english, "Need a healer");
         let request = &server.join().unwrap()[0];
         let line = request.lines().next().unwrap();
@@ -129,13 +132,13 @@ mod tests {
     fn replies_ask_for_the_chosen_chinese() {
         let reply = r#"[[["需要治療","need a healer",null,null,10]],null,"en"]"#;
         let (base, server) = mock_server(vec![(200, "", reply)]);
-        translate(&config(base), "need a healer", Direction::ToChinese, &|_| ()).unwrap();
+        translate(&config(base), "need a healer", Task::ToChinese, &|_| ()).unwrap();
         let request = &server.join().unwrap()[0];
         assert!(request.contains("sl=en") && request.contains("tl=zh-TW"), "{request}");
 
         let (base, server) = mock_server(vec![(200, "", reply)]);
         let simplified = Config { reply_variant: ReplyVariant::Simplified, ..config(base) };
-        translate(&simplified, "need a healer", Direction::ToChinese, &|_| ()).unwrap();
+        translate(&simplified, "need a healer", Task::ToChinese, &|_| ()).unwrap();
         assert!(server.join().unwrap()[0].contains("tl=zh-CN"));
     }
 
@@ -144,7 +147,7 @@ mod tests {
         let ok = r#"[[["Need a tank","缺坦",null,null,10]],null,"zh-TW"]"#;
         let (base, server) = mock_server(vec![(429, "", "Too Many Requests"), (200, "", ok)]);
         let notes = RefCell::new(Vec::new());
-        let english = translate(&config(base), "缺坦", Direction::ToEnglish, &|note| notes.borrow_mut().push(note)).unwrap();
+        let english = translate(&config(base), "缺坦", Task::ToEnglish, &|note| notes.borrow_mut().push(note)).unwrap();
         assert_eq!(english, "Need a tank");
         assert_eq!(server.join().unwrap().len(), 2);
         let notes = notes.into_inner();
@@ -155,7 +158,7 @@ mod tests {
     #[test]
     fn other_errors_fail_at_once_with_advice() {
         let (base, server) = mock_server(vec![(404, "", "gone")]);
-        let error = translate(&config(base), "缺坦", Direction::ToEnglish, &|_| ()).unwrap_err();
+        let error = translate(&config(base), "缺坦", Task::ToEnglish, &|_| ()).unwrap_err();
         assert!(error.contains("HTTP 404") && error.contains("another backend"), "{error}");
         assert_eq!(server.join().unwrap().len(), 1);
     }

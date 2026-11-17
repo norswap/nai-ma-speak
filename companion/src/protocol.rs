@@ -2,10 +2,11 @@
 //! lines separated by "\n", and each line is fields separated by tabs. The first field
 //! says what the line is:
 //!
-//! - `0`, `1` or `T`, then prefix, body and `rrggbb`: a chat line. Prefix and body carry
-//!   WoW color codes and together make the line as the game shows it, in that color.
-//!   With `0` the line is shown as it is; with `1` its body is to be translated; `T` is a
-//!   line the player asked for again by its [T] link, to translate ahead of the others.
+//! - `0`, `1`, `T` or `E`, then prefix, body and `rrggbb`: a chat line. Prefix and body
+//!   carry WoW color codes and together make the line as the game shows it, in that
+//!   color. With `0` the line is shown as it is; with `1` its body is to be translated.
+//!   `T` and `E` are a line the player clicked a link on, handled ahead of the others:
+//!   [T] to translate it again, [?] to explain it word by word.
 //! - `L`, then one record per chat window separated by byte 30, each
 //!   "name, shown, left, top, width, height, font size" separated by byte 31.
 //! - `S`, then a chat window's name and the mouse wheel steps it has had since login,
@@ -34,6 +35,15 @@ pub enum Handling {
     Translate,
     /// Asked for by the player: translated before the lines already waiting, and marked.
     TranslateFirst,
+    /// Asked for by the player: explained word by word, for learning Chinese.
+    Explain,
+}
+
+impl Handling {
+    /// Whether the player asked for this line and is waiting on it.
+    pub fn asked(self) -> bool {
+        matches!(self, Handling::TranslateFirst | Handling::Explain)
+    }
 }
 
 /// Something the player asked for in the game.
@@ -57,11 +67,12 @@ pub fn parse(line: &str) -> Option<Message> {
         "C" if rest == "reply" => Some(Message::Command(Command::OpenReply)),
         "C" if rest == "settings" => Some(Message::Command(Command::OpenSettings)),
         "R" if !rest.trim().is_empty() => Some(Message::Command(Command::Reply(rest.trim().to_string()))),
-        "0" | "1" | "T" => {
+        "0" | "1" | "T" | "E" => {
             let handling = match kind {
                 "0" => Handling::Show,
                 "1" => Handling::Translate,
-                _ => Handling::TranslateFirst,
+                "T" => Handling::TranslateFirst,
+                _ => Handling::Explain,
             };
             let mut fields = rest.splitn(3, '\t');
             let (prefix, body) = (fields.next()?, fields.next()?);
@@ -113,6 +124,7 @@ pub mod tests {
         };
         assert_eq!((markup::plain(&line.prefix), line.color), ("[Party] Lili: ".into(), [255; 3]));
         assert!(matches!(parse("T\t\t缺坦\tffffff"), Some(Message::Chat { handling: Handling::TranslateFirst, .. })));
+        assert!(matches!(parse("E\t\t缺坦\tffffff"), Some(Message::Chat { handling: Handling::Explain, .. })));
         assert_eq!(parse("broken"), None);
         assert_eq!(parse("7\t\t缺坦"), None);
         assert_eq!(parse("1\tno body"), None);

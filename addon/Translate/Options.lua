@@ -56,10 +56,11 @@ local function Build()
 
     Checkbox("allLines", "Include lines without Chinese",
         "Also send lines without Chinese. The overlay shows them untranslated, in order with the translated ones.")
-    Checkbox("showLinks", "[T] links after Chinese lines",
-        "Add a clickable [T] after each Chinese line in the game's chat windows. Clicking it sends that line "
-        .. "to the overlay again, ahead of everything waiting, marked as asked for: for a line that scrolled "
-        .. "away or was dropped when chat was too busy.")
+    Checkbox("showLinks", "[T] and [?] links after Chinese lines",
+        "Add two links after each Chinese line in the game's chat windows. [T] sends the line to the overlay "
+        .. "to be translated again, for a line that scrolled away or was dropped when chat was too busy. "
+        .. "[?] has it explained word by word, with pinyin or bopomofo, for learning Chinese. "
+        .. "Both go ahead of everything waiting.")
 
     Settings.RegisterAddOnCategory(category)
     return category

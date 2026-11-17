@@ -33,6 +33,7 @@ Reading the strip is screen capture: it only reads pixels and never sends input 
 
 - **A copy of a chat window.** Pick a chat window in the addon's options and the overlay shows every line that window shows, including system messages and what other addons print, with their color tags. Without one, the overlay gets player chat and the game's own messages as they arrive.
 - **Translation backends.** Google Translate's free endpoint (no setup, no key), Claude with a Claude Console API key, or any OpenAI-compatible endpoint: OpenAI, or a local model through Ollama or LM Studio.
+- **Learn from the chat.** Chinese lines in the game's chat windows also end in a `[?]` link. Clicking it explains the line in the overlay: each word followed by how it is read, in pinyin or bopomofo, and what it means, then the whole line in English and, when there is one, a note on its grammar. It needs Claude or an OpenAI-compatible model; Google Translate cannot do it.
 - **Slang hints.** The chat models are told the WoW slang found in each line (缺補, 坦, 副本...), from a list of mainland and Taiwanese terms. Google Translate takes no hints.
 - **In-game buttons.** "Translate" and "App" buttons on the chat window open the reply box and the companion app's window.
 - **Translate again on request.** Chinese lines in the game's own chat windows end in a `[T]` link. Clicking it sends that line to the overlay again, ahead of everything waiting, marked "[On request]": for a line that scrolled away, or was dropped when chat was too busy.
@@ -107,7 +108,7 @@ The same from the chat box, where `/nms` works in place of `/tr`:
 
 Settings take effect as you change them and are saved by themselves. **Undo** puts them back as they were when the companion was opened, **Restart** starts it again, and **Hide** hides the window while the overlay stays; the game's App button or the app's icon brings it back.
 
-- **Backend:** what translates, and which Chinese replies are written in. "Test translation" sends a fixed line and shows the answer and how long it took.
+- **Backend:** what translates, which Chinese replies are written in, and whether explanations give readings in pinyin or bopomofo. "Test translation" sends a fixed line and shows the answer and how long it took.
   - *Google Translate* needs nothing, but it is an unofficial endpoint: it is rate-limited and may stop working.
   - *Claude* needs a key from the [Claude Console](https://console.anthropic.com). Haiku is the default, and enough for chat lines.
   - *OpenAI-compatible* has presets for OpenAI and for Tencent's translation model [HY-MT1.5-7B](https://huggingface.co/tencent/HY-MT1.5-7B-GGUF) on a local [Ollama](https://ollama.com) server (`ollama pull hf.co/tencent/HY-MT1.5-7B-GGUF:Q4_K_M`, 4.6 GB, free and offline). "Custom" takes any base URL and model; a bare address like `http://localhost:1234` gets `/v1` added.

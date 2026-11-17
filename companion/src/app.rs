@@ -1,12 +1,12 @@
 use crate::backends::claude::key_problem;
-use crate::config::{self, Backend, Config, ReplyVariant, CLAUDE_MODELS, CUSTOM_LABEL, ENDPOINT_PRESETS};
+use crate::config::{self, Backend, Config, Reading, ReplyVariant, CLAUDE_MODELS, CUSTOM_LABEL, ENDPOINT_PRESETS};
 use crate::translate::WOW_CHAT_BYTES;
 use crate::focus::WowView;
 use crate::layout::{self, ChatWindow};
 use crate::protocol::Command;
 use crate::markup::{self, ChatLine, Span};
 use crate::theme;
-use crate::worker::{Job, UiEvent};
+use crate::worker::{Awaiting, Job, UiEvent};
 use eframe::egui::text::LayoutJob;
 use eframe::egui::{self, Color32, RichText, TextFormat, ViewportBuilder, ViewportCommand, ViewportId};
 use std::collections::{HashMap, VecDeque};
@@ -36,13 +36,13 @@ struct OverlayLine {
     translation: Translation,
 }
 
-/// Where the translation of a line's body stands.
+/// Where the translation or explanation of a line's body stands.
 enum Translation {
-    /// The body has no Chinese and is shown as it is.
+    /// The body is shown as it is.
     NotNeeded,
-    Pending,
+    Pending(Awaiting),
     /// Given up on; the body stays in Chinese.
-    Failed,
+    Failed(Awaiting),
     Done(Vec<Span>),
 }
 
@@ -52,10 +52,10 @@ impl OverlayLine {
         let mut job = LayoutJob::default();
         job.wrap.max_width = width;
         let (body, dim, note) = match &self.translation {
-            Translation::NotNeeded => (&self.line.body, 1.0, ""),
-            Translation::Pending => (&self.line.body, PENDING_DIM, " (translation pending)"),
-            Translation::Failed => (&self.line.body, 1.0, " (translation failed)"),
-            Translation::Done(english) => (english, 1.0, ""),
+            Translation::NotNeeded => (&self.line.body, 1.0, String::new()),
+            Translation::Pending(awaiting) => (&self.line.body, PENDING_DIM, format!(" ({} pending)", awaiting.noun())),
+            Translation::Failed(awaiting) => (&self.line.body, 1.0, format!(" ({} failed)", awaiting.noun())),
+            Translation::Done(english) => (english, 1.0, String::new()),
         };
         let parts = self.line.prefix.iter().map(|span| (span, 1.0)).chain(body.iter().map(|span| (span, dim)));
         for (span, brightness) in parts {
@@ -63,7 +63,7 @@ impl OverlayLine {
             let color = Color32::from_rgb(r, g, b).gamma_multiply(brightness);
             job.append(&span.text, 0.0, TextFormat::simple(font.clone(), color));
         }
-        job.append(note, 0.0, TextFormat::simple(font.clone(), Color32::from_gray(150)));
+        job.append(&note, 0.0, TextFormat::simple(font.clone(), Color32::from_gray(150)));
         job
     }
 }
@@ -296,8 +296,8 @@ impl TranslateApp {
     fn drain_events(&mut self) {
         while let Ok(event) = self.events.try_recv() {
             match event {
-                UiEvent::Line { id, line, chinese } => {
-                    let translation = if chinese { Translation::Pending } else { Translation::NotNeeded };
+                UiEvent::Line { id, line, awaiting } => {
+                    let translation = awaiting.map_or(Translation::NotNeeded, Translation::Pending);
                     self.push_line(OverlayLine { id, line, translation });
                 }
                 UiEvent::Translated { id, english } => {
@@ -306,9 +306,17 @@ impl TranslateApp {
                         self.font_texture_stale = true;
                     }
                 }
+                UiEvent::Explained { id, explanation } => {
+                    if let Some(line) = self.lines.iter_mut().rev().find(|line| line.id == id) {
+                        line.translation = Translation::Done(explanation);
+                        self.font_texture_stale = true;
+                    }
+                }
                 UiEvent::Failed { id } => {
                     if let Some(line) = self.lines.iter_mut().rev().find(|line| line.id == id) {
-                        line.translation = Translation::Failed;
+                        if let Translation::Pending(awaiting) = line.translation {
+                            line.translation = Translation::Failed(awaiting);
+                        }
                     }
                 }
                 UiEvent::ReplyReady { english, chinese, copied } => {
@@ -817,6 +825,13 @@ impl TranslateApp {
                     ui.selectable_value(&mut self.draft.reply_variant, variant, variant.label());
                 }
             });
+        // For the [?] link in the game, which explains a Chinese line word by word.
+        ui.label(theme::label("Explain words with"));
+        egui::ComboBox::from_id_salt("reading").width(wide).selected_text(self.draft.reading.label()).show_ui(ui, |ui| {
+            for reading in Reading::ALL {
+                ui.selectable_value(&mut self.draft.reading, reading, reading.label());
+            }
+        });
 
         ui.add_space(6.0);
         theme::boxed().show(ui, |ui| {

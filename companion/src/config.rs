@@ -22,6 +22,28 @@ impl ReplyVariant {
     }
 }
 
+/// How a Chinese word's pronunciation is written when a line is explained.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Reading {
+    /// Latin letters with tone marks, as taught on the mainland and abroad.
+    #[default]
+    Pinyin,
+    /// Zhuyin symbols, as taught in Taiwan.
+    Bopomofo,
+}
+
+impl Reading {
+    pub const ALL: [Reading; 2] = [Reading::Pinyin, Reading::Bopomofo];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Reading::Pinyin => "Pinyin (fùběn)",
+            Reading::Bopomofo => "Bopomofo / Zhuyin (ㄈㄨˋ ㄅㄣˇ)",
+        }
+    }
+}
+
 /// A ready-made OpenAI-compatible endpoint offered in the settings.
 pub struct EndpointPreset {
     pub label: &'static str,
@@ -122,6 +144,7 @@ pub struct Config {
     pub google_free_base: String,
     pub claude_base: String,
     pub reply_variant: ReplyVariant,
+    pub reading: Reading,
     pub overlay_x: f32,
     pub overlay_y: f32,
     pub overlay_width: f32,
@@ -148,6 +171,7 @@ impl Default for Config {
             api_key: String::new(),
             model: OLLAMA_MODEL.into(),
             reply_variant: ReplyVariant::default(),
+            reading: Reading::default(),
             overlay_x: 20.0,
             overlay_y: 420.0,
             overlay_width: 520.0,

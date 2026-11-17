@@ -129,24 +129,26 @@ TranslateDB.allLines = true
 
 local asked, withLink = Chat("CHAT_MSG_GUILD", "缺補")
 local _, plainLine = Chat("CHAT_MSG_SAY", "no link here")
-Check("a Chinese line gets a [T] link", withLink, "缺補 |Haddon:Translate:" .. asked .. "|h|cff66ccff[T]|r|h")
+Check("a Chinese line gets its two links", withLink,
+    "缺補 |Haddon:Translate:T:" .. asked .. "|h|cff66ccff[T]|r|h|Haddon:Translate:E:" .. asked .. "|h|cff66ccff[?]|r|h")
 Check("other lines get none", plainLine, "no link here")
 Frames()
 -- The line as a chat window shows it, long after the addon forgot the message itself.
 ChatFrame1:AddMessage("|Hplayer:Bob:424242:GUILD|h[|cff3fc7ebBob|r]|h: " .. withLink, 0.25, 1, 0.25)
-ChatFrame1:AddMessage("|Hplayer:小明:424243:SAY|h[小明]|h says: hi |Haddon:Translate:77|h[T]|h", 1, 1, 1)
+ChatFrame1:AddMessage("|Hplayer:小明:424243:SAY|h[小明]|h says: hi |Haddon:Translate:T:77|h[T]|h", 1, 1, 1)
 ns.SendToStrip("0\t\twaiting 1")
 ns.SendToStrip("0\t\twaiting 2")
-clickLink("addon:Translate:" .. asked, ChatFrame1)
-clickLink("addon:Other:" .. asked, ChatFrame1)
+clickLink("addon:Translate:T:" .. asked, ChatFrame1)
+clickLink("addon:Translate:E:" .. asked, ChatFrame1)
+clickLink("addon:Other:T:" .. asked, ChatFrame1)
 clickLink("item:1", ChatFrame1)
-clickLink("addon:Translate:77")
-Check("a click sends the line again, read from the window, ahead of what is waiting", Frames(), {
+clickLink("addon:Translate:T:77")
+Check("a click sends the line, read from the window, ahead of what is waiting", Frames(), {
     "0 |  | waiting 1",
-    "T | [|cff3fc7ebBob|r]:  | 缺補 | 40ff40\n0 |  | waiting 2",
+    "E | [|cff3fc7ebBob|r]:  | 缺補 | 40ff40\nT | [|cff3fc7ebBob|r]:  | 缺補 | 40ff40\n0 |  | waiting 2",
 })
 printed = {}
-clickLink("addon:Translate:99999", ChatFrame1)
+clickLink("addon:Translate:T:99999", ChatFrame1)
 Check("a line no window shows any more says so", #printed, 1)
 TranslateDB.showLinks = false
 local _, unlinked = Chat("CHAT_MSG_GUILD", "缺坦")

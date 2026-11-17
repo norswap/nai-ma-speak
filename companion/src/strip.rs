@@ -3,7 +3,7 @@
 //! [seq][len hi][len lo][text...][fletcher16 hi][fletcher16 lo] packed
 //! 3 bytes into 4 six-bit blocks.
 
-use crate::protocol::{self, Handling, Message};
+use crate::protocol::{self, Message};
 use crate::worker::{Job, UiEvent, UiSender};
 use std::sync::mpsc::Sender;
 use std::thread;
@@ -375,7 +375,7 @@ pub fn spawn(jobs: Sender<Job>, asked: Sender<Job>, ui: UiSender) {
                                     next_line += 1;
                                     ui.send(event);
                                     // A line the player asked for does not wait behind the chat.
-                                    let queue = if handling == Handling::TranslateFirst { &asked } else { &jobs };
+                                    let queue = if handling.asked() { &asked } else { &jobs };
                                     if let Some(job) = job {
                                         let _ = queue.send(job);
                                     }

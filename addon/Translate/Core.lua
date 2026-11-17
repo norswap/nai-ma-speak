@@ -17,7 +17,7 @@ end)
 
 local DEFAULTS = {
     allLines = true,  -- also send lines without Chinese, shown untranslated in the overlay
-    showLinks = true, -- add a clickable [T] after Chinese chat lines, to ask for one again
+    showLinks = true, -- add [T] and [?] links after Chinese chat lines: translate again, explain
     sourceWindow = "", -- tab name of the chat window whose settings pick the lines sent; "" sends all
     buttons = "tabs", -- where the Translate and App buttons sit: "tabs", "top", "bottom" or "hidden"
 }
@@ -111,7 +111,7 @@ local commands = {
         ns.Print("Options panel: " .. tostring(ns.optionsSource))
         ns.Print("Lines sent: " .. ((ns.db.sourceWindow or "") == "" and "all chat" or ("what the " .. ns.db.sourceWindow .. " window shows")))
         ns.Print("Chat window copying: " .. tostring(ns.mirrorSource))
-        ns.Print("[T] link clicks: " .. tostring(ns.linkSource))
+        ns.Print("Link clicks: " .. tostring(ns.linkSource))
         ns.Print("Overlay scrolling: " .. tostring(ns.wheelSource))
         ns.Print("Chat window buttons: " .. tostring(ns.buttonSource))
         local font = ChatFrame1 and ChatFrame1.GetFont and ChatFrame1:GetFont()

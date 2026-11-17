@@ -20,10 +20,12 @@ Keep player names, numbers and item names as they are. Keep it under 80 characte
 /// WoW's chat box takes 255 bytes; a Chinese character is 3 of them.
 pub const WOW_CHAT_BYTES: usize = 255;
 
-#[derive(Clone, Copy)]
-pub enum Direction {
+#[derive(Clone, Copy, Debug)]
+pub enum Task {
     ToEnglish,
     ToChinese,
+    /// Explain a Chinese line word by word; see `explain`.
+    Explain(crate::config::Reading),
 }
 
 /// Chinese WoW slang as `zh=en` lines: mainland terms in Simplified, and Taiwanese terms
@@ -114,9 +116,9 @@ pub fn slang_in(text: &str) -> Vec<(String, &'static str)> {
 
 /// The instructions for a chat model: how to translate, and for a Chinese line the slang
 /// found in it.
-pub fn system_prompt(text: &str, direction: Direction, variant: ReplyVariant) -> String {
-    match direction {
-        Direction::ToEnglish => {
+pub fn system_prompt(text: &str, task: Task, variant: ReplyVariant) -> String {
+    match task {
+        Task::ToEnglish => {
             let slang: Vec<String> = slang_in(text).iter().map(|(zh, en)| format!("{zh} = {en}")).collect();
             if slang.is_empty() {
                 TO_ENGLISH.to_string()
@@ -124,34 +126,47 @@ pub fn system_prompt(text: &str, direction: Direction, variant: ReplyVariant) ->
                 format!("{TO_ENGLISH} Slang in this line: {}.", slang.join(", "))
             }
         }
-        Direction::ToChinese => match variant {
+        Task::ToChinese => match variant {
             ReplyVariant::Taiwan => TO_TAIWANESE.to_string(),
             ReplyVariant::Simplified => TO_SIMPLIFIED.to_string(),
         },
+        Task::Explain(reading) => {
+            let slang: Vec<String> = slang_in(text).iter().map(|(zh, en)| format!("{zh} = {en}")).collect();
+            let prompt = crate::explain::prompt(reading);
+            if slang.is_empty() {
+                prompt
+            } else {
+                format!("{prompt} Slang in this line: {}.", slang.join(", "))
+            }
+        }
     }
 }
 
-/// Translates one line with the backend chosen in the settings. `notify` receives short
+/// Translates or explains one line with the backend chosen in the settings. `notify` receives short
 /// progress notes for the status line, such as a wait imposed by the service.
-pub fn translate(config: &Config, text: &str, direction: Direction, notify: &dyn Fn(String)) -> Result<String, String> {
+pub fn translate(config: &Config, text: &str, task: Task, notify: &dyn Fn(String)) -> Result<String, String> {
     let raw = match config.backend {
-        Backend::GoogleFree => backends::google::translate(config, text, direction, notify),
-        Backend::Claude => backends::claude::translate(config, text, direction, notify),
-        Backend::OpenAiCompatible => backends::openai::translate(config, text, direction),
+        Backend::GoogleFree => backends::google::translate(config, text, task, notify),
+        Backend::Claude => backends::claude::translate(config, text, task, notify),
+        Backend::OpenAiCompatible => backends::openai::translate(config, text, task),
     }?;
+    if let Task::Explain(_) = task {
+        // Structured, and read by `explain::parse`, not a line of chat to tidy.
+        return Ok(raw);
+    }
     let reply = clean_reply(&raw);
     if reply.is_empty() {
         return Err(format!("{} gave an empty translation", config.backend.label()));
     }
-    Ok(finish(reply, direction, config.reply_variant))
+    Ok(finish(reply, task, config.reply_variant))
 }
 
 /// The last step for every translation. A Taiwanese reply is passed through the
 /// Simplified-to-Taiwanese conversion, so no Simplified character reaches the clipboard
 /// even when the model drifts.
-fn finish(reply: String, direction: Direction, variant: ReplyVariant) -> String {
-    match (direction, variant) {
-        (Direction::ToChinese, ReplyVariant::Taiwan) => to_taiwanese(&reply),
+fn finish(reply: String, task: Task, variant: ReplyVariant) -> String {
+    match (task, variant) {
+        (Task::ToChinese, ReplyVariant::Taiwan) => to_taiwanese(&reply),
         _ => reply,
     }
 }
@@ -218,16 +233,16 @@ mod tests {
     #[test]
     fn replies_come_out_in_the_chosen_chinese() {
         let drifted = "需要治疗，组我".to_string();
-        assert_eq!(finish(drifted.clone(), Direction::ToChinese, ReplyVariant::Taiwan), "需要治療，組我");
-        assert_eq!(finish(drifted.clone(), Direction::ToChinese, ReplyVariant::Simplified), drifted);
-        assert_eq!(finish("LF healer 治疗".into(), Direction::ToEnglish, ReplyVariant::Taiwan), "LF healer 治疗");
+        assert_eq!(finish(drifted.clone(), Task::ToChinese, ReplyVariant::Taiwan), "需要治療，組我");
+        assert_eq!(finish(drifted.clone(), Task::ToChinese, ReplyVariant::Simplified), drifted);
+        assert_eq!(finish("LF healer 治疗".into(), Task::ToEnglish, ReplyVariant::Taiwan), "LF healer 治疗");
 
-        assert!(system_prompt("need a healer", Direction::ToChinese, ReplyVariant::Taiwan).contains("繁體中文"));
-        assert!(system_prompt("need a healer", Direction::ToChinese, ReplyVariant::Taiwan).contains("Never use Simplified"));
-        assert!(system_prompt("need a healer", Direction::ToChinese, ReplyVariant::Simplified).contains("Simplified Chinese"));
-        let hinted = system_prompt("副本缺補", Direction::ToEnglish, ReplyVariant::Taiwan);
+        assert!(system_prompt("need a healer", Task::ToChinese, ReplyVariant::Taiwan).contains("繁體中文"));
+        assert!(system_prompt("need a healer", Task::ToChinese, ReplyVariant::Taiwan).contains("Never use Simplified"));
+        assert!(system_prompt("need a healer", Task::ToChinese, ReplyVariant::Simplified).contains("Simplified Chinese"));
+        let hinted = system_prompt("副本缺補", Task::ToEnglish, ReplyVariant::Taiwan);
         assert!(hinted.ends_with("Slang in this line: 副本 = dungeon, 缺補 = need a healer."), "{hinted}");
-        assert!(!system_prompt("你好", Direction::ToEnglish, ReplyVariant::Taiwan).contains("Slang in this line"));
+        assert!(!system_prompt("你好", Task::ToEnglish, ReplyVariant::Taiwan).contains("Slang in this line"));
     }
 
     #[test]

@@ -1,7 +1,7 @@
 //! Claude through Anthropic's Messages API, with a Claude Console API key.
 
 use crate::config::Config;
-use crate::translate::{system_prompt, Direction};
+use crate::translate::{system_prompt, Task};
 use serde_json::{json, Value};
 use std::thread;
 use std::time::Duration;
@@ -28,15 +28,16 @@ pub fn key_problem(key: &str) -> Option<&'static str> {
 /// The request body. No sampling settings: API version 2026-10-21 rejects temperature,
 /// top_p and top_k. A chat line needs no reasoning, so thinking is turned off on Haiku,
 /// the models that allow it; other models only take a lower effort.
-fn request_body(config: &Config, text: &str, direction: Direction) -> Value {
+fn request_body(config: &Config, text: &str, task: Task) -> Value {
     let model = config.claude_model.trim();
     let mut body = json!({
         "model": model,
-        "system": system_prompt(text, direction, config.reply_variant),
+        "system": system_prompt(text, task, config.reply_variant),
         "messages": [{ "role": "user", "content": text }],
     });
     if model.to_lowercase().contains("haiku") {
-        body["max_tokens"] = json!(1024);
+        // Room for the word-by-word explanation of a long line.
+        body["max_tokens"] = json!(2048);
         body["thinking"] = json!({ "type": "disabled" });
     } else {
         // Thinking cannot be turned off here and shares the limit with the answer.
@@ -61,12 +62,12 @@ fn parse(answer: &Value) -> Result<String, String> {
     })
 }
 
-pub fn translate(config: &Config, text: &str, direction: Direction, notify: &dyn Fn(String)) -> Result<String, String> {
+pub fn translate(config: &Config, text: &str, task: Task, notify: &dyn Fn(String)) -> Result<String, String> {
     if let Some(problem) = key_problem(&config.claude_api_key) {
         return Err(problem.to_string());
     }
     let url = format!("{}/v1/messages", config.claude_base.trim().trim_end_matches('/'));
-    let body = request_body(config, text, direction);
+    let body = request_body(config, text, task);
 
     for attempt in 0..=RETRIES {
         let request = ureq::post(&url)
@@ -115,7 +116,7 @@ mod tests {
     #[test]
     fn sends_a_messages_request() {
         let (base, server) = mock_server(vec![(200, "", ANSWER)]);
-        let english = translate(&config(base), "副本缺補 密我", Direction::ToEnglish, &|_| ()).unwrap();
+        let english = translate(&config(base), "副本缺補 密我", Task::ToEnglish, &|_| ()).unwrap();
         assert_eq!(english, "Need a healer, whisper me", "the thinking block is skipped");
 
         let request = &server.join().unwrap()[0];
@@ -139,7 +140,7 @@ mod tests {
     #[test]
     fn only_haiku_has_thinking_turned_off() {
         let other = Config { claude_model: "claude-opus-5-5".into(), ..Config::default() };
-        let body = request_body(&other, "缺補", Direction::ToEnglish);
+        let body = request_body(&other, "缺補", Task::ToEnglish);
         assert!(body.get("thinking").is_none());
         assert_eq!(body["output_config"]["effort"], "low");
         assert!(body.get("temperature").is_none());
@@ -152,7 +153,7 @@ mod tests {
         assert_eq!(key_problem("sk-ant-api03-abc"), None);
         // An unroutable base: a request would fail differently, and slowly.
         let config = Config { claude_api_key: "sk-ant-oat01-abc".into(), claude_base: "http://127.0.0.1:1".into(), ..Config::default() };
-        let error = translate(&config, "缺補", Direction::ToEnglish, &|_| ()).unwrap_err();
+        let error = translate(&config, "缺補", Task::ToEnglish, &|_| ()).unwrap_err();
         assert!(error.contains("subscription login token"), "{error}");
     }
 
@@ -162,7 +163,7 @@ mod tests {
         let (base, server) = mock_server(vec![(429, "retry-after: 0\r\n", limited), (529, "", limited), (200, "", ANSWER)]);
         let notes = RefCell::new(Vec::new());
         // The 529 carries no retry-after, so this waits the default 2 s once.
-        let english = translate(&config(base), "缺補", Direction::ToEnglish, &|note| notes.borrow_mut().push(note)).unwrap();
+        let english = translate(&config(base), "缺補", Task::ToEnglish, &|note| notes.borrow_mut().push(note)).unwrap();
         assert_eq!(english, "Need a healer, whisper me");
         assert_eq!(server.join().unwrap().len(), 3);
         let notes = notes.into_inner();
@@ -173,7 +174,7 @@ mod tests {
     fn reports_a_wrong_key_and_a_declined_line_clearly() {
         let wrong = r#"{"type":"error","error":{"type":"authentication_error","message":"invalid x-api-key"}}"#;
         let (base, server) = mock_server(vec![(401, "", wrong)]);
-        let error = translate(&config(base), "缺補", Direction::ToEnglish, &|_| ()).unwrap_err();
+        let error = translate(&config(base), "缺補", Task::ToEnglish, &|_| ()).unwrap_err();
         assert_eq!(error, "Claude rejected the API key: invalid x-api-key");
         assert_eq!(server.join().unwrap().len(), 1, "a wrong key is not retried");
 

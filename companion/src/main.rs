@@ -5,6 +5,7 @@ mod backends;
 mod clipboard;
 mod config;
 mod diag;
+mod explain;
 mod focus;
 mod fonts;
 mod layout;
