@@ -4,6 +4,12 @@ Chat translation between Chinese and English for World of Warcraft, made for pla
 
 It reads Traditional and Simplified Chinese, and writes your replies in Traditional Chinese with Taiwanese wording, or in Simplified.
 
+<!-- The overlay in the game. Add the picture as assets/overlay.png, then remove this comment's two marker lines.
+![The overlay on a chat tab in the game, with translated chat in the game's own colors](assets/overlay.png)
+-->
+
+<img src="assets/companion.png" alt="The companion app's window, on its Backend tab" width="480">
+
 This is a fork of [cherryroots/Translate](https://github.com/cherryroots/Translate). It has two parts:
 
 - **`addon/Translate`**: the in-game addon, listed in the game as "Nai Ma Speak". One folder loads in both WoW: Forever and retail (`## Interface: 16001, 120105`).
@@ -59,7 +65,12 @@ Restart the client if "Nai Ma Speak" does not appear in the addon list. If retai
 
 Give it a folder of its own: it keeps `config.json` and `translate.log` next to the program (next to the `.app` on macOS). `config.json` holds your API keys in plain text.
 
-- **macOS:** unzip `Nai-Ma-Speak-macos.zip`. The app is not signed by a registered developer, so the first time, right-click it and choose Open, or run `xattr -dr com.apple.quarantine "Nai Ma Speak.app"`. macOS then asks for the Screen Recording permission, so the companion can read the strip; a new version may ask again.
+- **macOS:** unzip `Nai-Ma-Speak-macos.zip`. The app is not signed by a registered developer, so macOS refuses to open it the first time. To let it through, do one of these once:
+  - Right-click (or Control-click) the app and choose **Open**, then **Open** again in the dialog.
+  - On recent versions of macOS, where that no longer offers to open it: double-click the app, dismiss the warning, then go to **System Settings > Privacy & Security**, scroll down to the message about "Nai Ma Speak" and click **Open Anyway**.
+  - Or in Terminal: `xattr -dr com.apple.quarantine "Nai Ma Speak.app"`.
+
+  macOS then asks for the Screen Recording permission, so the companion can read the strip; a new version may ask again.
 - **Windows:** run the `.exe`.
 - **Linux:** run `chmod +x nai-ma-speak-linux-x64` once, then start it.
 
