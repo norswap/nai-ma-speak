@@ -17,7 +17,7 @@ end)
 
 local DEFAULTS = {
     allLines = true,  -- also send lines without Chinese, shown untranslated in the overlay
-    showLinks = true, -- add [T] and [?] links after Chinese chat lines: translate again, explain
+    showLinks = true, -- add links after chat lines: translate again, explain, explain the name
     sourceWindow = "", -- tab name of the chat window whose settings pick the lines sent; "" sends all
     buttons = "tabs", -- where the Translate and App buttons sit: "tabs", "top", "bottom" or "hidden"
 }

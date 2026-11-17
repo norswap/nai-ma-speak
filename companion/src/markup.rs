@@ -14,6 +14,8 @@ pub struct Span {
 /// name none. The body is the part that gets translated.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ChatLine {
+    /// The speaker's name as the game shows it; empty for a line nobody said.
+    pub speaker: String,
     pub color: Rgb,
     pub prefix: Vec<Span>,
     pub body: Vec<Span>,

@@ -10,6 +10,7 @@ mod focus;
 mod fonts;
 mod layout;
 mod markup;
+mod names;
 mod protocol;
 mod strip;
 #[cfg(test)]

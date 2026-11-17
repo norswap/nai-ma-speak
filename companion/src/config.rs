@@ -145,6 +145,8 @@ pub struct Config {
     pub claude_base: String,
     pub reply_variant: ReplyVariant,
     pub reading: Reading,
+    /// Show what a Chinese player name means, or how it sounds, after it.
+    pub translate_names: bool,
     pub overlay_x: f32,
     pub overlay_y: f32,
     pub overlay_width: f32,
@@ -172,6 +174,7 @@ impl Default for Config {
             model: OLLAMA_MODEL.into(),
             reply_variant: ReplyVariant::default(),
             reading: Reading::default(),
+            translate_names: false,
             overlay_x: 20.0,
             overlay_y: 420.0,
             overlay_width: 520.0,

@@ -18,6 +18,10 @@ pub enum Job {
     Incoming { line: u64, text: String },
     /// Such a line, to explain word by word.
     Explain { line: u64, text: String },
+    /// A player's name to put into English, for showing after the name.
+    Name { name: String },
+    /// A player's name to explain, in the overlay line `line`.
+    ExplainName { line: u64, name: String },
     /// English the player typed in the companion, to send as Chinese.
     Reply { text: String },
     /// The Test model button: a fixed line, never cached.
@@ -33,6 +37,8 @@ pub enum UiEvent {
     Explained { id: u64, explanation: Vec<Span> },
     /// What an overlay line awaited was given up on.
     Failed { id: u64 },
+    /// A player's name in English.
+    Named { name: String, english: String },
     /// A reply in Chinese. It is copied for pasting unless it is too long for WoW's chat
     /// box, which would cut it off.
     ReplyReady { english: String, chinese: String, copied: bool },
@@ -90,19 +96,27 @@ impl UiSender {
 const ASKED_COLOR: crate::markup::Rgb = [0x66, 0xcc, 0xff];
 
 /// The overlay's line for a chat line from the addon, numbered `id`, and the job that
-/// translates or explains it, if the addon asked for that and its body does have
-/// Chinese. The addon does not ask for lines in which only a speaker's name is Chinese.
-/// The job gets the body without its color codes. A line the player asked for is marked.
+/// translates or explains it, if the addon asked for that and there is Chinese to work
+/// on. The addon does not ask for lines in which only a speaker's name is Chinese. The
+/// job gets the body without its color codes. A line the player asked for is marked.
+/// The speaker's name is remembered, for telling the translator about it later.
 pub fn chat_line(id: u64, mut line: ChatLine, handling: Handling) -> (UiEvent, Option<Job>) {
-    let text = crate::markup::plain(&line.body).trim().to_string();
-    let mark = match handling {
-        Handling::TranslateFirst => Some("[On request] "),
-        Handling::Explain => Some("[Explain] "),
-        Handling::Show | Handling::Translate => None,
-    };
-    if let Some(mark) = mark {
-        line.prefix.insert(0, Span { text: mark.into(), color: Some(ASKED_COLOR) });
+    crate::names::remember(&line.speaker);
+    let mark = |text: &str| Span { text: text.into(), color: Some(ASKED_COLOR) };
+    if handling == Handling::ExplainName {
+        // The line is the name and, once it arrives, what it means.
+        let name = line.speaker.clone();
+        line.prefix = vec![mark("[Name] "), Span::plain(format!("{name}: "))];
+        line.body = Vec::new();
+        let job = Job::ExplainName { line: id, name };
+        return (UiEvent::Line { id, line, awaiting: Some(Awaiting::Explanation) }, Some(job));
     }
+    match handling {
+        Handling::TranslateFirst => line.prefix.insert(0, mark("[On request] ")),
+        Handling::Explain => line.prefix.insert(0, mark("[Explain] ")),
+        _ => {}
+    }
+    let text = crate::markup::plain(&line.body).trim().to_string();
     if handling == Handling::Show || !crate::text::has_chinese(&text) {
         return (UiEvent::Line { id, line, awaiting: None }, None);
     }
@@ -134,6 +148,8 @@ pub fn spawn(config: Arc<Mutex<Config>>, jobs: Receiver<Job>, ui: UiSender, clip
             let (text, task) = match &job {
                 Job::Incoming { text, .. } => (text.clone(), Task::ToEnglish),
                 Job::Explain { text, .. } => (text.clone(), Task::Explain(config.reading)),
+                Job::Name { name } => (name.clone(), Task::Name),
+                Job::ExplainName { name, .. } => (name.clone(), Task::ExplainName),
                 Job::Reply { text } => (text.clone(), Task::ToChinese),
                 Job::Test => unreachable!("handled above"),
             };
@@ -165,7 +181,9 @@ pub fn spawn(config: Arc<Mutex<Config>>, jobs: Receiver<Job>, ui: UiSender, clip
                 Err(e) => {
                     ui.send(UiEvent::Status(format!("Translation failed: {e}")));
                     match job {
-                        Job::Incoming { line, .. } | Job::Explain { line, .. } => ui.send(UiEvent::Failed { id: line }),
+                        Job::Incoming { line, .. } | Job::Explain { line, .. } | Job::ExplainName { line, .. } => {
+                            ui.send(UiEvent::Failed { id: line })
+                        }
                         Job::Reply { text } => ui.send(UiEvent::ReplyFailed { english: text, reason: e }),
                         _ => {}
                     }
@@ -178,6 +196,10 @@ pub fn spawn(config: Arc<Mutex<Config>>, jobs: Receiver<Job>, ui: UiSender, clip
                     if let Some(Ok(explanation)) = &explanation {
                         ui.send(UiEvent::Explained { id: line, explanation: crate::explain::spans(explanation) });
                     }
+                }
+                Job::Name { name } => ui.send(UiEvent::Named { name, english: translated }),
+                Job::ExplainName { line, .. } => {
+                    ui.send(UiEvent::Explained { id: line, explanation: vec![Span::plain(translated)] })
                 }
                 Job::Reply { text } => {
                     let copied = translated.len() <= crate::translate::WOW_CHAT_BYTES;
@@ -232,5 +254,13 @@ mod tests {
             panic!("a line to explain is explained");
         };
         assert_eq!((crate::markup::plain(&line.prefix).as_str(), text.as_str()), ("[Explain] [Say] [Lili]: ", "缺坦"));
+        let (UiEvent::Line { line, awaiting: Some(Awaiting::Explanation), .. }, Some(Job::ExplainName { name, .. })) =
+            chat("N\t\t\tffffff\t工作測試名")
+        else {
+            panic!("a name to explain is explained");
+        };
+        assert_eq!((crate::markup::plain(&line.prefix).as_str(), name.as_str()), ("[Name] 工作測試名: ", "工作測試名"));
+        // A speaker is remembered, and pointed out when a later line names them.
+        assert_eq!(crate::names::in_line("跟工作測試名走"), ["工作測試名"]);
     }
 }

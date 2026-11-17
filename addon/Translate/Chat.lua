@@ -102,17 +102,19 @@ function ns.Hex(r, g, b)
     return string.format("%02x%02x%02x", Byte(r), Byte(g), Byte(b))
 end
 
--- One line for the overlay: "<kind>\t<prefix>\t<body>\t<rrggbb>". Prefix and
--- body are markup and together make the line as shown in chat, in the given
--- color. Kind 1 asks for the body to be translated; with 0 the line is shown
--- as it is. T and E are a line the player clicked a link on, to translate it
--- again or to explain it word by word; they go ahead of everything waiting,
--- here and in the companion. A body too long for the
--- strip is cut, so the color after it always arrives.
-local function Send(kind, prefix, body, color)
-    local room = ns.STRIP.maxText - (#prefix + #color + 4)
-    local line = kind .. "\t" .. prefix .. "\t" .. ns.Truncate(body, math.max(room, 0)) .. "\t" .. color
-    ns.SendToStrip(line, (kind == "T" or kind == "E") and line or nil)
+-- One line for the overlay: "<kind>\t<prefix>\t<body>\t<rrggbb>\t<speaker>".
+-- Prefix and body are markup and together make the line as shown in chat, in
+-- the given color; the speaker is the player's name as shown, or empty. Kind
+-- 1 asks for the body to be translated; with 0 the line is shown as it is.
+-- T, E and N are a line the player clicked a link on: to translate it again,
+-- to explain it word by word, or to explain the speaker's name. They go ahead
+-- of everything waiting, here and in the companion. A body too long for the
+-- strip is cut, so the fields after it always arrive.
+local function Send(kind, prefix, body, color, speaker)
+    speaker = speaker or ""
+    local room = ns.STRIP.maxText - (#prefix + #color + #speaker + 5)
+    local line = table.concat({ kind, prefix, ns.Truncate(body, math.max(room, 0)), color, speaker }, "\t")
+    ns.SendToStrip(line, (kind ~= "0" and kind ~= "1") and line or nil)
 end
 
 ns.Markup, ns.Plain, ns.MarkupIndex = Markup, Plain, MarkupIndex
@@ -206,7 +208,7 @@ end
 -- line is only remembered for it. Lines without Chinese are sent only with
 -- allLines on, so the overlay can show the whole conversation in order.
 -- Lines that cannot be read (secret values) are left alone. Returns the
--- lineID of a line with Chinese, for its [T] link.
+-- line's lineID and whether its message has Chinese, for its links.
 -- Arguments follow the CHAT_MSG_* payload: the 4th is the channel's full
 -- name, the 8th its number, the 11th the lineID, the 12th the sender's GUID.
 local function Capture(event, msg, author, _, channel, _, _, _, channelIndex, _, _, lineID, guid)
@@ -215,10 +217,10 @@ local function Capture(event, msg, author, _, channel, _, _, _, channelIndex, _,
         return
     end
     if type(msg) ~= "string" then return end
-    if lineID ~= nil and handled[lineID] ~= nil then return handled[lineID] and lineID end
+    if lineID ~= nil and handled[lineID] ~= nil then return lineID, handled[lineID] ~= false end
     local chinese = HasChinese(msg)
     if lineID ~= nil then Remember(lineID, chinese and Plain(Markup(msg))) end
-    if MirroredWindow() or not (chinese or ns.db.allLines) then return chinese and lineID end
+    if MirroredWindow() or not (chinese or ns.db.allLines) then return lineID, chinese end
 
     local name = type(author) == "string" and author ~= "" and Ambiguate(author, "short") or nil
     local color, info = LineColor(event, channelIndex)
@@ -230,19 +232,21 @@ local function Capture(event, msg, author, _, channel, _, _, _, channelIndex, _,
     elseif around and name then
         prefix = around[1] .. NameMarkup(name, guid, info) .. around[2]
     end
-    Send(chinese and "1" or "0", Markup(prefix), Markup(msg), color)
-    return chinese and lineID
+    Send(chinese and "1" or "0", Markup(prefix), Markup(msg), color, name)
+    return lineID, chinese
 end
 
 -- Breaks a line, as a chat window words it, into the part before the message
--- and the message, both as markup. Without Chinese in the message there is
--- nothing to translate: then returns nil and the whole line.
+-- and the message, both as markup, and finds the speaker's name as shown.
+-- Without Chinese in the message there is nothing to translate: then the
+-- first part is nil and the second the whole line.
 local function Split(text)
-    -- The overlay has no use for our own links. The lineID in the speaker's
-    -- link names the message Capture remembered.
+    -- The speaker's link holds the name as shown, and the lineID of the
+    -- message Capture remembered. The overlay has no use for our own links.
+    local lineID, shown = text:match("|Hplayer:[^:|]*:(%d+)[^|]*|h(.-)|h")
+    local speaker = shown and Plain(Markup(shown)):gsub("^%[(.*)%]$", "%1") or ""
+    local message = lineID and handled[tonumber(lineID)]
     text = text:gsub(" *|Haddon:" .. addonName .. ":%a:%d+|h.-|h", "")
-    local lineID = tonumber(text:match("|Hplayer:[^:|]*:(%d+)"))
-    local message = lineID and handled[lineID]
 
     local markup = Markup(text)
     local plain = Plain(markup)
@@ -261,50 +265,52 @@ local function Split(text)
         end
     end
     -- Without Chinese in the body, only the speaker's name is Chinese, or nothing is.
-    if HasChinese(Plain(body)) then return prefix, body end
-    return nil, markup
+    if HasChinese(Plain(body)) then return prefix, body, speaker end
+    return nil, markup, speaker
 end
 
--- Copies a line the mirrored chat window just added, so the overlay shows
--- what that window shows: every kind of line, worded and colored the same,
--- including what other addons print. Only the Chinese part after the
--- speaker is translated.
 local function Mirror(frame, text, r, g, b)
     if not ns.db or frame ~= MirroredWindow() then return end
     if ns.IsSecret(text) or ns.IsSecret(r) or ns.IsSecret(g) or ns.IsSecret(b) then return end
     if type(text) ~= "string" then return end
-    local prefix, body = Split(text)
+    local prefix, body, speaker = Split(text)
     if prefix then
-        Send("1", prefix, body, ns.Hex(r, g, b))
+        Send("1", prefix, body, ns.Hex(r, g, b), speaker)
     elseif ns.db.allLines then
-        Send("0", "", body, ns.Hex(r, g, b))
+        Send("0", "", body, ns.Hex(r, g, b), speaker)
     end
 end
 
--- The links after a line with Chinese: [T] sends it to the overlay to be
--- translated again, [?] to be explained word by word. A link names what it
+-- The links after a line: [T] sends it to the overlay to be translated again
+-- and [?] to be explained word by word, for a message with Chinese; [?N] has
+-- the speaker's name explained, for a name with Chinese. A link names what it
 -- asks for, as the kind of strip line to send, and the line.
-local function Links(lineID)
+local function Links(lineID, chineseMessage, chineseName)
     local function Link(kind, label)
         return "|Haddon:" .. addonName .. ":" .. kind .. ":" .. lineID .. "|h|cff66ccff" .. label .. "|r|h"
     end
-    return Link("T", "[T]") .. Link("E", "[?]")
+    return (chineseMessage and (Link("T", "[T]") .. Link("E", "[?]")) or "") .. (chineseName and Link("N", "[?N]") or "")
 end
 
 -- Sends a line to the overlay when one of its links is clicked, read back from
 -- the chat window it was clicked in, so any line still on show can be asked
 -- for. The companion marks it as asked for and handles it first.
 local function SendAgain(kind, lineID, clicked)
-    local link = "|Haddon:" .. addonName .. ":T:" .. lineID .. "|h"
+    local link = "|Haddon:" .. addonName .. ":%a:" .. lineID .. "|h"
     local windows = { clicked }
     for i = 1, NUM_CHAT_WINDOWS or 10 do windows[#windows + 1] = _G["ChatFrame" .. i] end
     for _, window in ipairs(windows) do
         local count = window.GetNumMessages and window:GetNumMessages()
         for i = 1, type(count) == "number" and count or 0 do
             local text, r, g, b = window:GetMessageInfo(i)
-            if type(text) == "string" and not ns.IsSecret(text) and text:find(link, 1, true) then
-                local prefix, body = Split(text)
-                if prefix then Send(kind, prefix, body, ns.Hex(r, g, b)) end
+            if type(text) == "string" and not ns.IsSecret(text) and text:find(link) then
+                local prefix, body, speaker = Split(text)
+                if kind == "N" then
+                    -- Only the name matters; the companion words the line itself.
+                    Send(kind, "", "", ns.Hex(r, g, b), speaker)
+                elseif prefix then
+                    Send(kind, prefix, body, ns.Hex(r, g, b), speaker)
+                end
                 return
             end
         end
@@ -314,7 +320,7 @@ end
 
 -- A made-up Chinese line for the overlay, as if someone had said it.
 function ns.SendTestLine(text)
-    Send("1", "[Test]: ", text, "ffffff")
+    Send("1", "[Test]: ", text, "ffffff", "Test")
 end
 
 -- Runs Mirror for tests, and behind the hook where an error must not reach the chat window.
@@ -324,11 +330,13 @@ function ns.MirrorLine(frame, text, r, g, b)
 end
 
 -- Runs before a chat window words and adds the line, so Mirror finds it
--- remembered. Adds the links to a line with Chinese.
+-- remembered. Adds the links to a line with Chinese in its message or in its
+-- speaker's name.
 local function Filter(_, event, msg, author, ...)
-    local lineID = Capture(event, msg, author, ...)
-    if not lineID or not ns.db.showLinks then return false end
-    return false, msg .. " " .. Links(lineID), author, ...
+    local lineID, chinese = Capture(event, msg, author, ...)
+    local named = type(author) == "string" and not ns.IsSecret(author) and HasChinese(author)
+    if not lineID or not ns.db.showLinks or not (chinese or named) then return false end
+    return false, msg .. " " .. Links(lineID, chinese, named), author, ...
 end
 
 function ns.InitChat()
@@ -369,11 +377,11 @@ function ns.InitChat()
     -- Clicks on |Haddon:...| links arrive through EventRegistry.
     if EventRegistry and EventRegistry.RegisterCallback then
         EventRegistry:RegisterCallback("SetItemRef", function(_, link, _, _, window)
-            local name, kind, lineID = tostring(link):match("^addon:([^:]+):([TE]):(%d+)")
+            local name, kind, lineID = tostring(link):match("^addon:([^:]+):([TEN]):(%d+)")
             if name == addonName then SendAgain(kind, lineID, type(window) == "table" and window or nil) end
         end, ns)
         ns.linkSource = "EventRegistry SetItemRef"
     else
-        ns.linkSource = "none: the [T] and [?] links do nothing on this client"
+        ns.linkSource = "none: the links after chat lines do nothing on this client"
     end
 end

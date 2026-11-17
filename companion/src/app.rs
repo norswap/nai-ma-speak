@@ -47,8 +47,10 @@ enum Translation {
 }
 
 impl OverlayLine {
-    /// The line as the game words and colors it, with the body in English when there is one.
-    fn job(&self, font: &egui::FontId, width: f32) -> LayoutJob {
+    /// The line as the game words and colors it, with the body in English when there is
+    /// one. With `names`, the speaker's name is followed by what it is in English, once
+    /// that is known.
+    fn job(&self, font: &egui::FontId, width: f32, names: Option<&HashMap<String, Option<String>>>) -> LayoutJob {
         let mut job = LayoutJob::default();
         job.wrap.max_width = width;
         let (body, dim, note) = match &self.translation {
@@ -57,13 +59,26 @@ impl OverlayLine {
             Translation::Failed(awaiting) => (&self.line.body, 1.0, format!(" ({} failed)", awaiting.noun())),
             Translation::Done(english) => (english, 1.0, String::new()),
         };
+        let aside = Color32::from_gray(150);
+        let speaker = self.line.speaker.as_str();
+        let mut english = names.and_then(|names| names.get(speaker)).and_then(|english| english.as_deref());
         let parts = self.line.prefix.iter().map(|span| (span, 1.0)).chain(body.iter().map(|span| (span, dim)));
         for (span, brightness) in parts {
             let [r, g, b] = span.color.unwrap_or(self.line.color);
             let color = Color32::from_rgb(r, g, b).gamma_multiply(brightness);
-            job.append(&span.text, 0.0, TextFormat::simple(font.clone(), color));
+            // The first time the speaker's name comes up, its English goes right after it.
+            let name_ends = english.and_then(|_| span.text.find(speaker)).map(|at| at + speaker.len());
+            let (before, after) = span.text.split_at(name_ends.unwrap_or(span.text.len()));
+            job.append(before, 0.0, TextFormat::simple(font.clone(), color));
+            if let Some(english) = english.filter(|_| name_ends.is_some()) {
+                job.append(&format!(" ({english})"), 0.0, TextFormat::simple(font.clone(), aside));
+            }
+            if name_ends.is_some() {
+                english = None;
+            }
+            job.append(after, 0.0, TextFormat::simple(font.clone(), color));
         }
-        job.append(&note, 0.0, TextFormat::simple(font.clone(), Color32::from_gray(150)));
+        job.append(&note, 0.0, TextFormat::simple(font.clone(), aside));
         job
     }
 }
@@ -83,6 +98,9 @@ pub struct TranslateApp {
     test_result: String,
     strip_status: String,
     passes: crate::diag::Passes,
+    /// Chinese player names and what they are in English; `None` once asked for and
+    /// until answered, or when there was nothing to add.
+    names: HashMap<String, Option<String>>,
     /// The tab the overlay was anchored to before anchoring was turned off.
     last_anchor: Option<String>,
     /// The settings as last written to the file, and as they were when the companion
@@ -227,6 +245,7 @@ impl TranslateApp {
             overlay_start,
             overlay_rect: None,
             passes: crate::diag::Passes::new(),
+            names: HashMap::new(),
             last_anchor: None,
             saved: draft.clone(),
             opened: draft.clone(),
@@ -311,6 +330,12 @@ impl TranslateApp {
                         line.translation = Translation::Done(explanation);
                         self.font_texture_stale = true;
                     }
+                }
+                UiEvent::Named { name, english } => {
+                    // A name that came back as it went has nothing to add.
+                    let english = Some(english).filter(|english| !english.is_empty() && *english != name);
+                    self.names.insert(name, english);
+                    self.font_texture_stale = true;
                 }
                 UiEvent::Failed { id } => {
                     if let Some(line) = self.lines.iter_mut().rev().find(|line| line.id == id) {
@@ -400,6 +425,20 @@ impl TranslateApp {
         match Tab::ALL.get(*step) {
             Some((tab, _)) => self.tab = *tab,
             None => std::process::exit(0),
+        }
+    }
+
+    /// With names translated, asks for each Chinese speaker's name once.
+    fn ask_for_names(&mut self) {
+        if !self.draft.translate_names {
+            return;
+        }
+        for line in &self.lines {
+            let name = &line.line.speaker;
+            if crate::text::has_chinese(name) && !self.names.contains_key(name) {
+                self.names.insert(name.clone(), None);
+                let _ = self.interactive.send(Job::Name { name: name.clone() });
+            }
         }
     }
 
@@ -852,6 +891,8 @@ impl TranslateApp {
             self.lines.clear();
         }
         ui.checkbox(&mut self.draft.show_original, "Show Chinese too");
+        ui.checkbox(&mut self.draft.translate_names, "Translate player names")
+            .on_hover_text("After a Chinese name, show what it means, or how it sounds if it means nothing.");
         ui.checkbox(&mut self.draft.hide_when_unfocused, HIDE_LABEL);
         ui.spacing_mut().slider_width = (ui.available_width() - 70.0).max(120.0);
         slider(ui, "Lines kept (scrollback)", &mut self.draft.max_lines, 1..=500);
@@ -913,11 +954,12 @@ impl TranslateApp {
                 ui.spacing_mut().item_spacing.y = 1.0;
                 let font = egui::FontId::new(14.0, egui::FontFamily::Name(crate::fonts::OVERLAY_FAMILY.into()));
                 let width = ui.available_width();
+                let names = self.draft.translate_names.then_some(&self.names);
                 if self.lines.is_empty() {
                     ui.label(RichText::new("No chat lines yet.").color(theme::MUTED));
                 }
                 for line in &self.lines {
-                    ui.add(egui::Label::new(line.job(&font, width)).selectable(true));
+                    ui.add(egui::Label::new(line.job(&font, width, names)).selectable(true));
                 }
             });
         });
@@ -1005,6 +1047,7 @@ impl TranslateApp {
         let wheel_steps = std::mem::take(&mut self.wheel_steps);
         let pill = self.reply_pill(ctx);
         let lines = &self.lines;
+        let names = self.draft.translate_names.then_some(&self.names);
 
         ctx.show_viewport_immediate(overlay_id(), builder, |root, _class| {
             let ctx = root.ctx().clone();
@@ -1046,7 +1089,7 @@ impl TranslateApp {
                     }
                     let mut galleys = Vec::new();
                     for line in lines {
-                        galleys.push(ui.painter().layout_job(line.job(&font, width)));
+                        galleys.push(ui.painter().layout_job(line.job(&font, width, names)));
                         if draft.show_original && matches!(line.translation, Translation::Done(_)) {
                             let original = markup::plain(&line.line.body);
                             let format = TextFormat::simple(small.clone(), Color32::from_gray(170));
@@ -1096,6 +1139,7 @@ impl eframe::App for TranslateApp {
         let ctx = ui.ctx().clone();
         self.passes.begin();
         self.drain_events();
+        self.ask_for_names();
         self.control_panel(ui);
         self.window_visibility(&ctx);
         // A copy started only to be pictured must not put a second overlay over the game.

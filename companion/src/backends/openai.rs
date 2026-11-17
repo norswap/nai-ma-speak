@@ -13,8 +13,8 @@ fn is_hy_mt(model: &str) -> bool {
 
 /// Builds the request body for either prompt style.
 fn request_body(model: &str, text: &str, task: Task, variant: ReplyVariant, is_claude: bool) -> Value {
-    // HY-MT only translates; an explanation is asked for the ordinary way even of it.
-    if !is_hy_mt(model) || matches!(task, Task::Explain(_)) {
+    // HY-MT only translates chat; anything else is asked for the ordinary way even of it.
+    if !is_hy_mt(model) || !matches!(task, Task::ToEnglish | Task::ToChinese) {
         let mut body = json!({
             "model": model,
             "messages": [
@@ -38,14 +38,14 @@ fn request_body(model: &str, text: &str, task: Task, variant: ReplyVariant, is_c
             ReplyVariant::Taiwan => "繁体中文",
             ReplyVariant::Simplified => "中文",
         },
-        Task::Explain(_) => unreachable!("asked for with the ordinary prompt above"),
+        Task::Explain(_) | Task::Name | Task::ExplainName => unreachable!("asked for with the ordinary prompt above"),
     };
     let terms: Vec<String> = match task {
         Task::ToEnglish => slang_in(text)
             .iter()
             .map(|(zh, en)| format!("{zh} 翻译成 {en}"))
             .collect(),
-        Task::ToChinese | Task::Explain(_) => Vec::new(),
+        _ => Vec::new(),
     };
     let prompt = if terms.is_empty() {
         format!("将以下文本翻译为{target}，注意只需要输出翻译后的结果，不要额外解释：\n\n{text}")

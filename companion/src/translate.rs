@@ -28,7 +28,24 @@ pub enum Task {
     ToChinese,
     /// Explain a Chinese line word by word; see `explain`.
     Explain(crate::config::Reading),
+    /// Put a Chinese player name into English: its meaning, or else its sound.
+    Name,
+    /// Say what a Chinese player name means and plays on.
+    ExplainName,
 }
+
+const NAME: &str = "The user sends the name of a World of Warcraft player's character, written in Chinese. \
+Reply with the name in English and nothing else. Character names are mostly made of words, so translate what they say, \
+as a short name in title case: 黑熊 is Black Bear, 強老闆 is Strong Boss, 阿薩斯之淚 is Tears of Arthas, \
+蛋願人長久 is May Eggs Last Forever. Use the usual English form of names from Warcraft and other games, shows and history. \
+Write the sound in pinyin, without tone marks and capitalised, only for what has no meaning to translate: \
+a personal name such as 李小明 (Li Xiaoming) or made-up syllables. Keep Latin letters and digits as they are.";
+
+const EXPLAIN_NAME: &str = "The user sends the name of a World of Warcraft player's character, written in Chinese. \
+Explain it to an English speaker in one or two short sentences of plain text, without repeating the name: what it says, \
+and what it plays on if anything, such as a pun or near-homophone of a known phrase, a line from a poem or saying, \
+a celebrity, a meme, a game or a show, or an ordinary word dressed up to sound like fantasy. \
+If it is a plain name with nothing behind it, say so in a few words. Do not offer a reference you are not sure of.";
 
 /// Chinese WoW slang as `zh=en` lines: mainland terms in Simplified, and Taiwanese terms
 /// the mainland list lacks in Traditional. Only the terms found in a line are sent with
@@ -122,10 +139,11 @@ pub fn system_prompt(text: &str, task: Task, variant: ReplyVariant) -> String {
     match task {
         Task::ToEnglish => {
             let slang: Vec<String> = slang_in(text).iter().map(|(zh, en)| format!("{zh} = {en}")).collect();
+            let names = crate::names::hint(text);
             if slang.is_empty() {
-                TO_ENGLISH.to_string()
+                format!("{TO_ENGLISH}{names}")
             } else {
-                format!("{TO_ENGLISH} Slang in this line: {}.", slang.join(", "))
+                format!("{TO_ENGLISH} Slang in this line: {}.{names}", slang.join(", "))
             }
         }
         Task::ToChinese => match variant {
@@ -135,12 +153,15 @@ pub fn system_prompt(text: &str, task: Task, variant: ReplyVariant) -> String {
         Task::Explain(reading) => {
             let slang: Vec<String> = slang_in(text).iter().map(|(zh, en)| format!("{zh} = {en}")).collect();
             let prompt = crate::explain::prompt(reading);
+            let names = crate::names::hint(text);
             if slang.is_empty() {
-                prompt
+                format!("{prompt}{names}")
             } else {
-                format!("{prompt} Slang in this line: {}.", slang.join(", "))
+                format!("{prompt} Slang in this line: {}.{names}", slang.join(", "))
             }
         }
+        Task::Name => NAME.to_string(),
+        Task::ExplainName => EXPLAIN_NAME.to_string(),
     }
 }
 

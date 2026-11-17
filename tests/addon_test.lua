@@ -110,17 +110,17 @@ Chat("CHAT_MSG_CHANNEL", "wts |cffa335ee|Hitem:1|h[Sword]|h|r |TInterface\\icon:
 ns.handlers.CHAT_MSG_SYSTEM("Bob has come online.", "")
 ns.handlers.CHAT_MSG_MONSTER_YELL("You will die!", "Ragnaros")
 Check("each event's line is sent once, worded and colored as the game does", Frames(), {
-    "0 | [Bob] says:  | hello |cffff0000red|r | ffffff",
-    "1 | [Guild] [|cff3fc7ebBob|r]:  | 副本缺補 | 40ff40\n"
-        .. "0 | [2. Trade - City] [Bob]:  | wts |cffa335ee[Sword]|r  | 0080ff\n"
-        .. "0 |  | Bob has come online. | ffff00\n"
-        .. "0 | Ragnaros yells:  | You will die! | ffffff",
+    "0 | [Bob] says:  | hello |cffff0000red|r | ffffff | Bob",
+    "1 | [Guild] [|cff3fc7ebBob|r]:  | 副本缺補 | 40ff40 | Bob\n"
+        .. "0 | [2. Trade - City] [Bob]:  | wts |cffa335ee[Sword]|r  | 0080ff | Bob\n"
+        .. "0 |  | Bob has come online. | ffff00 | \n"
+        .. "0 | Ragnaros yells:  | You will die! | ffffff | Ragnaros",
 })
 
 TranslateDB.allLines = false
 Chat("CHAT_MSG_SAY", "plain")
 Chat("CHAT_MSG_SAY", "缺坦")
-Check("without allLines only Chinese lines are sent", Frames(), { "1 | [Bob] says:  | 缺坦 | ffffff" })
+Check("without allLines only Chinese lines are sent", Frames(), { "1 | [Bob] says:  | 缺坦 | ffffff | Bob" })
 TranslateDB.allLines = true
 
 -- A copied chat window ----------------------------------------------------------------
@@ -135,18 +135,21 @@ Check("other lines get none", plainLine, "no link here")
 Frames()
 -- The line as a chat window shows it, long after the addon forgot the message itself.
 ChatFrame1:AddMessage("|Hplayer:Bob:424242:GUILD|h[|cff3fc7ebBob|r]|h: " .. withLink, 0.25, 1, 0.25)
-ChatFrame1:AddMessage("|Hplayer:小明:424243:SAY|h[小明]|h says: hi |Haddon:Translate:T:77|h[T]|h", 1, 1, 1)
+ChatFrame1:AddMessage("|Hplayer:小明:424243:SAY|h[|cff3fc7eb小明|r]|h says: hi |Haddon:Translate:N:77|h[?N]|h", 1, 1, 1)
 ns.SendToStrip("0\t\twaiting 1")
 ns.SendToStrip("0\t\twaiting 2")
 clickLink("addon:Translate:T:" .. asked, ChatFrame1)
 clickLink("addon:Translate:E:" .. asked, ChatFrame1)
 clickLink("addon:Other:T:" .. asked, ChatFrame1)
 clickLink("item:1", ChatFrame1)
-clickLink("addon:Translate:T:77")
+clickLink("addon:Translate:N:77")
 Check("a click sends the line, read from the window, ahead of what is waiting", Frames(), {
     "0 |  | waiting 1",
-    "E | [|cff3fc7ebBob|r]:  | 缺補 | 40ff40\nT | [|cff3fc7ebBob|r]:  | 缺補 | 40ff40\n0 |  | waiting 2",
+    "N |  |  | ffffff | 小明\nE | [|cff3fc7ebBob|r]:  | 缺補 | 40ff40 | Bob\nT | [|cff3fc7ebBob|r]:  | 缺補 | 40ff40 | Bob\n0 |  | waiting 2",
 })
+local _, named = filters.CHAT_MSG_SAY(nil, "CHAT_MSG_SAY", "hello", "小明", "", "", "", "", 0, 0, "", 0, 555555, "guid-2")
+Check("an English line from a Chinese name gets only the name's link", named, "hello |Haddon:Translate:N:555555|h|cff66ccff[?N]|r|h")
+Frames()
 printed = {}
 clickLink("addon:Translate:T:99999", ChatFrame1)
 Check("a line no window shows any more says so", #printed, 1)
@@ -171,18 +174,18 @@ Shown("|Hplayer:小明:998:SAY|h[小明]|h says: {star} 缺坦")
 Shown("你獲得了物品", 1, 1, 0)
 Shown("|cnRED_FONT_COLOR:Low health|r and |cnNO_SUCH_COLOR:this|r")
 Check("the copied window's lines, split where the message starts", Frames(), {
-    "1 | [Guild] [|cff3fc7ebBob|r]:  | 來打副本 |cffa335ee[劍]|r | 40ff40",
-    "0 |  | |cff33ff99DBM|r: Pull in |cffffff005|r | ffffff\n"
-        .. "0 |  | 12:30 [小明] says: hello there | ffffff\n"
-        .. "1 | [小明] says:  | {star} 缺坦 | ffffff\n"
-        .. "1 |  | 你獲得了物品 | ffff00\n"
-        .. "0 |  | |cffff2020Low health|r and |cnNO_SUCH_COLOR:this|r | ffffff",
+    "1 | [Guild] [|cff3fc7ebBob|r]:  | 來打副本 |cffa335ee[劍]|r | 40ff40 | Bob",
+    "0 |  | |cff33ff99DBM|r: Pull in |cffffff005|r | ffffff | \n"
+        .. "0 |  | 12:30 [小明] says: hello there | ffffff | 小明\n"
+        .. "1 | [小明] says:  | {star} 缺坦 | ffffff | 小明\n"
+        .. "1 |  | 你獲得了物品 | ffff00 | \n"
+        .. "0 |  | |cffff2020Low health|r and |cnNO_SUCH_COLOR:this|r | ffffff | ",
 })
 
 Shown(string.rep("長", 200))
 local long = Frames()[1]
-Check("a line too long for a frame keeps its color at the end", long:sub(-9), " | ffffff")
-Check("and fits the frame", #long <= ns.STRIP.maxText + 6, true) -- " | " is 2 longer than a tab, 3 times
+Check("a line too long for a frame keeps its color at the end", long:sub(-12), " | ffffff | ")
+Check("and fits the frame", #long <= ns.STRIP.maxText + 8, true) -- " | " is 2 longer than a tab, 4 times
 TranslateDB.sourceWindow = ""
 
 -- Markup helpers -----------------------------------------------------------------------
@@ -228,7 +231,7 @@ Check("a target with nothing to say is refused", #printed, 2)
 Check("nothing was sent for it", Frames(), {})
 
 slash("/test 2")
-Check("counted test lines go to the overlay", Frames(), { "1 | [Test]:  | 一 (Translate test) | ffffff\n1 | [Test]:  | 二 (Translate test) | ffffff" })
+Check("counted test lines go to the overlay", Frames(), { "1 | [Test]:  | 一 (Translate test) | ffffff | Test\n1 | [Test]:  | 二 (Translate test) | ffffff | Test" })
 Check("and are not said in chat", #said, 0)
 slash("/TEST")
 Check("the plain test line is said", said[1], "SAY 大家好，今天一起打副本嗎？ (Translate test)")
