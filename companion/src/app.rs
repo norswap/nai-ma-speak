@@ -163,6 +163,8 @@ pub struct TranslateApp {
     show_window: bool,
     /// This window was hidden with its Hide button.
     window_hidden: bool,
+    /// The window has been on screen, so having no rectangle now means it is minimized.
+    window_placed: bool,
     /// The game's App button brought this window over the game, where it still is.
     window_summoned: bool,
     /// Whether the companion was the app in front at the last look.
@@ -181,6 +183,8 @@ enum ReplyState {
     TooLong(String),
 }
 
+/// How tall the companion window's own title bar is: its buttons and the space around them.
+const TITLE_BAR_HEIGHT: f32 = 46.0;
 /// The backlog file is written at most this often.
 const BACKLOG_EVERY: Duration = Duration::from_secs(2);
 /// How long settings are left alone before they are written to the file.
@@ -297,6 +301,7 @@ impl TranslateApp {
             reply_box_focus: false,
             show_window: false,
             window_hidden: false,
+            window_placed: false,
             window_summoned: false,
             was_active: true,
             test_result: String::new(),
@@ -622,10 +627,13 @@ impl TranslateApp {
     /// when the game's App button asks for it, and away again on a second click.
     fn window_visibility(&mut self, ctx: &egui::Context) {
         let root = ViewportId::ROOT;
-        // The yellow button would minimize the window, and macOS then ignores a click
-        // on the app's icon as long as the companion is the app in front. Hiding the
-        // window instead behaves the same as the Hide button, which comes back.
-        if ctx.input(|i| i.viewport().minimized) == Some(true) {
+        // A minimized window (Cmd+M, or the Window menu) does not come back on a click
+        // on the app's icon as long as the companion is the app in front. Hiding it
+        // instead behaves the same as the Hide button, which does. egui does not say
+        // "minimized" on macOS while running, but a minimized window has no rectangle.
+        let has_rect = ctx.input(|i| i.viewport().inner_rect.is_some());
+        self.window_placed |= has_rect;
+        if self.window_placed && !has_rect && !self.window_hidden {
             self.hide_window(ctx);
         }
         // A click on the app's icon makes the companion the app in front, but macOS
@@ -758,6 +766,12 @@ impl TranslateApp {
 
     /// The name, whether translation is working and with what, and the window's own buttons.
     fn title_bar(&mut self, ui: &mut egui::Ui) {
+        // Dragging the bar moves the window, as a title bar does. Asked for before the
+        // bar's contents are added, so its buttons still get their clicks.
+        let whole = egui::Rect::from_min_size(ui.cursor().min, egui::vec2(ui.available_width(), TITLE_BAR_HEIGHT));
+        if ui.interact(whole, ui.id().with("move window"), egui::Sense::drag()).drag_started() {
+            ui.ctx().send_viewport_cmd_to(ViewportId::ROOT, ViewportCommand::StartDrag);
+        }
         let bar = egui::Frame::NONE.fill(theme::BAR).inner_margin(egui::Margin::symmetric(14, 8));
         bar.show(ui, |ui| {
             ui.horizontal(|ui| {

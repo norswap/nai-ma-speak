@@ -88,6 +88,14 @@ fn main() -> eframe::Result {
             .with_inner_size(app::START_SIZE)
             .with_min_inner_size([app::MIN_WIDTH, app::MIN_HEIGHT])
             .with_icon(window_icon())
+            // On macOS the window has no title bar of the system's: the app's own bar
+            // is at the top, moves the window when dragged, and has Hide where the
+            // system's buttons would be. The yellow button minimized the window, from
+            // where a click on the app's icon did not bring it back.
+            .with_fullsize_content_view(true)
+            .with_titlebar_shown(false)
+            .with_title_shown(false)
+            .with_titlebar_buttons_shown(false)
             // The renderer only gets an alpha channel when the root window asks
             // for one; without it the overlay is drawn solid black.
             .with_transparent(true),
