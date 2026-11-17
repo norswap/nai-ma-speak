@@ -130,10 +130,12 @@ jobs:
         env:
           MATRIX_TARGET: ${{ matrix.target }}
 
+      # Archived, so the macOS zip arrives in the release job as the file it is: an
+      # artifact that is itself a zip gets unpacked on download.
       - uses: actions/upload-artifact@v7
         with:
+          name: companion-${{ matrix.name }}
           path: dist/*
-          archive: false
 
   addon:
     name: Addon
