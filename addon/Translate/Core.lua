@@ -62,6 +62,7 @@ local function ShowHelp()
     ns.Print("/tr (or /nms)  open or close the box for typing a reply")
     ns.Print("/tr hello  translate English into Chinese and copy it, to paste into chat")
     ns.Print("/tr /g hello  the same, and open the chat box on guild (or /p, /s, /w Name, /2 ...)")
+    ns.Print("/tr /name  explain your target's name in the overlay, or /tr /name 黑熊 for one you type")
     ns.Print("/tr /options  open the options (also under Options > AddOns)")
     ns.Print("/tr /all  toggle showing lines without Chinese in the overlay too")
     ns.Print("/tr /test  say a Chinese test line to check the strip and overlay")
@@ -77,6 +78,15 @@ local commands = {
     all = function()
         ns.db.allLines = not ns.db.allLines
         ns.Print("The overlay shows " .. (ns.db.allLines and "all chat lines." or "Chinese lines only."))
+    end,
+    -- Explains a player's name in the overlay: the one given, or the target's.
+    name = function(_, given)
+        local name = given ~= "" and given or (UnitName and UnitName("target"))
+        if ns.IsSecret(name) or type(name) ~= "string" or name == "" then
+            ns.Print("Whose name? Target a player, or type one: /tr /name 黑熊")
+            return
+        end
+        ns.ExplainName(name)
     end,
     -- With a count, sends that many short lines, each a number in Chinese,
     -- straight to the overlay: enough different lines to see how the
@@ -138,7 +148,7 @@ SlashCmdList.TRANSLATE = function(input)
     local word, argument = text:match("^/(%S+)%s*(.-)$")
     local fn = word and commands[strlower(word)]
     if fn then
-        fn(tonumber(argument))
+        fn(tonumber(argument), argument)
     else
         ns.Reply(text)
     end

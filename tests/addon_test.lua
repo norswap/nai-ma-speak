@@ -237,6 +237,16 @@ slash("/TEST")
 Check("the plain test line is said", said[1], "SAY 大家好，今天一起打副本嗎？ (Translate test)")
 Frames()
 
+local target = "小明"
+function UnitName(unit) return unit == "target" and target or nil end
+slash("/name")
+slash("/name 黑熊 Lz")
+target = nil
+printed = {}
+slash("/NAME")
+Check("a name to explain: the target's, or one typed", Frames(), { "N |  |  | ffffff | 小明", "N |  |  | ffffff | 黑熊 Lz" })
+Check("with neither, it asks whose", #printed, 1)
+
 Check("SLASH aliases", SLASH_TRANSLATE1 .. " " .. SLASH_TRANSLATE3, "/tr /nms")
 local numbers = {}
 for _, n in ipairs({ 1, 9, 10, 11, 20, 21, 99 }) do numbers[#numbers + 1] = ns.ChineseNumber(n) end

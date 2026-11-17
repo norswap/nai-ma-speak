@@ -98,6 +98,7 @@ The same from the chat box, where `/nms` works in place of `/tr`:
 | `/tr` | Open or close the translate box |
 | `/tr hello` | Translate and copy, then reopen the chat box on the channel it was last on |
 | `/tr /g hello` | The same, reopening the chat box on that target: `/p`, `/s`, `/y`, `/ra`, `/i`, `/o`, `/2`, `/w Name`, `/r` |
+| `/tr /name` | Explain your target's name in the overlay; `/tr /name 黑熊` for one you type |
 | `/tr /options` | Open the addon's options |
 | `/tr /all` | Toggle lines without Chinese in the overlay |
 | `/tr /test` | Say a Chinese test line in `/say` to check the strip and overlay |

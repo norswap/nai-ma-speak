@@ -318,6 +318,11 @@ local function SendAgain(kind, lineID, clicked)
     ns.Print("That line is no longer in a chat window, so it cannot be sent again.")
 end
 
+-- Asks the companion to explain a player's name, as a [?N] link does.
+function ns.ExplainName(name)
+    Send("N", "", "", "ffffff", name)
+end
+
 -- A made-up Chinese line for the overlay, as if someone had said it.
 function ns.SendTestLine(text)
     Send("1", "[Test]: ", text, "ffffff", "Test")
