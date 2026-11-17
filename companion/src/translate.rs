@@ -7,7 +7,9 @@ use std::sync::OnceLock;
 const TO_ENGLISH: &str = "You translate World of Warcraft in-game chat from Chinese into natural, casual English, the way an English-speaking player would write it. \
 The server has Taiwanese players typing Traditional Chinese and mainland players typing Simplified Chinese, so slang can come from either side: \
 Taiwanese internet slang, Zhuyin shorthand and Hokkien-derived words, or mainland gaming slang. \
-Keep player names, numbers, item names in brackets, and English words as they are. In chat, 1 usually means yes/ready. \
+Keep player names, numbers and English words as they are. In chat, 1 usually means yes/ready. \
+Text in [square brackets] is a link to an item, quest or spell: always keep it, brackets included, wherever it stands in the line, \
+with its name in English. \
 Reply with the translation only: no quotes, notes or romanization.";
 
 const TO_TAIWANESE: &str = "Translate the user's World of Warcraft chat message into casual Traditional Chinese (繁體中文) with Taiwanese vocabulary, \

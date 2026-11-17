@@ -74,16 +74,23 @@ pub fn plain(spans: &[Span]) -> String {
     spans.iter().map(|span| span.text.as_str()).collect()
 }
 
-/// Byte ranges of the `[...]` groups in a text, in order.
+/// Byte ranges of the `[...]` groups in a text, in order. A group may hold others, as in
+/// "[[31] Centaur Bounty]", and is then one group.
 fn bracketed(text: &str) -> Vec<(usize, usize)> {
     let mut groups = Vec::new();
-    let mut start = None;
+    let (mut start, mut depth) = (0, 0usize);
     for (at, c) in text.char_indices() {
         match c {
-            '[' => start = Some(at),
-            ']' => {
-                if let Some(from) = start.take() {
-                    groups.push((from, at + 1));
+            '[' => {
+                if depth == 0 {
+                    start = at;
+                }
+                depth += 1;
+            }
+            ']' if depth > 0 => {
+                depth -= 1;
+                if depth == 0 {
+                    groups.push((start, at + 1));
                 }
             }
             _ => {}
@@ -192,6 +199,11 @@ mod tests {
         assert_eq!(
             carry_colors("Selling [Sword] and [Shield]", &links),
             [span("Selling ", None), span("[Sword]", PURPLE), span(" and ", None), span("[Shield]", GREEN)]
+        );
+        // A link with brackets inside it, as some addons write quest levels, is one link.
+        assert_eq!(
+            carry_colors("[[31] Centaur Bounty] ears", &spans("|cffa335ee[[31] Centaur Bounty]|r耳朵")),
+            [span("[[31] Centaur Bounty]", PURPLE), span(" ears", None)]
         );
         // A link the translation dropped: nothing is guessed.
         assert_eq!(carry_colors("Selling sword and [Shield]", &links), [span("Selling sword and [Shield]", None)]);
