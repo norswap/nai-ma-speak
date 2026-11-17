@@ -460,6 +460,14 @@ impl TranslateApp {
         if self.shot.is_none() {
             // Above other windows, or a covered window is not drawn and pictures go stale.
             ctx.send_viewport_cmd_to(ViewportId::ROOT, ViewportCommand::WindowLevel(egui::WindowLevel::AlwaysOnTop));
+            // On the sharpest display there is, for pictures worth showing.
+            let sharpest = xcap::Monitor::all().unwrap_or_default().into_iter().max_by(|a, b| {
+                a.scale_factor().unwrap_or(1.0).total_cmp(&b.scale_factor().unwrap_or(1.0))
+            });
+            if let Some((Ok(x), Ok(y))) = sharpest.map(|monitor| (monitor.x(), monitor.y())) {
+                let corner = egui::pos2(x as f32 + 120.0, y as f32 + 120.0);
+                ctx.send_viewport_cmd_to(ViewportId::ROOT, ViewportCommand::OuterPosition(corner));
+            }
         }
         let (step, since) = self.shot.get_or_insert((0, Instant::now()));
         if since.elapsed() < Duration::from_millis(900) {
