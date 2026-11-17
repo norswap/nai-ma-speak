@@ -777,6 +777,11 @@ impl TranslateApp {
             ui.horizontal(|ui| {
                 theme::title(ui);
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui.add(theme::button("X")).on_hover_text("Quit the companion. The overlay goes too.").clicked() {
+                        self.save();
+                        self.write_backlog();
+                        ui.ctx().send_viewport_cmd_to(ViewportId::ROOT, ViewportCommand::Close);
+                    }
                     let hint = "Hide this window; the overlay stays. The game's App button or the app's icon brings it back.";
                     if ui.add(theme::button("Hide")).on_hover_text(hint).clicked() {
                         self.hide_window(ui.ctx());
