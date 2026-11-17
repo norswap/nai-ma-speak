@@ -160,7 +160,36 @@ pub fn translate(config: &Config, text: &str, task: Task, notify: &dyn Fn(String
     if reply.is_empty() {
         return Err(format!("{} gave an empty translation", config.backend.label()));
     }
+    let reply = match task {
+        Task::ToEnglish => restore_links(text, reply),
+        _ => reply,
+    };
     Ok(finish(reply, task, config.reply_variant))
+}
+
+/// Puts back links that a translation left out. A model asked to keep what is in square
+/// brackets still drops a link now and then, mostly one already in English at the start
+/// of a Chinese line, which it folds into "that quest". When the translation has fewer
+/// links than the line, as many of the line's links as are missing are added, from
+/// those the translation does not have word for word: at the front if the line began
+/// with one, else at the end.
+fn restore_links(original: &str, translated: String) -> String {
+    let original = original.trim();
+    let links = crate::markup::bracketed(original);
+    let missing = links.len().saturating_sub(crate::markup::bracketed(&translated).len());
+    let mut absent: Vec<(usize, usize)> =
+        links.into_iter().filter(|&(from, to)| !translated.contains(&original[from..to])).collect();
+    // A link in Chinese may be there under its English name; one without Chinese cannot.
+    absent.sort_by_key(|&(from, to)| crate::text::has_chinese(&original[from..to]));
+    let (mut front, mut back) = (String::new(), String::new());
+    for (from, to) in absent.into_iter().take(missing) {
+        if from == 0 {
+            front = format!("{} ", &original[from..to]);
+        } else {
+            back.push_str(&format!(" {}", &original[from..to]));
+        }
+    }
+    format!("{front}{translated}{back}")
 }
 
 /// The last step for every translation. A Taiwanese reply is passed through the
@@ -191,6 +220,19 @@ fn clean_reply(raw: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn links_a_translation_left_out_are_put_back() {
+        let restore = |original: &str, translated: &str| restore_links(original, translated.to_string());
+        assert_eq!(
+            restore("[[31] Centaur Bounty] 換我打你那個任務=.=", "Let me do that quest for you =.="),
+            "[[31] Centaur Bounty] Let me do that quest for you =.="
+        );
+        assert_eq!(restore("賣 [劍] 和 [Shield of Truth]", "Selling [Sword]"), "Selling [Sword] [Shield of Truth]");
+        // Nothing is added to a translation that has the line's links, renamed or not.
+        assert_eq!(restore("[科多獸圍捕] 我也要做", "I want to do [Kodo Roundup] too"), "I want to do [Kodo Roundup] too");
+        assert_eq!(restore("缺補", "need a healer"), "need a healer");
+    }
 
     fn slang_of(text: &str) -> Vec<(String, &'static str)> {
         slang_in(text)

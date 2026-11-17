@@ -76,7 +76,7 @@ pub fn plain(spans: &[Span]) -> String {
 
 /// Byte ranges of the `[...]` groups in a text, in order. A group may hold others, as in
 /// "[[31] Centaur Bounty]", and is then one group.
-fn bracketed(text: &str) -> Vec<(usize, usize)> {
+pub fn bracketed(text: &str) -> Vec<(usize, usize)> {
     let mut groups = Vec::new();
     let (mut start, mut depth) = (0, 0usize);
     for (at, c) in text.char_indices() {
