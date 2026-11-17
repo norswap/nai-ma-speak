@@ -119,6 +119,12 @@ impl Backend {
         }
     }
 
+    /// Whether the backend can follow instructions: explain a line or a name, and put a
+    /// name into English as a name. Google Translate only translates text.
+    pub fn takes_instructions(self) -> bool {
+        self != Backend::GoogleFree
+    }
+
     /// A config file written before backends existed could only use this one.
     fn before_backends() -> Self {
         Backend::OpenAiCompatible

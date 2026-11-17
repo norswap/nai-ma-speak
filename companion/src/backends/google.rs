@@ -37,12 +37,11 @@ fn parse(answer: &Value) -> Option<String> {
 pub fn translate(config: &Config, text: &str, task: Task, notify: &dyn Fn(String)) -> Result<String, String> {
     let url = format!("{}/translate_a/single", config.google_free_base.trim().trim_end_matches('/'));
     let (source, target) = match (task, config.reply_variant) {
-        // A name goes through as any text: translated where Google sees words in it.
-        (Task::ToEnglish | Task::Name, _) => ("auto", "en"),
+        (Task::ToEnglish, _) => ("auto", "en"),
         (Task::ToChinese, ReplyVariant::Taiwan) => ("en", "zh-TW"),
         (Task::ToChinese, ReplyVariant::Simplified) => ("en", "zh-CN"),
-        (Task::Explain(_) | Task::ExplainName, _) => {
-            return Err("Google Translate cannot explain. Choose Claude or an OpenAI-compatible model on the Backend tab.".into())
+        (Task::Explain(_) | Task::Name | Task::ExplainName, _) => {
+            return Err("Google Translate cannot explain lines or names. Choose Claude or an OpenAI-compatible model on the Backend tab.".into())
         }
     };
     let advice = "Try again later, or pick another backend in Settings.";

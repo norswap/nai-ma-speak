@@ -491,9 +491,15 @@ impl TranslateApp {
         }
     }
 
+    /// Whether player names are followed by their English: asked for in the settings, and
+    /// the backend can do it.
+    fn names_shown(&self) -> bool {
+        self.draft.translate_names && self.draft.backend.takes_instructions()
+    }
+
     /// With names translated, asks for each Chinese speaker's name once.
     fn ask_for_names(&mut self) {
-        if !self.draft.translate_names {
+        if !self.names_shown() {
             return;
         }
         for line in &self.lines {
@@ -970,7 +976,9 @@ impl TranslateApp {
             self.backlog_changed = true;
         }
         ui.checkbox(&mut self.draft.show_original, "Show Chinese too");
-        ui.checkbox(&mut self.draft.translate_names, "Translate player names")
+        let can_name = self.draft.backend.takes_instructions();
+        let label = if can_name { "Translate player names" } else { "Translate player names (unavailable with Google Translate)" };
+        ui.add_enabled(can_name, egui::Checkbox::new(&mut self.draft.translate_names, label))
             .on_hover_text("After a Chinese name, show what it means, or how it sounds if it means nothing.");
         ui.checkbox(&mut self.draft.hide_when_unfocused, HIDE_LABEL);
         ui.spacing_mut().slider_width = (ui.available_width() - 70.0).max(120.0);
@@ -1033,7 +1041,7 @@ impl TranslateApp {
                 ui.spacing_mut().item_spacing.y = 1.0;
                 let font = egui::FontId::new(14.0, egui::FontFamily::Name(crate::fonts::OVERLAY_FAMILY.into()));
                 let width = ui.available_width();
-                let names = self.draft.translate_names.then_some(&self.names);
+                let names = self.names_shown().then_some(&self.names);
                 if self.lines.is_empty() {
                     ui.label(RichText::new("No chat lines yet.").color(theme::MUTED));
                 }
@@ -1126,7 +1134,7 @@ impl TranslateApp {
         let wheel_steps = std::mem::take(&mut self.wheel_steps);
         let pill = self.reply_pill(ctx);
         let lines = &self.lines;
-        let names = self.draft.translate_names.then_some(&self.names);
+        let names = self.names_shown().then_some(&self.names);
 
         ctx.show_viewport_immediate(overlay_id(), builder, |root, _class| {
             let ctx = root.ctx().clone();
