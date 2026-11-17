@@ -2,8 +2,8 @@
 //! lines separated by "\n", and each line is fields separated by tabs. The first field
 //! says what the line is:
 //!
-//! - `0`, `1`, `T`, `E` or `N`, then prefix, body, `rrggbb` and the speaker's name: a
-//!   chat line. Prefix and body carry WoW color codes and together make the line as the
+//! - `0`, `1`, `T`, `E` or `N`, then prefix, body, `rrggbb`, the speaker's name and,
+//!   for `0` and `1`, the line's number (see `ChatLine::number`): a chat line. Prefix and body carry WoW color codes and together make the line as the
 //!   game shows it, in that color. With `0` the line is shown as it is; with `1` its
 //!   body is to be translated. `T`, `E` and `N` are a line the player clicked a link on,
 //!   handled ahead of the others: [T] to translate it again, [?] to explain it word by
@@ -78,13 +78,14 @@ pub fn parse(line: &str) -> Option<Message> {
                 "E" => Handling::Explain,
                 _ => Handling::ExplainName,
             };
-            let mut fields = rest.splitn(4, '\t');
+            let mut fields = rest.splitn(5, '\t');
             let (prefix, body) = (fields.next()?, fields.next()?);
             let color = fields.next().and_then(markup::rgb).unwrap_or([255; 3]);
             let speaker = fields.next().unwrap_or_default().trim().to_string();
             let mut open = Vec::new();
             let (prefix, body) = (markup::parse(prefix, &mut open), markup::parse(body, &mut open));
-            let line = ChatLine { speaker, color, prefix, body };
+            let number = fields.next().and_then(|number| number.parse().ok());
+            let line = ChatLine { speaker, color, prefix, body, number };
             Some(Message::Chat { line, handling })
         }
         _ => None,
@@ -118,10 +119,10 @@ pub mod tests {
 
     #[test]
     fn reads_chat_lines() {
-        let Some(Message::Chat { line, handling: Handling::Translate }) = parse("1\t[|cff3fc7ebLili|r]: \t缺 |cffa335ee[劍]|r\t40ff40\tLili") else {
+        let Some(Message::Chat { line, handling: Handling::Translate }) = parse("1\t[|cff3fc7ebLili|r]: \t缺 |cffa335ee[劍]|r\t40ff40\tLili\t1700000000007") else {
             panic!("a chat line to translate");
         };
-        assert_eq!((line.color, line.speaker.as_str()), ([0x40, 0xff, 0x40], "Lili"));
+        assert_eq!((line.color, line.speaker.as_str(), line.number), ([0x40, 0xff, 0x40], "Lili", Some(1700000000007)));
         assert_eq!(line.prefix[1], markup::Span { text: "Lili".into(), color: Some([0x3f, 0xc7, 0xeb]) });
         assert_eq!(markup::plain(&line.body), "缺 [劍]");
         // Without a color the line is white, and 0 asks for no translation.
@@ -132,7 +133,7 @@ pub mod tests {
         let Some(Message::Chat { line, handling: Handling::ExplainName }) = parse("N\t\t\tffffff\t小明") else {
             panic!("a name to explain");
         };
-        assert_eq!(line.speaker, "小明");
+        assert_eq!((line.speaker.as_str(), line.number), ("小明", None));
         assert!(matches!(parse("T\t\t缺坦\tffffff"), Some(Message::Chat { handling: Handling::TranslateFirst, .. })));
         assert!(matches!(parse("E\t\t缺坦\tffffff"), Some(Message::Chat { handling: Handling::Explain, .. })));
         assert_eq!(parse("broken"), None);

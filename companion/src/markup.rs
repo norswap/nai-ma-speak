@@ -19,6 +19,11 @@ pub struct ChatLine {
     pub color: Rgb,
     pub prefix: Vec<Span>,
     pub body: Vec<Span>,
+    /// The addon's number for a line of the chat, rising with each. The addon sends its
+    /// last lines again and again, and this tells the ones already had; it also gives a
+    /// line that arrives late its place. None for a line the player asked for.
+    #[serde(default)]
+    pub number: Option<u64>,
 }
 
 impl Span {

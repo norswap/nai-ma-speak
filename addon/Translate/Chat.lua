@@ -102,19 +102,34 @@ function ns.Hex(r, g, b)
     return string.format("%02x%02x%02x", Byte(r), Byte(g), Byte(b))
 end
 
--- One line for the overlay: "<kind>\t<prefix>\t<body>\t<rrggbb>\t<speaker>".
+-- One line for the overlay: "<kind>\t<prefix>\t<body>\t<rrggbb>\t<speaker>\t<number>".
 -- Prefix and body are markup and together make the line as shown in chat, in
 -- the given color; the speaker is the player's name as shown, or empty. Kind
 -- 1 asks for the body to be translated; with 0 the line is shown as it is.
 -- T, E and N are a line the player clicked a link on: to translate it again,
 -- to explain it word by word, or to explain the speaker's name. They go ahead
--- of everything waiting, here and in the companion. A body too long for the
--- strip is cut, so the fields after it always arrive.
+-- of everything waiting, here and in the companion, and have no number. A
+-- body too long for the strip is cut, so the fields after it always arrive.
+--
+-- The number tells the lines of the chat apart and puts them in order. The
+-- strip shows the last of them again and again while nothing new waits, for a
+-- companion that was not looking the first time (the game was covered, or the
+-- companion not running); it drops the numbers it has seen. Numbers start at
+-- the time of login, so they keep rising from one login to the next.
+local number = time() * 1000
+
 local function Send(kind, prefix, body, color, speaker)
-    speaker = speaker or ""
-    local room = ns.STRIP.maxText - (#prefix + #color + #speaker + 5)
-    local line = table.concat({ kind, prefix, ns.Truncate(body, math.max(room, 0)), color, speaker }, "\t")
-    ns.SendToStrip(line, (kind ~= "0" and kind ~= "1") and line or nil)
+    local fields = { kind, prefix, body, color, speaker or "" }
+    local asked = kind ~= "0" and kind ~= "1"
+    if not asked then
+        number = number + 1
+        fields[#fields + 1] = string.format("%.0f", number)
+    end
+    local others = #table.concat(fields, "\t") - #body
+    fields[3] = ns.Truncate(body, math.max(ns.STRIP.maxText - others, 0))
+    local line = table.concat(fields, "\t")
+    ns.SendToStrip(line, asked and line or nil)
+    if not asked then ns.RepeatOnStrip(line) end
 end
 
 ns.Markup, ns.Plain, ns.MarkupIndex = Markup, Plain, MarkupIndex
@@ -123,7 +138,6 @@ ns.Markup, ns.Plain, ns.MarkupIndex = Markup, Plain, MarkupIndex
 -- text if it has Chinese, false if not. Every chat window reports a line, so
 -- this is how a line is sent once, and how the message is found in the line a
 -- window words around it. Forgets the oldest beyond KEEP.
-local KEEP = 5000
 local KEEP = 300
 local handled, order, first = {}, {}, 1
 

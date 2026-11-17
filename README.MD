@@ -38,6 +38,7 @@ Reading the strip is screen capture: it only reads pixels and never sends input 
 - **Slang hints.** The chat models are told the WoW slang found in each line (缺補, 坦, 副本...), from a list of mainland and Taiwanese terms. Google Translate takes no hints.
 - **In-game buttons.** "Translate" and "App" buttons on the chat window open the reply box and the companion app's window.
 - **Translate again on request.** Chinese lines in the game's own chat windows end in a `[T]` link. Clicking it sends that line to the overlay again, ahead of everything waiting, marked "[On request]": for a line that scrolled away, or was dropped when chat was too busy.
+- **Catching up.** While chat is quiet the addon keeps sending its last 50 chat lines again (the count is in the addon's options). Lines the companion missed, because another window covered the game or the companion was not running, appear in the overlay in their place within seconds; lines it has are not shown twice.
 - **Scrollback.** With the overlay on a chat tab, the mouse wheel over that tab scrolls the overlay.
 - **Chat history.** The companion keeps the recent lines in a tab where text can be selected and copied. Restarting the companion brings back the lines of the last ten minutes.
 
@@ -130,7 +131,7 @@ Chat lines are sent to whichever backend you choose. Only a local model keeps th
 
 - Chat text inside instances may be a secret value under Midnight rules. The addon cannot read those lines, so they are not shown or translated.
 - Each strip frame holds 376 bytes, enough for a chat message (255 bytes at most) with its speaker and colors. Longer lines, such as some system messages, are cut.
-- The strip carries about 1,500 bytes a second. In a flood of chat, lines queue in the addon, up to 200, and the oldest are dropped beyond that. A dropped line can be asked for again with its `[T]` link.
+- The strip carries about 1,500 bytes a second. In a flood of chat, lines queue in the addon, up to 200, and the oldest are dropped beyond that. A dropped line comes back by itself if it is among the last ones the addon repeats, and can be asked for again with its `[T]` link.
 - Icons inside chat lines (raid markers and the like) are left out of the overlay.
 - A translation keeps the colors of the original line only where they can be placed: a line in one color, item links in order, and words that come back unchanged.
 - The buttons sit on the main chat window and its docked tabs, not on a chat window floating on its own.

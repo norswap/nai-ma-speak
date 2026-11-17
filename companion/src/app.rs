@@ -185,6 +185,15 @@ enum ReplyState {
 
 /// How tall the companion window's own title bar is: its buttons and the space around them.
 const TITLE_BAR_HEIGHT: f32 = 46.0;
+/// Where a new line goes among the overlay's lines, given their numbers: at the end,
+/// or, for a line of the chat that arrives late (the addon sends its last lines again
+/// for a companion that missed them), before the lines that came after it in the game.
+fn place(lines: impl ExactSizeIterator<Item = Option<u64>>, new: Option<u64>) -> usize {
+    let count = lines.len();
+    let Some(new) = new else { return count };
+    lines.into_iter().position(|number| number.is_some_and(|number| number > new)).unwrap_or(count)
+}
+
 /// The backlog file is written at most this often.
 const BACKLOG_EVERY: Duration = Duration::from_secs(2);
 /// How long settings are left alone before they are written to the file.
@@ -311,7 +320,8 @@ impl TranslateApp {
     }
 
     fn push_line(&mut self, line: OverlayLine) {
-        self.lines.push_back(line);
+        let place = place(self.lines.iter().map(|line| line.line.number), line.line.number);
+        self.lines.insert(place, line);
         while self.lines.len() > self.draft.max_lines.max(1) {
             self.lines.pop_front();
         }
@@ -1262,6 +1272,16 @@ impl eframe::App for TranslateApp {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_late_line_goes_before_the_lines_that_followed_it() {
+        let lines = [Some(10), None, Some(12), Some(14), None];
+        assert_eq!(place(lines.into_iter(), Some(15)), 5, "the newest goes last");
+        assert_eq!(place(lines.into_iter(), Some(13)), 3);
+        assert_eq!(place(lines.into_iter(), Some(11)), 2, "after a line the player asked for at that time");
+        assert_eq!(place(lines.into_iter(), Some(5)), 0);
+        assert_eq!(place(lines.into_iter(), None), 5, "a line the player asked for goes last");
+    }
 
     /// The overlay scrolls by calling `scroll_with_delta` inside its scroll area; this
     /// checks that doing so moves a scroll area that sticks to the bottom, and which way.

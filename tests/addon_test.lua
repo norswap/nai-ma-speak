@@ -29,6 +29,7 @@ UIParent = Dummy()
 DEFAULT_CHAT_FRAME = { AddMessage = function(_, text) printed[#printed + 1] = text end }
 SlashCmdList = {}
 C_Timer = { After = function(_, fn) timers[#timers + 1] = fn end, NewTicker = function() return Dummy() end }
+function time() return 1700000000 end
 function GetPhysicalScreenSize() return 1920, 1080 end
 function GetCVarBool() return true end
 function hooksecurefunc(object, name, hook)
@@ -65,10 +66,14 @@ ns.handlers.ADDON_LOADED("Translate")
 ns.handlers.PLAYER_LOGIN()
 
 -- The strip shows one frame at a time; `Frames` plays out the waiting ones and returns
--- the text of each frame shown since the last call, tabs written as " | ".
-local frames = {}
+-- the text of each frame shown since the last call, tabs written as " | ". The numbers
+-- that end chat lines are left out, and no line is shown again, except where that is
+-- what is tested.
+ns.db.repeatLines = 0
+local frames, numbered = {}, false
 local encode = ns.EncodeFrame
 ns.EncodeFrame = function(seq, text)
+    if not numbered then text = (text .. "\n"):gsub("\t17%d+\n", "\n"):sub(1, -2) end
     frames[#frames + 1] = text:gsub("\t", " | ")
     return encode(seq, text)
 end
@@ -206,6 +211,25 @@ Check("state jumps the queue and replaces older state of its kind", Frames(), {
     "0 |  | first",
     "L | newer\nS | General | -1\nS | Pick | 2\n0 |  | second",
 })
+
+-- Chat lines are numbered, and the last of them are shown again while nothing waits.
+numbered, ns.db.repeatLines = true, 2
+for _, text in ipairs({ "one", "two", "three" }) do Chat("CHAT_MSG_SAY", text) end
+table.remove(timers, 1)()
+local first = table.concat(frames, "\n")
+local one, two, three = first:match("one.- | (%d+)\n.-two.- | (%d+)\n.-three.- | (%d+)$")
+Check("chat lines end in numbers that start at the time of login and rise",
+    { one:sub(1, 10), two - one, three - two }, { "1700000000", 1, 1 })
+frames = {}
+table.remove(timers, 1)()
+table.remove(timers, 1)()
+Check("the last lines are shown again, and again", { frames[1], frames[2] },
+    { first:match("\n(.*)$"), first:match("\n(.*)$") })
+ns.SendToStrip("0\t\tnew")
+table.remove(timers, 1)()
+Check("a new line goes first", frames[3], "0 |  | new")
+numbered, ns.db.repeatLines, frames = false, 0, {}
+Frames()
 
 local symbols = encode(7, "hi")
 Check("a frame fills the strip", #symbols, ns.STRIP.cols * ns.STRIP.rows)

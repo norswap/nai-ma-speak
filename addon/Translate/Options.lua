@@ -41,6 +41,17 @@ local function Build()
         .. "(right-click its tab, Settings). Its tab does not have to be selected, "
         .. "so a spare tab can serve just to make the selection.")
 
+    local repeated = Settings.RegisterAddOnSetting(category, "Translate_repeatLines", "repeatLines", ns.db,
+        Settings.VarType.Number, "Lines shown to the companion again", 50)
+    Settings.CreateDropdown(category, repeated, function()
+        local container = Settings.CreateControlTextContainer()
+        container:Add(0, "None")
+        for _, count in ipairs({ 20, 50, 100, 200 }) do container:Add(count, "The last " .. count) end
+        return container:GetData()
+    end, "While no new line waits, the last chat lines are sent to the companion again and again. "
+        .. "Lines it missed, because the game was covered by another window or the companion was not running, "
+        .. "then appear in the overlay in their place within seconds. Lines it already has are not shown twice.")
+
     local buttons = Settings.RegisterAddOnSetting(category, "Translate_buttons", "buttons", ns.db,
         Settings.VarType.String, "Translate and App buttons", "tabs")
     Settings.CreateDropdown(category, buttons, function()

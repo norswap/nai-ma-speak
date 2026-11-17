@@ -72,6 +72,9 @@ end
 
 local frame, textures
 local queue = {}
+-- Lines shown again, in turn, while the queue is empty: the last
+-- `repeatLines` given to RepeatOnStrip. `turn` is the one shown last.
+local again, turn = {}, 0
 local seq = 0
 local ticking = false
 
@@ -110,15 +113,38 @@ local function Paint(symbols)
     for i, s in ipairs(symbols) do ns.PaintBlock(i, s) end
 end
 
+local function ForgetOld()
+    while #again > ns.db.repeatLines do
+        table.remove(again, 1)
+        turn = math.max(turn - 1, 0)
+    end
+end
+
+-- The text of the next frame, or nil with nothing to show. Short lines share
+-- a frame, so a busy channel does not fall behind.
+local function NextText()
+    local text = table.remove(queue, 1)
+    if text then
+        while queue[1] and #text + 1 + #queue[1] <= MAX_TEXT do
+            text = text .. "\n" .. table.remove(queue, 1)
+        end
+        return text
+    end
+    ForgetOld()
+    for _ = 1, #again do
+        local line = again[turn % #again + 1]
+        if text and #text + 1 + #line > MAX_TEXT then break end
+        text = text and (text .. "\n" .. line) or line
+        turn = turn % #again + 1
+    end
+    return text
+end
+
 local function Advance()
-    if #queue == 0 then
+    local text = NextText()
+    if not text then
         ticking = false
         return
-    end
-    -- Short lines share a frame, so a busy channel does not fall behind.
-    local text = table.remove(queue, 1)
-    while queue[1] and #text + 1 + #queue[1] <= MAX_TEXT do
-        text = text .. "\n" .. table.remove(queue, 1)
     end
     seq = (seq + 1) % 256
     Paint(ns.EncodeFrame(seq, text))
@@ -142,6 +168,12 @@ function ns.SendToStrip(text, key)
         queue[#queue + 1] = text
     end
     if not ticking then Advance() end
+end
+
+-- Has the strip show this line again from time to time, once it has been sent.
+function ns.RepeatOnStrip(text)
+    again[#again + 1] = text
+    ForgetOld()
 end
 
 ns.On("DISPLAY_SIZE_CHANGED", function() ns.PlaceStrip() end)
