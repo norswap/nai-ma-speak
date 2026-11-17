@@ -1,7 +1,7 @@
 //! Reads the addon's pixel strip off the screen. The layout must match
 //! addon/Translate/Strip.lua: 64 x 8 blocks, 3 sync blocks, then
 //! [seq][len hi][len lo][text...][fletcher16 hi][fletcher16 lo] packed
-//! 3 bytes into 4 six-bit blocks.
+//! 3 bytes into 4 six-bit blocks. The last block is a reference color.
 
 use crate::protocol::{self, Message};
 use crate::worker::{Job, UiEvent, UiSender};
@@ -39,9 +39,28 @@ pub enum Decoded {
     Missing,
 }
 
-/// Maps a channel value to one of the four levels the addon draws (0, 85, 170, 255).
-fn level(v: f32) -> u8 {
-    ((v + 42.0) / 85.0).clamp(0.0, 3.0) as u8
+/// The strip's last block: red at the second of the four levels the addon draws, green
+/// at the third.
+const REFERENCE: usize = COLS * ROWS - 1;
+
+/// Channel values halfway between the four levels as the addon draws them: 0, 85, 170, 255.
+const DRAWN: [f32; 3] = [42.5, 127.5, 212.5];
+
+/// Where one level ends and the next begins. The game and the display bend the two
+/// middle levels (85 and 170 came back as 109 and 187 on a MacBook's own screen), so
+/// they are taken from the reference block, which shows where they landed. An addon
+/// from before that block leaves it black; the levels are then taken as drawn.
+fn boundaries(reference: [f32; 3]) -> [f32; 3] {
+    let [second, third, _] = reference;
+    if second < 30.0 || third < second + 30.0 || third > 225.0 {
+        return DRAWN;
+    }
+    [second / 2.0, (second + third) / 2.0, (third + 255.0) / 2.0]
+}
+
+/// Which of the four levels a channel value is.
+fn level(v: f32, boundaries: &[f32; 3]) -> u8 {
+    boundaries.iter().filter(|&&boundary| v >= boundary).count() as u8
 }
 
 /// The pixel's channels, or None outside the image.
@@ -61,8 +80,15 @@ fn sync_symbol(img: &RgbaImage, x: u32, y: u32) -> Option<u8> {
     Some(on(r) * 16 + on(g) * 4 + on(b))
 }
 
+/// The sRGB curve, which captures are stored with: from a channel value to light and back.
 fn to_linear(v: f32) -> f32 {
-    (v / 255.0).powi(2)
+    let v = v / 255.0;
+    if v <= 0.04045 { v / 12.92 } else { ((v + 0.055) / 1.055).powf(2.4) }
+}
+
+fn from_linear(v: f32) -> f32 {
+    let v = v.max(0.0);
+    255.0 * if v <= 0.0031308 { v * 12.92 } else { 1.055 * v.powf(1.0 / 2.4) - 0.055 }
 }
 
 fn invert(m: [[f32; 3]; 3]) -> Option<[[f32; 3]; 3]> {
@@ -98,13 +124,10 @@ fn calibration(sync: [[f32; 3]; 3]) -> Option<[[f32; 3]; 3]> {
     invert(primaries)
 }
 
-fn symbol(inverse: &[[f32; 3]; 3], pixel: [f32; 3]) -> u8 {
+/// The pixel with the display's mixing of the channels undone.
+fn unmixed(inverse: &[[f32; 3]; 3], pixel: [f32; 3]) -> [f32; 3] {
     let linear = pixel.map(to_linear);
-    let channel = |row: [f32; 3]| {
-        let mixed = row[0] * linear[0] + row[1] * linear[1] + row[2] * linear[2];
-        level(mixed.max(0.0).sqrt() * 255.0)
-    };
-    channel(inverse[0]) * 16 + channel(inverse[1]) * 4 + channel(inverse[2])
+    inverse.map(|row| from_linear(row[0] * linear[0] + row[1] * linear[1] + row[2] * linear[2]))
 }
 
 fn fletcher16(bytes: &[u8]) -> u16 {
@@ -150,14 +173,19 @@ pub fn decode(img: &RgbaImage, lock: Lock) -> Decoded {
 const IDENTITY: [[f32; 3]; 3] = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
 
 fn read_frame(img: &RgbaImage, center: &dyn Fn(usize) -> (u32, u32), inverse: &[[f32; 3]; 3]) -> Decoded {
-    let mut symbols = Vec::with_capacity(COLS * ROWS);
+    let mut colors = Vec::with_capacity(COLS * ROWS);
     for i in 0..COLS * ROWS {
         let (cx, cy) = center(i);
         match pixel(img, cx, cy) {
-            Some(p) => symbols.push(symbol(inverse, p)),
+            Some(p) => colors.push(unmixed(inverse, p)),
             None => return Decoded::Missing,
         }
     }
+    let boundaries = boundaries(colors[REFERENCE]);
+    let symbols: Vec<u8> = colors
+        .iter()
+        .map(|[r, g, b]| level(*r, &boundaries) * 16 + level(*g, &boundaries) * 4 + level(*b, &boundaries))
+        .collect();
     let mut bytes = Vec::with_capacity((symbols.len() - 3) / 4 * 3);
     for chunk in symbols[3..].as_chunks::<4>().0 {
         let v = (chunk[0] as u32) << 18 | (chunk[1] as u32) << 12 | (chunk[2] as u32) << 6 | chunk[3] as u32;
@@ -417,6 +445,7 @@ mod tests {
             symbols.extend_from_slice(&[(v >> 18) as u8 & 63, (v >> 12) as u8 & 63, (v >> 6) as u8 & 63, v as u8 & 63]);
         }
         symbols.resize(COLS * ROWS, 0);
+        symbols[REFERENCE] = 24;
         symbols
     }
 
@@ -490,6 +519,28 @@ mod tests {
     #[test]
     fn decodes_a_capture_through_a_monitor_profile() {
         assert_test_line(&fixture(include_bytes!("../tests/fixtures/dell-se2717h-macos.png")));
+    }
+
+    /// A MacBook's own screen: the profile mixes the channels more (magenta comes back
+    /// as 234, 51, 247) and the middle levels land well above where they were drawn.
+    #[test]
+    fn decodes_a_capture_of_a_macbook_screen() {
+        let img = fixture(include_bytes!("../tests/fixtures/macbook-retina-macos.png"));
+        let lock = find(&img).expect("strip found");
+        assert!(matches!(decode(&img, lock), Decoded::Frame(f) if f.text.starts_with("L\tSystem")));
+    }
+
+    /// The reference block shows where the middle levels landed.
+    #[test]
+    fn reads_levels_the_display_moved() {
+        let moved = |level: u8| [0, 109, 187, 255][level as usize];
+        let text = "7\t[Party] Lili\t副本缺T 速来";
+        let mut img = RgbaImage::new(COLS as u32, ROWS as u32);
+        for (i, s) in encode(3, text).iter().enumerate() {
+            let color = Rgba([moved((s >> 4) & 3), moved((s >> 2) & 3), moved(s & 3), 255]);
+            img.put_pixel((i % COLS) as u32, (i / COLS) as u32, color);
+        }
+        assert!(matches!(decode(&img, Lock { x: 0, y: 0, block: 1 }), Decoded::Frame(f) if f.text == text));
     }
 
     /// WoW's own screenshot, saved as JPEG: calibrating amplifies the

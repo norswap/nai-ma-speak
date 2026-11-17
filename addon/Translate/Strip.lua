@@ -9,10 +9,13 @@ local _, ns = ...
 --   3 sync blocks (magenta, cyan, yellow), then the payload bytes
 --   [seq] [length hi] [length lo] [text...] [fletcher16 hi] [fletcher16 lo]
 --   packed 3 bytes -> 4 blocks, padded with black.
+-- The last block is a reference color: the game and the display bend the two
+-- middle brightness levels, and this block shows the companion where they landed.
 -- The text holds one or more chat lines, separated by newlines.
 local COLS, ROWS = 64, 8
 local BLOCK = 4 -- physical screen pixels per block side
 local SYNC = { 51, 15, 60 } -- (3,0,3) magenta, (0,3,3) cyan, (3,3,0) yellow
+local REFERENCE = 24 -- (1,2,0): red at the second level, green at the third
 local CAPACITY = math.floor((COLS * ROWS - #SYNC) / 4) * 3
 local MAX_TEXT = CAPACITY - 5
 local SHOW_TIME = 0.25 -- seconds each frame stays up; the app polls faster
@@ -61,7 +64,8 @@ function ns.EncodeFrame(seq, text)
         symbols[#symbols + 1] = math.floor(v / 64) % 64
         symbols[#symbols + 1] = v % 64
     end
-    for i = #symbols + 1, COLS * ROWS do symbols[i] = 0 end
+    for i = #symbols + 1, COLS * ROWS - 1 do symbols[i] = 0 end
+    symbols[COLS * ROWS] = REFERENCE
     return symbols
 end
 
