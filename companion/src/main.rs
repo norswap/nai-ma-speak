@@ -42,11 +42,39 @@ fn decode_file(path: &str) {
     }
 }
 
+/// For a picture of the overlay at work: with TRANSLATE_GAME_SHOT set to a file, saves
+/// the game's window as it is on screen, with whatever is drawn over it, and quits. A
+/// copy of the companion that is already running keeps drawing the overlay meanwhile.
+fn game_shot(path: &std::path::Path) -> Result<(), String> {
+    let problem = |e: xcap::XCapError| e.to_string();
+    let windows = xcap::Window::all().map_err(problem)?;
+    let game = windows
+        .iter()
+        .find(|window| focus::is_wow(&window.title().unwrap_or_default(), &window.app_name().unwrap_or_default()))
+        .ok_or("the game's window was not found")?;
+    let monitor = game.current_monitor().map_err(problem)?;
+    let screen = monitor.capture_image().map_err(problem)?;
+    // Windows are measured in points, the picture in pixels.
+    let scale = screen.width() as f32 / monitor.width().map_err(problem)? as f32;
+    let left = (game.x().map_err(problem)? - monitor.x().map_err(problem)?).max(0) as f32 * scale;
+    let top = (game.y().map_err(problem)? - monitor.y().map_err(problem)?).max(0) as f32 * scale;
+    let width = game.width().map_err(problem)? as f32 * scale;
+    let height = game.height().map_err(problem)? as f32 * scale;
+    let picture = xcap::image::imageops::crop_imm(&screen, left as u32, top as u32, width as u32, height as u32).to_image();
+    picture.save(path).map_err(|e| e.to_string())
+}
+
 fn main() -> eframe::Result {
     // `translate-companion --decode shot.png` reads a strip from a screenshot.
     let args: Vec<String> = std::env::args().collect();
     if args.len() == 3 && args[1] == "--decode" {
         decode_file(&args[2]);
+        return Ok(());
+    }
+    if let Some(path) = std::env::var_os("TRANSLATE_GAME_SHOT") {
+        if let Err(problem) = game_shot(std::path::Path::new(&path)) {
+            eprintln!("no picture of the game: {problem}");
+        }
         return Ok(());
     }
     diag::start();
