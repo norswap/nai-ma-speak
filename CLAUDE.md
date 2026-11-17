@@ -32,4 +32,3 @@ Needs Rust 1.95 or newer.
 ## Rules
 
 - Read-only toward the game: never send chat or press keys for the player. Replies go through the clipboard.
-- Use Claude Console API keys only; never wire in the Claude Code subscription login.
