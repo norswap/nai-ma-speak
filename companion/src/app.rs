@@ -1142,8 +1142,9 @@ impl TranslateApp {
                     let mut galleys = Vec::new();
                     for line in lines {
                         galleys.push(ui.painter().layout_job(line.job(&font, width, names)));
-                        if draft.show_original && matches!(line.translation, Translation::Done(_)) {
-                            let original = markup::plain(&line.line.body);
+                        let original = markup::plain(&line.line.body);
+                        // Not under a line that had no body of its own, such as a name explained.
+                        if draft.show_original && matches!(line.translation, Translation::Done(_)) && !original.trim().is_empty() {
                             let format = TextFormat::simple(small.clone(), Color32::from_gray(170));
                             let mut job = LayoutJob::single_section(original, format);
                             job.wrap.max_width = width;

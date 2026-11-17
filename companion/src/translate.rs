@@ -8,8 +8,8 @@ const TO_ENGLISH: &str = "You translate World of Warcraft in-game chat from Chin
 The server has Taiwanese players typing Traditional Chinese and mainland players typing Simplified Chinese, so slang can come from either side: \
 Taiwanese internet slang, Zhuyin shorthand and Hokkien-derived words, or mainland gaming slang. \
 Keep player names, numbers and English words as they are. In chat, 1 usually means yes/ready. \
-Text in [square brackets] is a link to an item, quest or spell: always keep it, brackets included, wherever it stands in the line, \
-with its name in English. \
+Where the line has a name in [square brackets], it is a link: keep it in its brackets, wherever it stands in the line, \
+with the name in English. A line without square brackets gets none. \
 Reply with the translation only: no quotes, notes or romanization.";
 
 const TO_TAIWANESE: &str = "Translate the user's World of Warcraft chat message into casual Traditional Chinese (繁體中文) with Taiwanese vocabulary, \
@@ -188,15 +188,20 @@ pub fn translate(config: &Config, text: &str, task: Task, notify: &dyn Fn(String
     Ok(finish(reply, task, config.reply_variant))
 }
 
-/// Puts back links that a translation left out. A model asked to keep what is in square
-/// brackets still drops a link now and then, mostly one already in English at the start
-/// of a Chinese line, which it folds into "that quest". When the translation has fewer
-/// links than the line, as many of the line's links as are missing are added, from
-/// those the translation does not have word for word: at the front if the line began
-/// with one, else at the end.
+/// Makes a translation's links those of its line, where the model got them plainly
+/// wrong. A model asked to keep what is in square brackets still drops a link now and
+/// then, mostly one already in English at the start of a Chinese line, which it folds
+/// into "that quest"; and it sometimes brackets a word of a line that has no link at all.
+/// - A line without links gets none: the brackets are taken off.
+/// - When the translation has fewer links than the line, as many of the line's links as
+///   are missing are added, from those the translation does not have word for word: at
+///   the front if the line began with one, else at the end.
 fn restore_links(original: &str, translated: String) -> String {
     let original = original.trim();
     let links = crate::markup::bracketed(original);
+    if links.is_empty() {
+        return translated.replace(['[', ']'], "");
+    }
     let missing = links.len().saturating_sub(crate::markup::bracketed(&translated).len());
     let mut absent: Vec<(usize, usize)> =
         links.into_iter().filter(|&(from, to)| !translated.contains(&original[from..to])).collect();
@@ -253,6 +258,8 @@ mod tests {
         // Nothing is added to a translation that has the line's links, renamed or not.
         assert_eq!(restore("[科多獸圍捕] 我也要做", "I want to do [Kodo Roundup] too"), "I want to do [Kodo Roundup] too");
         assert_eq!(restore("缺補", "need a healer"), "need a healer");
+        // A link the line does not have is taken off.
+        assert_eq!(restore("還有人要解護送任務嗎? -3", "Anyone still want to do the escort [quest]? -3"), "Anyone still want to do the escort quest? -3");
     }
 
     fn slang_of(text: &str) -> Vec<(String, &'static str)> {
