@@ -36,11 +36,44 @@ local function NamedColor(name)
     return "|cff" .. ns.Hex(color.r, color.g, color.b)
 end
 
+-- What this client calls the thing a link points to, by the kind of link and
+-- the number in it. A link in chat shows the name in its sender's language; the
+-- number is the same for everyone, so the game can give the name in ours. Nil
+-- for a thing the game has not loaded yet: asking makes it load for next time.
+local OWN_NAME = {
+    item = function(id)
+        return C_Item and C_Item.GetItemNameByID and C_Item.GetItemNameByID(id) or GetItemInfo and (GetItemInfo(id))
+    end,
+    quest = function(id)
+        local log = C_QuestLog or {}
+        return log.GetTitleForQuestID and log.GetTitleForQuestID(id) or log.GetQuestInfo and (log.GetQuestInfo(id))
+    end,
+    spell = function(id)
+        return C_Spell and C_Spell.GetSpellName and C_Spell.GetSpellName(id) or GetSpellInfo and (GetSpellInfo(id))
+    end,
+    achievement = function(id)
+        return GetAchievementInfo and select(2, GetAchievementInfo(id))
+    end,
+}
+OWN_NAME.enchant = OWN_NAME.spell
+
+-- A link's text for the overlay: a Chinese name gives way to this client's
+-- name for the thing, inside the brackets and after a quest's level
+-- ("[[31] 名]"). The text stays as it is when the game has no name to give.
+local function LinkText(kind, id, text)
+    local lookup = OWN_NAME[kind]
+    if not lookup or not HasChinese(text) then return text end
+    local ok, name = pcall(lookup, tonumber(id))
+    if not ok or not name or ns.IsSecret(name) or type(name) ~= "string" or name == "" then return text end
+    return text:match("^[%[%]%d%s+]*") .. name .. text:match("[%]%s]*$")
+end
+
 -- A line as the overlay draws it: links become their text, icons go, and the
 -- color codes (|cAARRGGBB, |r, and |cnNAME: for unknown names) stay for the
 -- companion to apply.
 local function Markup(text)
     text = text:gsub("|cn([^:|]*):", NamedColor)
+    text = text:gsub("|H(%a+):(%d+)[^|]*|h(.-)|h", LinkText)
     text = text:gsub("|H.-|h(.-)|h", "%1")
     text = text:gsub("|T.-|t", "")
     text = text:gsub("|A.-|a", "")

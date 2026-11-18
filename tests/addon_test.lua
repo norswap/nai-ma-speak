@@ -50,6 +50,8 @@ ChatTypeInfo = {
     SYSTEM = { r = 1, g = 1, b = 0 }, CHANNEL = { r = 1, g = 0.75, b = 0.75 }, CHANNEL2 = { r = 0, g = 0.5, b = 1 },
 }
 RAID_CLASS_COLORS = { MAGE = { colorStr = "ff3fc7eb" } }
+function GetItemInfo(id) if id == 4338 then return "Mageweave Cloth" end end
+C_QuestLog = { GetTitleForQuestID = function(id) return id == 681 and "Stromgarde Badges" or nil end }
 function GetPlayerInfoByGUID() return "Mage", "MAGE" end
 RED_FONT_COLOR = { r = 1, g = 0.125, b = 0.125 }
 local clickLink
@@ -197,6 +199,15 @@ TranslateDB.sourceWindow = ""
 
 Check("Plain drops color codes only", ns.Plain("a|cff112233b|cnRED_FONT_COLOR:c|r|rd|x"), "abcd|x")
 Check("MarkupIndex keeps codes at the cut with the part before", ns.MarkupIndex("|cff112233ab|rcd", 2), 15)
+
+-- Links ---------------------------------------------------------------------------------
+
+Chat("CHAT_MSG_SAY", "收|cffffffff|Hitem:4338::::::::60:::::|h[魔紋布]|h|r 和 |cffffff00|Hquest:681:37|h[[37] 激流堡符印]|h|r")
+Chat("CHAT_MSG_SAY", "|cffffffff|Hitem:9999::::|h[不明之物]|h|r")
+Check("a link is named as this client names the thing, where the game knows it", Frames(), {
+    "1 | [Bob] says:  | 收|cffffffff[Mageweave Cloth]|r 和 |cffffff00[[37] Stromgarde Badges]|r | ffffff | Bob",
+    "1 | [Bob] says:  | |cffffffff[不明之物]|r | ffffff | Bob",
+})
 
 -- The strip's queue ----------------------------------------------------------------------
 
