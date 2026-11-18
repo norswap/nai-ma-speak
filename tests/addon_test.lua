@@ -18,6 +18,8 @@ local function ChatWindow()
     window.AddMessage = function(self, text, r, g, b) self.added[#self.added + 1] = { text, r, g, b } end
     window.GetNumMessages = function(self) return #self.added end
     window.GetMessageInfo = function(self, i) return unpack(self.added[i]) end
+    window.Clear = function(self) self.added = {} end
+    window.messageTypeList, window.channelList = {}, {}
     window.HookScript = function(self, script, fn) self.scripts[script] = fn end
     return window
 end
@@ -28,6 +30,9 @@ function CreateFrame() return Dummy() end
 UIParent = Dummy()
 DEFAULT_CHAT_FRAME = { AddMessage = function(_, text) printed[#printed + 1] = text end }
 SlashCmdList = {}
+StaticPopupDialogs = {}
+local popup
+function StaticPopup_Show(which, _, _, data) popup = { dialog = StaticPopupDialogs[which], data = data } end
 C_Timer = { After = function(_, fn) timers[#timers + 1] = fn end, NewTicker = function() return Dummy() end }
 function time() return 1700000000 end
 function GetPhysicalScreenSize() return 1920, 1080 end
@@ -62,7 +67,7 @@ EventRegistry = {
 
 -- Load the addon as the game does, in the order of Translate.toc, and log in.
 local ns = {}
-for _, file in ipairs({ "Core.lua", "Strip.lua", "Chat.lua", "Layout.lua", "Buttons.lua", "Options.lua" }) do
+for _, file in ipairs({ "Core.lua", "Strip.lua", "Chat.lua", "Layout.lua", "Tabs.lua", "Buttons.lua", "Options.lua" }) do
     assert(loadfile(ADDON .. file))("Translate", ns)
 end
 ns.handlers.ADDON_LOADED("Translate")
@@ -294,6 +299,39 @@ printed = {}
 slash("/NAME")
 Check("a name to explain: the target's, or one typed", Frames(), { "N |  |  | ffffff | 小明", "N |  |  | ffffff | 黑熊 Lz" })
 Check("with neither, it asks whose", #printed, 1)
+
+-- A tab kept empty ---------------------------------------------------------------
+
+local function Undo() ns.db.emptyWindow = "" end
+ChatFrame2:AddMessage("an old line")
+ns.db.emptyWindow = "Pick"
+ns.EmptyChosen(Undo)
+Check("a tab chosen to be kept empty is emptied", #ChatFrame2.added, 0)
+ChatFrame2:AddMessage("Total time played: 3 days")
+ChatFrame1:AddMessage("hello")
+Check("and so is every line added to it", #ChatFrame2.added, 0)
+Check("other tabs keep theirs", ChatFrame1.added[#ChatFrame1.added][1], "hello")
+ns.db.sourceWindow = "Pick"
+ChatFrame2:AddMessage("[Guild] [Bob]: 副本缺補", 0.25, 1, 0.25)
+ns.db.sourceWindow = ""
+Check("its lines can still be picked for the overlay", Frames(), { "1 | [Guild] [Bob]:  | 副本缺補 | 40ff40 | " })
+
+ns.db.emptyWindow = "General"
+ChatFrame1.messageTypeList = { "SAY" }
+ns.EmptyChosen(Undo)
+ChatFrame1:AddMessage("still here")
+Check("a tab set to show chat is kept until the player agrees", ChatFrame1.added[#ChatFrame1.added][1], "still here")
+popup.dialog.OnCancel(nil, popup.data)
+ChatFrame1:AddMessage("and here")
+Check("refusing puts the options back", ns.db.emptyWindow .. " " .. ChatFrame1.added[#ChatFrame1.added][1], " and here")
+ns.db.emptyWindow = "General"
+ns.EmptyChosen(Undo)
+popup.dialog.OnAccept()
+Check("agreeing empties it", #ChatFrame1.added, 0)
+ns.db.emptyWindow = "Gone"
+ChatFrame1:AddMessage("kept")
+Check("a tab that no longer exists empties none", #ChatFrame1.added, 1)
+ns.db.emptyWindow = ""
 
 Check("SLASH aliases", SLASH_TRANSLATE1 .. " " .. SLASH_TRANSLATE3, "/tr /nms")
 local numbers = {}

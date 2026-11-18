@@ -19,6 +19,7 @@ local DEFAULTS = {
     allLines = true,  -- also send lines without Chinese, shown untranslated in the overlay
     showLinks = true, -- add links after chat lines: translate again, explain, explain the name
     sourceWindow = "", -- tab name of the chat window whose settings pick the lines sent; "" sends all
+    emptyWindow = "", -- tab name of the chat window kept empty for the overlay; "" keeps none
     repeatLines = 50, -- how many of the last chat lines the strip shows again while nothing new waits
     buttons = "tabs", -- where the Translate and App buttons sit: "tabs", "top", "bottom" or "hidden"
 }
@@ -45,6 +46,7 @@ end)
 ns.On("PLAYER_LOGIN", function()
     if ns.InitChat then ns.InitChat() end
     if ns.InitLayout then ns.InitLayout() end
+    if ns.InitTabs then ns.InitTabs() end
     if ns.InitButtons then ns.InitButtons() end
     if ns.InitOptions then ns.InitOptions() end
 end)

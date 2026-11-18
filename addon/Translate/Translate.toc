@@ -10,5 +10,6 @@ Core.lua
 Strip.lua
 Chat.lua
 Layout.lua
+Tabs.lua
 Buttons.lua
 Options.lua

@@ -266,7 +266,8 @@ function ns.ChatWindowNames()
     return names
 end
 
-local function WindowNamed(wanted)
+-- The chat window with this name on its tab.
+function ns.ChatWindowNamed(wanted)
     if not FCF_GetChatWindowInfo then return nil end
     for i = 1, NUM_CHAT_WINDOWS or 10 do
         local frame = _G["ChatFrame" .. i]
@@ -280,7 +281,7 @@ end
 local function MirroredWindow()
     local wanted = ns.db.sourceWindow
     if type(wanted) ~= "string" or wanted == "" then return nil end
-    return WindowNamed(wanted)
+    return ns.ChatWindowNamed(wanted)
 end
 
 -- Takes a chat event's line once, and sends it to the pixel strip unless a

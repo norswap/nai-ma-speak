@@ -3,23 +3,26 @@ local _, ns = ...
 -- The panel under Options > AddOns. Every control writes straight to
 -- TranslateDB, the same values the /tr commands toggle.
 
-local ALL = "" -- sourceWindow value that sends every line
+local NONE = "" -- the value of a chat window setting with no window picked
 
--- Choices for "Lines sent to the overlay": all chat, or one entry per chat
--- window. Built each time the dropdown opens, so renamed and new windows
--- show up. A saved window that no longer exists stays listed, marked.
-local function SourceOptions()
-    local container = Settings.CreateControlTextContainer()
-    container:Add(ALL, "All chat")
-    local saved, found = ns.db.sourceWindow, false
-    for _, name in ipairs(ns.ChatWindowNames()) do
-        container:Add(name, "Copy the \"" .. name .. "\" window")
-        found = found or name == saved
+-- Choices for a dropdown that picks a chat window by the name on its tab: `none`
+-- for picking no window, then one entry per window, worded by `label`. Built each
+-- time the dropdown opens, so renamed and new windows show up. A saved window that
+-- no longer exists stays listed, with `missing` saying what happens instead.
+local function WindowOptions(key, none, label, missing, skip)
+    return function()
+        local container = Settings.CreateControlTextContainer()
+        container:Add(NONE, none)
+        local saved, found = ns.db[key], false
+        for _, name in ipairs(ns.ChatWindowNames()) do
+            if name ~= skip then container:Add(name, label(name)) end
+            found = found or name == saved
+        end
+        if type(saved) == "string" and saved ~= NONE and not found then
+            container:Add(saved, "\"" .. saved .. "\" (no such window: " .. missing .. ")")
+        end
+        return container:GetData()
     end
-    if type(saved) == "string" and saved ~= ALL and not found then
-        container:Add(saved, "\"" .. saved .. "\" (no such window: all chat is sent)")
-    end
-    return container:GetData()
 end
 
 local function Build()
@@ -33,13 +36,29 @@ local function Build()
     end
 
     local source = Settings.RegisterAddOnSetting(category, "Translate_sourceWindow", "sourceWindow", ns.db,
-        Settings.VarType.String, "Lines sent to the overlay", ALL)
-    Settings.CreateDropdown(category, source, SourceOptions,
+        Settings.VarType.String, "Lines sent to the overlay", NONE)
+    Settings.CreateDropdown(category, source,
+        WindowOptions("sourceWindow", "All chat", function(name) return "Copy the \"" .. name .. "\" window" end,
+            "all chat is sent"),
         "Send player chat and the game's own messages as they arrive, or copy one chat window: "
         .. "every line it shows, worded and colored the same, including what other addons print. "
         .. "Pick the message types and channels in that window's own settings "
         .. "(right-click its tab, Settings). Its tab does not have to be selected, "
         .. "so a spare tab can serve just to make the selection.")
+
+    -- Emptying the combat log's tab would only break it.
+    local combatLog = COMBATLOG and FCF_GetChatWindowInfo(COMBATLOG:GetID())
+    local empty = Settings.RegisterAddOnSetting(category, "Translate_emptyWindow", "emptyWindow", ns.db,
+        Settings.VarType.String, "Tab kept empty", NONE)
+    Settings.CreateDropdown(category, empty,
+        WindowOptions("emptyWindow", "None", function(name) return name end, "none is kept empty", combatLog),
+        "Throw away every line the game writes into this tab, so nothing shows behind the overlay. "
+        .. "Pick the tab the companion app's overlay is anchored to. The game writes some lines, such as "
+        .. "the answer to /played, into whichever tab is in front, even one set to show nothing. "
+        .. "Lines thrown away do not come back when this is turned off.")
+    Settings.SetOnValueChangedCallback("Translate_emptyWindow", function()
+        ns.EmptyChosen(function() empty:SetValue(NONE) end)
+    end, ns)
 
     local repeated = Settings.RegisterAddOnSetting(category, "Translate_repeatLines", "repeatLines", ns.db,
         Settings.VarType.Number, "Lines shown to the companion again", 50)
