@@ -1,23 +1,28 @@
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
-/// The Chinese that replies are written in.
+/// The kind of server played on: whose slang to expect in chat, and the Chinese that
+/// replies are written in.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub enum ReplyVariant {
-    /// Traditional characters with Taiwanese wording.
+#[serde(rename_all = "snake_case")]
+pub enum Server {
+    /// Taiwanese and mainland players together; replies in Traditional characters with
+    /// Taiwanese wording.
     #[default]
-    #[serde(rename = "zh-Hant-TW")]
+    #[serde(alias = "zh-Hant-TW")]
     Taiwan,
-    /// Simplified characters with mainland wording.
-    #[serde(rename = "zh-Hans")]
-    Simplified,
+    /// Mainland players; replies in Simplified characters with mainland wording.
+    #[serde(alias = "zh-Hans")]
+    Mainland,
 }
 
-impl ReplyVariant {
+impl Server {
+    pub const ALL: [Server; 2] = [Server::Taiwan, Server::Mainland];
+
     pub fn label(self) -> &'static str {
         match self {
-            ReplyVariant::Taiwan => "Traditional Chinese (Taiwan)",
-            ReplyVariant::Simplified => "Simplified Chinese",
+            Server::Taiwan => "Taiwan (replies in Traditional Chinese)",
+            Server::Mainland => "Mainland China (replies in Simplified Chinese)",
         }
     }
 }
@@ -149,7 +154,9 @@ pub struct Config {
     /// Where the services are reached. Only tests change these, to use a local stand-in.
     pub google_free_base: String,
     pub claude_base: String,
-    pub reply_variant: ReplyVariant,
+    /// Called reply_variant before it also chose the prompt for chat.
+    #[serde(alias = "reply_variant")]
+    pub server: Server,
     pub reading: Reading,
     /// Show what a Chinese player name means, or how it sounds, after it.
     pub translate_names: bool,
@@ -178,7 +185,7 @@ impl Default for Config {
             api_base: OLLAMA_BASE.into(),
             api_key: String::new(),
             model: OLLAMA_MODEL.into(),
-            reply_variant: ReplyVariant::default(),
+            server: Server::default(),
             reading: Reading::default(),
             translate_names: false,
             overlay_x: 20.0,
@@ -265,13 +272,15 @@ mod tests {
     }
 
     #[test]
-    fn old_config_files_reply_in_taiwanese() {
+    fn old_config_files_keep_their_reply_language_as_the_server() {
         let old: Config = serde_json::from_str(r#"{"api_base":"http://localhost:1234/v1","model":"m"}"#).unwrap();
-        assert_eq!(old.reply_variant, ReplyVariant::Taiwan);
+        assert_eq!(old.server, Server::Taiwan);
         assert_eq!(old.api_base, "http://localhost:1234/v1");
         let simplified: Config = serde_json::from_str(r#"{"reply_variant":"zh-Hans"}"#).unwrap();
-        assert_eq!(simplified.reply_variant, ReplyVariant::Simplified);
-        assert!(serde_json::to_string(&Config::default()).unwrap().contains(r#""reply_variant":"zh-Hant-TW""#));
+        assert_eq!(simplified.server, Server::Mainland);
+        let saved = serde_json::to_string(&simplified).unwrap();
+        assert!(saved.contains(r#""server":"mainland""#), "{saved}");
+        assert_eq!(serde_json::from_str::<Config>(&saved).unwrap().server, Server::Mainland);
     }
 
     #[test]

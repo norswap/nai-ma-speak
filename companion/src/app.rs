@@ -1,5 +1,5 @@
 use crate::backends::claude::key_problem;
-use crate::config::{self, Backend, Config, Reading, ReplyVariant, CLAUDE_MODELS, CUSTOM_LABEL, ENDPOINT_PRESETS};
+use crate::config::{self, Backend, Config, Reading, Server, CLAUDE_MODELS, CUSTOM_LABEL, ENDPOINT_PRESETS};
 use crate::translate::WOW_CHAT_BYTES;
 use crate::focus::WowView;
 use crate::layout::{self, ChatWindow};
@@ -981,15 +981,12 @@ impl TranslateApp {
                 ui.add(theme::field(&mut self.draft.api_key).password(true).hint_text("empty for Ollama"));
             }
         }
-        ui.label(theme::label("Reply in"));
-        egui::ComboBox::from_id_salt("reply_variant")
-            .width(wide)
-            .selected_text(self.draft.reply_variant.label())
-            .show_ui(ui, |ui| {
-                for variant in [ReplyVariant::Taiwan, ReplyVariant::Simplified] {
-                    ui.selectable_value(&mut self.draft.reply_variant, variant, variant.label());
-                }
-            });
+        ui.label(theme::label("Server"));
+        egui::ComboBox::from_id_salt("server").width(wide).selected_text(self.draft.server.label()).show_ui(ui, |ui| {
+            for server in Server::ALL {
+                ui.selectable_value(&mut self.draft.server, server, server.label());
+            }
+        });
         // For the [?] link in the game, which explains a Chinese line word by word.
         ui.label(theme::label("Explain words with"));
         egui::ComboBox::from_id_salt("reading").width(wide).selected_text(self.draft.reading.label()).show_ui(ui, |ui| {

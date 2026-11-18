@@ -153,7 +153,7 @@ pub fn spawn(config: Arc<Mutex<Config>>, jobs: Receiver<Job>, ui: UiSender, clip
                 Job::Reply { text } => (text.clone(), Task::ToChinese),
                 Job::Test => unreachable!("handled above"),
             };
-            let key = format!("{:?}|{:?}|{task:?}|{text}", config.backend, config.reply_variant);
+            let key = format!("{:?}|{:?}|{task:?}|{text}", config.backend, config.server);
             let result = match cache.get(&key).filter(|_| !text.contains(TEST_MARK)) {
                 Some(hit) => Ok(hit.clone()),
                 None => translate(&config, &text, task, &notify),

@@ -2,7 +2,7 @@
 //! rate-limit it or change it without notice, so every failure says what to switch to.
 //! It is plain machine translation: it takes no instructions and no slang hints.
 
-use crate::config::{Config, ReplyVariant};
+use crate::config::{Config, Server};
 use crate::translate::Task;
 use serde_json::Value;
 use std::sync::Mutex;
@@ -36,10 +36,10 @@ fn parse(answer: &Value) -> Option<String> {
 
 pub fn translate(config: &Config, text: &str, task: Task, notify: &dyn Fn(String)) -> Result<String, String> {
     let url = format!("{}/translate_a/single", config.google_free_base.trim().trim_end_matches('/'));
-    let (source, target) = match (task, config.reply_variant) {
+    let (source, target) = match (task, config.server) {
         (Task::ToEnglish, _) => ("auto", "en"),
-        (Task::ToChinese, ReplyVariant::Taiwan) => ("en", "zh-TW"),
-        (Task::ToChinese, ReplyVariant::Simplified) => ("en", "zh-CN"),
+        (Task::ToChinese, Server::Taiwan) => ("en", "zh-TW"),
+        (Task::ToChinese, Server::Mainland) => ("en", "zh-CN"),
         (Task::Explain(_) | Task::Name | Task::ExplainName, _) => {
             return Err("Google Translate cannot explain lines or names. Choose Claude or an OpenAI-compatible model on the Backend tab.".into())
         }
@@ -137,7 +137,7 @@ mod tests {
         assert!(request.contains("sl=en") && request.contains("tl=zh-TW"), "{request}");
 
         let (base, server) = mock_server(vec![(200, "", reply)]);
-        let simplified = Config { reply_variant: ReplyVariant::Simplified, ..config(base) };
+        let simplified = Config { server: Server::Mainland, ..config(base) };
         translate(&simplified, "need a healer", Task::ToChinese, &|_| ()).unwrap();
         assert!(server.join().unwrap()[0].contains("tl=zh-CN"));
     }

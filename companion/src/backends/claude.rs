@@ -32,7 +32,7 @@ fn request_body(config: &Config, text: &str, task: Task) -> Value {
     let model = config.claude_model.trim();
     let mut body = json!({
         "model": model,
-        "system": system_prompt(text, task, config.reply_variant),
+        "system": system_prompt(text, task, config.server),
         "messages": [{ "role": "user", "content": text }],
     });
     if model.to_lowercase().contains("haiku") {
