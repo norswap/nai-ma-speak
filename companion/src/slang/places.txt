@@ -1,12 +1,14 @@
 # Places of the classic world with their English names, one zh=en per line; # starts a
 # comment. Mainland names in Simplified; a Taiwanese name follows only where it differs
 # by more than the script, since lines are matched after conversion to Simplified.
-# Written from memory of the two localizations, not from the game's data: awaiting
-# review by players of both. Places already in zh_cn.txt and zh_tw.txt are not repeated.
+# Places already in zh_cn.txt and zh_tw.txt are not repeated.
+# Checked against the localization files of addons of the time, which carry the game's
+# own names (Atlas and FlightMap in Taiwanese and mainland Chinese, Yatlas and aowow in
+# mainland Chinese), and the short forms against players' lists of them. Left out:
+# short forms that stand for several places (SW, SY, NY, ZG) and those no list confirmed.
 # Cities and towns
 铁炉堡=Ironforge
 达纳苏斯=Darnassus
-奥格=Orgrimmar
 藏宝海湾=Booty Bay
 加基森=Gadgetzan
 棘齿城=Ratchet
@@ -21,8 +23,8 @@
 格罗姆高=Grom'gol
 卡加斯=Kargath
 塞拉摩=Theramore
+赛拉摩=Theramore
 激流堡=Stromgarde
-斯托姆卡德=Stromgarde
 # Eastern Kingdoms
 艾尔文森林=Elwynn Forest
 西部荒野=Westfall
@@ -73,7 +75,6 @@
 怒焰=Ragefire Chasm
 哀嚎=Wailing Caverns
 死亡矿井=Deadmines
-死亡矿坑=Deadmines
 影牙=Shadowfang Keep
 诺莫瑞根=Gnomeregan
 诺姆瑞根=Gnomeregan
@@ -85,12 +86,12 @@
 祖尔法拉克=Zul'Farrak
 玛拉顿=Maraudon
 阿塔哈卡=Sunken Temple (Atal'Hakkar)
-神庙=Sunken Temple
+沈沒的神廟=Sunken Temple
 黑石塔=Blackrock Spire
 厄运=Dire Maul
 通灵=Scholomance
 奥妮克希亚=Onyxia
-黑龙=Onyxia
+黑龙MM=Onyxia's Lair
 黑翼之巢=Blackwing Lair
 祖尔格拉布=Zul'Gurub
 安其拉废墟=Ruins of Ahn'Qiraj (AQ20)
@@ -101,6 +102,11 @@ MLD=Maraudon
 XS=Scarlet Monastery
 TL=Scholomance
 ZUL=Zul'Farrak
+ZUG=Zul'Gurub
+NMRG=Gnomeregan
+ADM=Uldaman
+TAQ=Temple of Ahn'Qiraj (AQ40)
+RAQ=Ruins of Ahn'Qiraj (AQ20)
 # Battlegrounds
 战歌=Warsong Gulch
 阿拉希盆地=Arathi Basin
