@@ -25,23 +25,23 @@ function ns.SendCommand(name)
     ns.SendToStrip(line, line)
 end
 
--- A flat button drawn here, not one of the game's: those are made of pictures that only
--- fit a button lying down.
+-- The game's red button, as one picture each for at rest, pressed and under the mouse.
+-- The game's button template is made of three pictures in a row, which cannot stand
+-- upright; one picture can be turned by its corners.
+local ART = "Interface\\Buttons\\UI-Panel-Button-"
+-- The part of each picture that holds the button: left, right, top, bottom.
+local L, R, T, B = 0, 0.625, 0, 0.6875
+-- The game turns text about the middle of its top edge, not about its middle, which
+-- moves it right and up by half the small font's height.
+local TURNED_SHIFT = 5
+
 local function MakeButton(text, length, command)
     local button = CreateFrame("Button", nil, bar)
-    local edge = button:CreateTexture(nil, "BACKGROUND")
-    edge:SetAllPoints()
-    edge:SetColorTexture(0.54, 0.43, 0.23, 1)
-    local fill = button:CreateTexture(nil, "BORDER")
-    fill:SetPoint("TOPLEFT", 1, -1)
-    fill:SetPoint("BOTTOMRIGHT", -1, 1)
-    fill:SetColorTexture(0.09, 0.07, 0.05, 1)
-    -- The game shows this layer while the mouse is over the button.
-    local glow = button:CreateTexture(nil, "HIGHLIGHT")
-    glow:SetAllPoints(fill)
-    glow:SetColorTexture(1, 0.82, 0, 0.2)
+    button:SetNormalTexture(ART .. "Up")
+    button:SetPushedTexture(ART .. "Down")
+    button:SetHighlightTexture(ART .. "Highlight", "ADD")
+    button.art = { button:GetNormalTexture(), button:GetPushedTexture(), button:GetHighlightTexture() }
     button.label = button:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    button.label:SetPoint("CENTER")
     button.label:SetText(text)
     button.length = length
     button:SetScript("OnClick", function() ns.SendCommand(command) end)
@@ -71,6 +71,16 @@ local function Arrange(upright)
             button:SetPoint("LEFT", previous or bar, previous and "RIGHT" or "LEFT", previous and GAP or 0, 0)
         end
         if button.label.SetRotation then button.label:SetRotation(upright and math.pi / 2 or 0) end
+        button.label:ClearAllPoints()
+        button.label:SetPoint("CENTER", upright and -TURNED_SHIFT or 0, upright and -TURNED_SHIFT or 0)
+        for _, picture in ipairs(button.art) do
+            if upright then
+                -- Each corner of the upright button shows the corner a quarter turn on.
+                picture:SetTexCoord(R, T, L, T, R, B, L, B)
+            else
+                picture:SetTexCoord(L, R, T, B)
+            end
+        end
         previous, total = button, total + button.length + GAP
     end
     bar:SetSize(upright and THICK or total, upright and total or THICK)
