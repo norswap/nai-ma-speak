@@ -163,8 +163,12 @@ pub fn find(img: &RgbaImage) -> Option<Lock> {
             if cyan == 0 || yellow == 0 {
                 continue;
             }
-            // Averaging the three runs tolerates a blended edge pixel.
-            let block = ((block + cyan + yellow) as f32 / 3.0).round() as u32;
+            // The middle one of the three runs: an edge pixel blended with what is beside
+            // the strip shortens the first, and a first data block that passes for yellow
+            // lengthens the last.
+            let mut runs = [block, cyan, yellow];
+            runs.sort_unstable();
+            let block = runs[1];
             let mut top = y;
             while top > 0 && is(start, top - 1, SYNC[0]) {
                 top -= 1;
@@ -522,6 +526,15 @@ mod tests {
             }
             other => panic!("{other:?}"),
         }
+    }
+
+    /// The frame's first data block can look like the yellow sync block before it.
+    #[test]
+    fn measures_blocks_when_the_data_starts_like_a_sync_block() {
+        let mut symbols = encode(3, "1\tA\t你好");
+        symbols[3] = 60;
+        let img = paint(&symbols, (0, 58), 4);
+        assert_eq!(find(&img).map(|lock| lock.block), Some(4));
     }
 
     #[test]
