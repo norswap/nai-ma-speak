@@ -24,6 +24,8 @@ local DEFAULTS = {
     sourceWindow = "", -- tab name of the chat window whose settings pick the lines sent; "" sends all
     emptyWindow = "", -- tab name of the chat window kept empty for the overlay; "" keeps none
     repeatLines = 50, -- how many of the last chat lines the strip shows again while nothing new waits
+    minimap = true, -- show the button on the minimap
+    minimapAngle = 195, -- where on the minimap's rim, in degrees counted from the right, leftwards
     buttons = "tabs", -- where the Translate and App buttons sit: "tabs", "top", "bottom" or "hidden"
 }
 
@@ -62,6 +64,7 @@ ns.On("PLAYER_LOGIN", function()
     if ns.InitLayout then ns.InitLayout() end
     if ns.InitTabs then ns.InitTabs() end
     if ns.InitButtons then ns.InitButtons() end
+    if ns.InitMinimap then ns.InitMinimap() end
     if ns.InitOptions then ns.InitOptions() end
     ns.SayVersion()
     if C_Timer and C_Timer.NewTicker then C_Timer.NewTicker(VERSION_TIME, ns.SayVersion) end
@@ -91,9 +94,7 @@ local function ShowHelp()
 end
 
 local commands = {
-    options = function()
-        if ns.OpenOptions then ns.OpenOptions() else ns.Print("No options panel on this client.") end
-    end,
+    options = function() ns.OpenOptions() end,
     all = function()
         ns.db.allLines = not ns.db.allLines
         ns.Print("The overlay shows " .. (ns.db.allLines and "all chat lines." or "Chinese lines only."))
@@ -143,6 +144,7 @@ local commands = {
         ns.Print("Link clicks: " .. tostring(ns.linkSource))
         ns.Print("Overlay scrolling: " .. tostring(ns.wheelSource))
         ns.Print("Chat window buttons: " .. tostring(ns.buttonSource))
+        ns.Print("Minimap button: " .. tostring(ns.minimapSource))
         local font = ChatFrame1 and ChatFrame1.GetFont and ChatFrame1:GetFont()
         ns.Print("Chat font: " .. tostring(font))
         local w, h = GetPhysicalScreenSize()

@@ -25,6 +25,11 @@ local function WindowOptions(key, none, label, missing, skip)
     end
 end
 
+-- Opens the panel; replaced below once there is one.
+function ns.OpenOptions()
+    ns.Print("No options panel on this client.")
+end
+
 local function Build()
     local category, layout = Settings.RegisterVerticalLayoutCategory("Nai Ma Speak")
 
@@ -101,6 +106,10 @@ local function Build()
     end, "Where the two buttons sit on the main chat window. Translate opens and closes the box for typing a reply; "
         .. "App shows and hides the companion app's window over the game.")
     Settings.SetOnValueChangedCallback("Translate_buttons", function() ns.PlaceButtons() end, ns)
+
+    Checkbox("minimap", "Minimap button",
+        "A button on the minimap that opens these options or the companion app's window. Drag it to move it round the minimap.")
+    Settings.SetOnValueChangedCallback("Translate_minimap", function() ns.PlaceMinimapButton() end, ns)
 
     Checkbox("allLines", "Include lines without Chinese",
         "Also send lines without Chinese. The overlay shows them untranslated, in order with the translated ones.")

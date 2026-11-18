@@ -12,4 +12,5 @@ Chat.lua
 Layout.lua
 Tabs.lua
 Buttons.lua
+Minimap.lua
 Options.lua

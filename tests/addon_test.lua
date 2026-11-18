@@ -68,7 +68,7 @@ EventRegistry = {
 
 -- Load the addon as the game does, in the order of Translate.toc, and log in.
 local ns = {}
-for _, file in ipairs({ "Core.lua", "Strip.lua", "Chat.lua", "Layout.lua", "Tabs.lua", "Buttons.lua", "Options.lua" }) do
+for _, file in ipairs({ "Core.lua", "Strip.lua", "Chat.lua", "Layout.lua", "Tabs.lua", "Buttons.lua", "Minimap.lua", "Options.lua" }) do
     assert(loadfile(ADDON .. file))("Translate", ns)
 end
 ns.handlers.ADDON_LOADED("Translate")
@@ -355,6 +355,24 @@ ChatFrame2.IsShown = function() return false end
 Check("a free chat window becomes a tab that shows nothing", ns.NewEmptyTab() == ChatFrame3 and table.concat(cleared, " "), "types channels")
 _, problem = ns.NewEmptyTab()
 Check("a second tab of that name is not made", problem, "There is already a tab named \"Translated\".")
+
+-- The minimap button ----------------------------------------------------------------
+
+local entries = {}
+MenuUtil = {
+    CreateContextMenu = function(_, fill)
+        fill(nil, { CreateTitle = function() end, CreateButton = function(_, text, click) entries[text] = click end })
+    end,
+}
+ns.MinimapMenu()
+entries["App Options"]()
+Check("the minimap menu shows the companion app's window", Frames(), { "C | settings" })
+printed = {}
+entries["AddOn Options"]()
+Check("and opens the addon's options, or says there are none", #printed, 1)
+local angles = {}
+for _, at in ipairs({ { 1, 0 }, { 0, 1 }, { -1, 0 }, { 0, -1 } }) do angles[#angles + 1] = ns.AngleRound(10, 10, 10 + at[1], 10 + at[2]) end
+Check("the button follows the pointer round the minimap", table.concat(angles, " "), "0 90 180 270")
 
 local toc = assert(io.open(ADDON .. "Translate.toc")):read("*a")
 Check("the .toc and Core.lua name the same version", toc:match("## Version: (%S+)"), ns.VERSION)

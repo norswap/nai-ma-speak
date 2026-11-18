@@ -97,6 +97,8 @@ Run WoW in **windowed** or **windowed (fullscreen)** mode: overlays cannot draw 
 
 ### In the game
 
+A button on the minimap opens a menu with the addon's options and the companion app's window; drag it to move it, or turn it off in the addon's options.
+
 The two buttons sit on the main chat window. Their place (on the tab row, upright beside the window at its top right or bottom right, or hidden) is set under Options > AddOns > Nai Ma Speak, along with which chat window the overlay copies.
 
 - **Translate** opens a box above the chat window. Type English and press Enter: the box closes at once and a note on the overlay says "Translating", then "Copied, paste it". Paste into the game's chat box and send. If the translation fails or is too long for one chat message (255 bytes), the note says so, and Translate reopens the box with your text.
