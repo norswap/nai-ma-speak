@@ -97,6 +97,14 @@
 安其拉废墟=Ruins of Ahn'Qiraj (AQ20)
 安其拉神殿=Temple of Ahn'Qiraj (AQ40)
 安其拉神庙=Temple of Ahn'Qiraj (AQ40)
+# Taiwanese players' short forms, from their posts on Bahamut
+斯坦=Stratholme
+祖法=Zul'Farrak
+厄東=Dire Maul East
+厄西=Dire Maul West
+厄北=Dire Maul North
+東厄=Dire Maul East
+北厄=Dire Maul North
 STSM=Stratholme
 MLD=Maraudon
 XS=Scarlet Monastery

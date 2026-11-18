@@ -99,3 +99,19 @@ M我=whisper me
 雷包=bad teammate
 划水=slacking
 DD=DPS
+# Taiwanese players' own glossaries on Bahamut (forum.gamer.com.tw), as far as a web
+# search shows them: the site turns automated readers away, so these are the terms its
+# results quoted with their meaning, not the full lists.
+亂roll=rolling need on everything
+人品=luck (on a loot roll)
+木樁=training dummy
+單刷=soloing
+洗頻=spamming chat
+白牧=holy priest
+小D=druid
+靈魂石=soulstone
+水包=mage water
+餐桌=mage table (conjured food)
+糖果=healthstone
+副坦=off-tank
+++=invite me

@@ -524,7 +524,12 @@ impl TranslateApp {
         *since = Instant::now();
         match Tab::ALL.get(*step) {
             Some((tab, _)) => self.tab = *tab,
-            None => std::process::exit(0),
+            None => {
+                // The report of the Status tab's button too, to read without clicking it.
+                let report = crate::diag::report(&self.state_for_report());
+                let _ = std::fs::write(std::path::Path::new(&folder).join("report.txt"), report);
+                std::process::exit(0)
+            }
         }
     }
 

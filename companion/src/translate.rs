@@ -358,12 +358,12 @@ mod tests {
     fn slang_prefers_longest_terms() {
         assert_eq!(slang_in("奶骑来"), vec![term("奶骑", "holy paladin")]);
         assert_eq!(slang_in("hello"), vec![]);
-        for file in [SLANG_ZH_CN, SLANG_ZH_TW] {
+        for file in [SLANG_ZH_CN, SLANG_ZH_TW, PLACES] {
             let lines = file.lines().filter(|line| !line.trim().is_empty() && !line.starts_with('#'));
             assert_eq!(lines.count(), slang_pairs(file).count(), "every line that is not a comment is a zh=en pair");
             assert!(slang_pairs(file).all(|(zh, en)| !zh.is_empty() && !en.is_empty()));
         }
         assert_eq!(slang_pairs(SLANG_ZH_CN).count(), 221);
-        assert_eq!(slang_pairs(SLANG_ZH_TW).count(), 89);
+        assert_eq!(slang_pairs(SLANG_ZH_TW).count(), 102);
     }
 }
