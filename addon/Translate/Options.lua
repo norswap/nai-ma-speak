@@ -26,7 +26,7 @@ local function WindowOptions(key, none, label, missing, skip)
 end
 
 local function Build()
-    local category = Settings.RegisterVerticalLayoutCategory("Nai Ma Speak")
+    local category, layout = Settings.RegisterVerticalLayoutCategory("Nai Ma Speak")
 
     local function Checkbox(key, label, tooltip)
         local setting = Settings.RegisterAddOnSetting(category, "Translate_" .. key, key, ns.db,
@@ -59,6 +59,24 @@ local function Build()
     Settings.SetOnValueChangedCallback("Translate_emptyWindow", function()
         ns.EmptyChosen(function() empty:SetValue(NONE) end)
     end, ns)
+
+    if CreateSettingsButtonInitializer and FCF_OpenNewWindow then
+        local button = CreateSettingsButtonInitializer("Tab for the overlay", "New empty tab", function()
+            local window, problem = ns.NewEmptyTab()
+            if window then
+                empty:SetValue(ns.NEW_TAB)
+                ns.Print("Made the \"" .. ns.NEW_TAB .. "\" tab, kept empty. "
+                    .. "To put the overlay on it, pick it under \"Anchor to chat tab\" in the companion app.")
+            else
+                ns.Print(problem)
+            end
+        end, "Open a chat tab named \"" .. ns.NEW_TAB .. "\" that shows nothing, and keep it empty. "
+            .. "The game allows " .. (NUM_CHAT_WINDOWS or 10) .. " chat windows: with all of them in use "
+            .. "this button is greyed out, until a tab is closed (right-click it, Close Window).", true)
+        layout:AddInitializer(button)
+        -- Greys the button out on clients where a button follows this; a click says why either way.
+        if button.AddModifyPredicate then button:AddModifyPredicate(ns.CanAddTab) end
+    end
 
     local repeated = Settings.RegisterAddOnSetting(category, "Translate_repeatLines", "repeatLines", ns.db,
         Settings.VarType.Number, "Lines shown to the companion again", 50)

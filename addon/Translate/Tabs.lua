@@ -1,10 +1,10 @@
 local _, ns = ...
 
--- Keeps one chat tab empty, for the companion's overlay to sit on. The game writes
--- some lines (the answer to /played, for one) into whichever tab is in front, whatever
--- that tab is set to show, so the tab is emptied whenever a line is added to it.
--- What the tab is set to show still counts for "Lines sent to the overlay": one tab
--- can pick the lines and stay empty under their translations.
+-- Keeps one chat tab empty, for the companion's overlay to sit on, and makes such a
+-- tab. The game writes some lines (the answer to /played, for one) into whichever tab
+-- is in front, whatever that tab is set to show, so the tab is emptied whenever a line
+-- is added to it. What the tab is set to show still counts for "Lines sent to the
+-- overlay": one tab can pick the lines and stay empty under their translations.
 
 local POPUP = "TRANSLATE_KEEP_EMPTY"
 local asking = false -- the player has yet to confirm the tab chosen
@@ -31,6 +31,29 @@ function ns.EmptyChosen(undo)
     else
         Empty()
     end
+end
+
+-- The name of the tab the options' button makes.
+ns.NEW_TAB = "Translated"
+
+-- Whether the game has a chat window left to open: it allows only so many.
+function ns.CanAddTab()
+    return #ns.ChatWindowNames() < (NUM_CHAT_WINDOWS or 10)
+end
+
+-- Opens a chat tab set to show nothing. Returns the window, or nil and why not.
+function ns.NewEmptyTab()
+    if ns.ChatWindowNamed(ns.NEW_TAB) then
+        return nil, "There is already a tab named \"" .. ns.NEW_TAB .. "\"."
+    end
+    local window = ns.CanAddTab() and FCF_OpenNewWindow(ns.NEW_TAB)
+    if not window then
+        return nil, "All " .. (NUM_CHAT_WINDOWS or 10) .. " chat windows the game allows are in use. "
+            .. "Close a tab (right-click it, Close Window) to free one."
+    end
+    window:RemoveAllMessageGroups()
+    window:RemoveAllChannels()
+    return window
 end
 
 function ns.InitTabs()

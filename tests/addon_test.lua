@@ -333,6 +333,25 @@ ChatFrame1:AddMessage("kept")
 Check("a tab that no longer exists empties none", #ChatFrame1.added, 1)
 ns.db.emptyWindow = ""
 
+-- A new empty tab -----------------------------------------------------------------
+
+local cleared = {}
+function FCF_OpenNewWindow(name)
+    NUM_CHAT_WINDOWS = 3
+    ChatFrame3 = ChatWindow()
+    ChatFrame3.RemoveAllMessageGroups = function() cleared[#cleared + 1] = "types" end
+    ChatFrame3.RemoveAllChannels = function() cleared[#cleared + 1] = "channels" end
+    tabNames[3] = name
+    return ChatFrame3
+end
+local _, problem = ns.NewEmptyTab()
+Check("with every chat window in use, no tab is made", problem:match("^All 2 chat windows") ~= nil, true)
+ChatFrame2.isDocked = false
+ChatFrame2.IsShown = function() return false end
+Check("a free chat window becomes a tab that shows nothing", ns.NewEmptyTab() == ChatFrame3 and table.concat(cleared, " "), "types channels")
+_, problem = ns.NewEmptyTab()
+Check("a second tab of that name is not made", problem, "There is already a tab named \"Translated\".")
+
 Check("SLASH aliases", SLASH_TRANSLATE1 .. " " .. SLASH_TRANSLATE3, "/tr /nms")
 local numbers = {}
 for _, n in ipairs({ 1, 9, 10, 11, 20, 21, 99 }) do numbers[#numbers + 1] = ns.ChineseNumber(n) end
