@@ -208,6 +208,30 @@ const COPIED_SHOWN: Duration = Duration::from_secs(6);
 const REPLY_BOX_TITLE: &str = "Translate reply";
 const REPLY_BOX_GAP: f32 = 34.0;
 
+/// Draws a window of its own, as `show_viewport_immediate` does, and says whether it did.
+/// eframe (0.36 and 0.37) cannot open a new window in a pass it starts from a timer while
+/// the main window is hidden: it skips the window without a word, and egui panics because
+/// the window's contents were never drawn. That one panic is caught here and the window
+/// opens in the next pass, which is asked for in a way that can open windows. The fix is
+/// on egui's main branch (`new_events` in eframe's run.rs); this can go once it is released.
+fn show_window(ctx: &egui::Context, id: ViewportId, builder: ViewportBuilder, ui: impl FnMut(&mut egui::Ui, egui::ViewportClass)) -> bool {
+    let drawn = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| ctx.show_viewport_immediate(id, builder, ui)));
+    match drawn {
+        Ok(()) => true,
+        Err(panic) if crate::diag::is_unopened_window(panic_message(&*panic)) => {
+            ctx.request_repaint();
+            false
+        }
+        Err(panic) => std::panic::resume_unwind(panic),
+    }
+}
+
+/// What a caught panic said, if it said it in words.
+fn panic_message(panic: &(dyn std::any::Any + Send)) -> &str {
+    let message = panic.downcast_ref::<String>().map(String::as_str);
+    message.or(panic.downcast_ref::<&str>().copied()).unwrap_or("")
+}
+
 fn reply_id() -> ViewportId {
     ViewportId::from_hash_of("reply")
 }
@@ -617,7 +641,7 @@ impl TranslateApp {
         let (mut submit, mut close, mut copy_anyway) = (false, false, false);
         let mut height = self.reply_box_height;
         let reply = &mut self.reply;
-        ctx.show_viewport_immediate(reply_id(), builder, |root, _class| {
+        let shown = show_window(ctx, reply_id(), builder, |root, _class| {
             let ctx = root.ctx().clone();
             if take_focus {
                 ctx.send_viewport_cmd(ViewportCommand::Focus);
@@ -649,6 +673,8 @@ impl TranslateApp {
             });
         });
         self.reply_box_height = height;
+        // A box that did not open this pass still has to take the keyboard when it does.
+        self.reply_box_focus = take_focus && !shown;
         if copy_anyway {
             self.copy_anyway(ctx);
         }
@@ -1227,7 +1253,7 @@ impl TranslateApp {
         let lines = &self.lines;
         let names = self.names_shown().then_some(&self.names);
 
-        ctx.show_viewport_immediate(overlay_id(), builder, |root, _class| {
+        show_window(ctx, overlay_id(), builder, |root, _class| {
             let ctx = root.ctx().clone();
             if hidden {
                 return;

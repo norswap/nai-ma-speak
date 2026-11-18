@@ -77,6 +77,12 @@ impl log::Log for Warnings {
     fn flush(&self) {}
 }
 
+/// Whether a panic's message is egui's for a window eframe did not open; see `show_window`
+/// in app.rs, which catches it.
+pub fn is_unopened_window(message: &str) -> bool {
+    message.contains("the user callback was never called")
+}
+
 /// Starts the log: warnings and panics go into it, and a watcher notes a pass that does
 /// not finish.
 pub fn start() {
@@ -89,6 +95,9 @@ pub fn start() {
     log(format!("started, version {} on {} {}", env!("CARGO_PKG_VERSION"), std::env::consts::OS, std::env::consts::ARCH));
     let earlier = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |panic| {
+        if is_unopened_window(&panic.to_string()) {
+            return log("a window could not open in this pass; it opens in the next");
+        }
         log(format!("PANIC in thread {:?}: {panic}", std::thread::current().name().unwrap_or("unnamed")));
         earlier(panic);
     }));
