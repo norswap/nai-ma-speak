@@ -19,6 +19,7 @@ mod testing;
 mod text;
 mod theme;
 mod translate;
+mod update;
 mod worker;
 
 use eframe::egui;
@@ -81,6 +82,7 @@ fn main() -> eframe::Result {
         return Ok(());
     }
     diag::start();
+    update::clean_up();
     let config = Arc::new(Mutex::new(config::load()));
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
@@ -118,9 +120,9 @@ fn main() -> eframe::Result {
             worker::spawn(config.clone(), interactive_rx, ui.clone(), clip_tx);
             strip::spawn(strip_tx, interactive_tx.clone(), ui.clone());
             focus::spawn(ui.clone());
-            clipboard::spawn(clip_rx, ui);
+            clipboard::spawn(clip_rx, ui.clone());
 
-            Ok(Box::new(app::TranslateApp::new(config, ui_rx, interactive_tx)))
+            Ok(Box::new(app::TranslateApp::new(config, ui_rx, interactive_tx, ui)))
         }),
     )
 }

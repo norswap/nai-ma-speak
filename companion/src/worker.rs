@@ -53,6 +53,12 @@ pub enum UiEvent {
     Wheel { name: String, count: i64 },
     /// The version of the addon the game holds.
     AddonVersion(crate::protocol::AddonVersion),
+    /// The releases that can be installed, newest first, or why they are not known.
+    Releases(Result<Vec<crate::update::Release>, String>),
+    /// What an update under way is doing.
+    UpdateStep(String),
+    /// An update ended. With `companion`, the new companion is in place of this one.
+    Updated { version: crate::update::Version, companion: bool, result: Result<(), String> },
     /// Pixel strip state: searching, or where it was found.
     Strip(String),
     /// Whether WoW has focus; None when the focused window cannot be read.

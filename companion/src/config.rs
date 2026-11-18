@@ -180,6 +180,12 @@ pub struct Config {
     pub anchor_tab: String,
     /// Hide the locked overlay while another window is in front of WoW.
     pub hide_when_unfocused: bool,
+    /// Put a newer release in place when the companion starts, without asking.
+    pub auto_update: bool,
+    /// The release to stay on, such as "0.4.0"; empty for the newest.
+    pub version: String,
+    /// The game's Interface/AddOns folder; empty to use the one found.
+    pub addons_folder: String,
 }
 
 impl Default for Config {
@@ -207,6 +213,9 @@ impl Default for Config {
             show_original: false,
             anchor_tab: String::new(),
             hide_when_unfocused: true,
+            auto_update: false,
+            version: String::new(),
+            addons_folder: String::new(),
         }
     }
 }
@@ -222,7 +231,7 @@ pub fn path() -> PathBuf {
 }
 
 /// The macOS app bundle a program runs from, if it is inside one.
-fn app_bundle(exe: &Path) -> Option<&Path> {
+pub fn app_bundle(exe: &Path) -> Option<&Path> {
     let dir = exe.parent()?;
     dir.parent().and_then(Path::parent).filter(|bundle| {
         dir.ends_with("Contents/MacOS") && bundle.extension().is_some_and(|extension| extension == "app")
@@ -233,17 +242,31 @@ fn config_dir(exe: &Path) -> Option<&Path> {
     app_bundle(exe).and_then(Path::parent).or(exe.parent())
 }
 
+/// Set for a copy of the companion started right after an update, which then does not
+/// update by itself: a release that does not turn out as its number says would
+/// otherwise be put in place over and over.
+pub const JUST_UPDATED: &str = "TRANSLATE_JUST_UPDATED";
+
 /// Starts a second copy of the companion, for the caller to then quit. An app bundle is
 /// opened as one, so the new copy is the same app to macOS and keeps its permissions.
-pub fn start_again() -> std::io::Result<()> {
+pub fn start_again(just_updated: bool) -> std::io::Result<()> {
     let exe = std::env::current_exe()?;
     let mut command = match app_bundle(&exe) {
         Some(bundle) => {
             let mut open = std::process::Command::new("open");
             open.arg("-n").arg(bundle);
+            if just_updated {
+                open.arg("--env").arg(format!("{JUST_UPDATED}=1"));
+            }
             open
         }
-        None => std::process::Command::new(&exe),
+        None => {
+            let mut program = std::process::Command::new(&exe);
+            if just_updated {
+                program.env(JUST_UPDATED, "1");
+            }
+            program
+        }
     };
     command.spawn().map(|_| ())
 }

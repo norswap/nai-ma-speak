@@ -7,10 +7,12 @@ use crate::protocol::Command;
 use crate::backlog;
 use crate::markup::{self, ChatLine, Span};
 use crate::theme;
-use crate::worker::{Awaiting, Job, UiEvent};
+use crate::update::{self, Addon, Advice, Version};
+use crate::worker::{Awaiting, Job, UiEvent, UiSender};
 use eframe::egui::text::LayoutJob;
 use eframe::egui::{self, Color32, RichText, TextFormat, ViewportBuilder, ViewportCommand, ViewportId};
 use std::collections::{HashMap, VecDeque};
+use std::path::PathBuf;
 use std::sync::mpsc::{Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -175,6 +177,40 @@ pub struct TranslateApp {
     window_summoned: bool,
     /// Whether the companion was the app in front at the last look.
     was_active: bool,
+    updates: Updates,
+    /// An update put a new companion in place of this one, which is to start it and quit.
+    restart: bool,
+}
+
+/// How often GitHub is asked for the releases while the companion runs.
+const RELEASES_EVERY: Duration = Duration::from_secs(6 * 60 * 60);
+/// How often the addon's folder is looked at.
+const ADDON_EVERY: Duration = Duration::from_secs(3);
+/// How long the addon may talk without saying its version before it is taken for one
+/// from before it did. It says it every 5 seconds.
+const SILENT_AFTER: Duration = Duration::from_secs(15);
+
+/// What the Update tab knows.
+struct Updates {
+    ui: UiSender,
+    /// The releases that can be installed, newest first, and when they were asked for.
+    releases: Vec<update::Release>,
+    asked: Option<Instant>,
+    /// Why the releases are not known, or why an update failed.
+    problem: String,
+    /// What an update under way is doing.
+    step: Option<String>,
+    /// The AddOns folders of the games found on this computer.
+    found: Vec<PathBuf>,
+    /// The AddOns folder looked after, what it holds of the addon, and when that was read.
+    folder: Option<PathBuf>,
+    addon: Addon,
+    read: Option<Instant>,
+    /// Since when the addon in the game has been heard from.
+    heard: Option<Instant>,
+    advice: Advice,
+    /// The releases have arrived once, so updating without asking has had its turn.
+    started: bool,
 }
 
 /// Where a reply typed in English stands.
@@ -244,6 +280,7 @@ enum Tab {
     Backend,
     Overlay,
     Status,
+    Update,
     History,
     /// Typing a reply in the companion, for use outside the game.
     Translate,
@@ -251,10 +288,11 @@ enum Tab {
 
 impl Tab {
     /// Typing a reply here comes last: in the game its own Translate button does that.
-    const ALL: [(Tab, &'static str); 5] = [
+    const ALL: [(Tab, &'static str); 6] = [
         (Tab::Backend, "Backend"),
         (Tab::Overlay, "Overlay"),
         (Tab::Status, "Status"),
+        (Tab::Update, "Update"),
         (Tab::History, "Chat history"),
         (Tab::Translate, "Translate"),
     ];
@@ -299,7 +337,7 @@ fn overlay_id() -> ViewportId {
 }
 
 impl TranslateApp {
-    pub fn new(config: Arc<Mutex<Config>>, events: Receiver<UiEvent>, interactive: Sender<Job>) -> Self {
+    pub fn new(config: Arc<Mutex<Config>>, events: Receiver<UiEvent>, interactive: Sender<Job>, ui: UiSender) -> Self {
         let draft = config.lock().unwrap().clone();
         let overlay_start = egui::pos2(draft.overlay_x, draft.overlay_y);
         Self {
@@ -348,6 +386,21 @@ impl TranslateApp {
             test_result: String::new(),
             report_copied: false,
             strip_status: "Starting the pixel strip reader".into(),
+            updates: Updates {
+                ui,
+                releases: Vec::new(),
+                asked: None,
+                problem: String::new(),
+                step: None,
+                found: update::addon_folders(),
+                folder: None,
+                addon: Addon::Missing,
+                read: None,
+                heard: None,
+                advice: Advice::Nothing,
+                started: false,
+            },
+            restart: false,
             draft,
         }
     }
@@ -486,6 +539,24 @@ impl TranslateApp {
                         Err(e) => format!("{backend} test failed: {e}"),
                     };
                 }
+                UiEvent::Releases(Ok(releases)) => {
+                    self.updates.releases = releases;
+                    self.updates.problem.clear();
+                    self.update_unasked();
+                }
+                UiEvent::Releases(Err(problem)) => self.updates.problem = problem,
+                UiEvent::UpdateStep(step) => self.updates.step = Some(step),
+                UiEvent::Updated { version, companion, result } => {
+                    self.updates.step = None;
+                    self.updates.read = None;
+                    match result {
+                        Ok(()) => {
+                            crate::diag::log(format!("updated to {version}{}", if companion { "" } else { ": the addon only" }));
+                            self.restart = companion;
+                        }
+                        Err(problem) => self.updates.problem = format!("The update to v{version} failed: {problem}"),
+                    }
+                }
                 UiEvent::Strip(text) => self.strip_status = text,
                 UiEvent::AddonVersion(version) => {
                     if self.addon_version.as_ref() != Some(&version) {
@@ -501,6 +572,7 @@ impl TranslateApp {
                         crate::diag::log(format!("chat windows: {windows:?}"));
                     }
                     self.chat_windows = windows;
+                    self.updates.heard.get_or_insert_with(Instant::now);
                 }
                 UiEvent::Wheel { name, count } => {
                     // The first count only sets the starting point: its steps were made
@@ -791,6 +863,16 @@ impl TranslateApp {
         }
     }
 
+    /// Starts another copy of the companion and quits this one.
+    fn start_again(&mut self, ctx: &egui::Context, just_updated: bool) {
+        self.save();
+        self.write_backlog();
+        match config::start_again(just_updated) {
+            Ok(()) => ctx.send_viewport_cmd_to(ViewportId::ROOT, ViewportCommand::Close),
+            Err(e) => self.notice = format!("Could not restart: {e}"),
+        }
+    }
+
     /// Asks before putting the settings back as they were when the companion started.
     fn undo_question(&mut self, ctx: &egui::Context) {
         if !self.undo_asked {
@@ -862,6 +944,7 @@ impl TranslateApp {
                 Tab::Backend => self.backend_tab(ui),
                 Tab::Overlay => self.overlay_tab(ui),
                 Tab::Status => self.status_tab(ui),
+                Tab::Update => self.update_tab(ui),
                 Tab::History => self.history_tab(ui),
             }
         });
@@ -890,12 +973,7 @@ impl TranslateApp {
                         self.hide_window(ui.ctx());
                     }
                     if ui.add(theme::button("Restart")).on_hover_text("Quit and start the companion again.").clicked() {
-                        self.save();
-                        self.write_backlog();
-                        match config::start_again() {
-                            Ok(()) => ui.ctx().send_viewport_cmd_to(ViewportId::ROOT, ViewportCommand::Close),
-                            Err(e) => self.notice = format!("Could not restart: {e}"),
-                        }
+                        self.start_again(ui.ctx(), false);
                     }
                     let changed = self.draft != self.opened;
                     let undo = ui.add_enabled(changed, theme::button("Undo"));
@@ -926,7 +1004,9 @@ impl TranslateApp {
                 for (tab, name) in Tab::ALL {
                     let selected = self.tab == tab;
                     let color = if selected { Color32::WHITE } else { theme::GOLD };
-                    let text = ui.painter().layout_no_wrap(name.to_string(), theme::heading_font(15.0), color);
+                    // A dot on the Update tab while there is something to do there.
+                    let dot = if tab == Tab::Update && self.updates.advice != Advice::Nothing { " •" } else { "" };
+                    let text = ui.painter().layout_no_wrap(format!("{name}{dot}"), theme::heading_font(15.0), color);
                     let (rect, response) = ui.allocate_exact_size(text.size() + egui::vec2(28.0, 14.0), egui::Sense::click());
                     // The other tabs are a little lower and darker.
                     let shape = if selected { rect } else { rect.with_min_y(rect.top() + 3.0) };
@@ -1158,11 +1238,13 @@ impl TranslateApp {
             Backend::OpenAiCompatible => format!(", model {} at {}", draft.model, draft.api_base),
         };
         format!(
-            "System: {} {}\nCompanion: {}\nAddon in the game: {:?}\nBackend: {}{model}\nTranslation: {}\nPixel strip: {}\nChat windows: {:?}\nOverlay: on tab {:?}, hidden {}, game in view {:?}",
+            "System: {} {}\nCompanion: {}\nAddon in the game: {:?}\nAddon in {:?}: {:?}\nBackend: {}{model}\nTranslation: {}\nPixel strip: {}\nChat windows: {:?}\nOverlay: on tab {:?}, hidden {}, game in view {:?}",
             std::env::consts::OS,
             std::env::consts::ARCH,
             env!("CARGO_PKG_VERSION"),
             self.addon_version,
+            self.updates.folder,
+            self.updates.addon,
             draft.backend.short_label(),
             self.status,
             self.strip_status,
@@ -1200,6 +1282,179 @@ impl TranslateApp {
             };
             ui.label(RichText::new(note).color(theme::MUTED));
         });
+    }
+
+    /// Keeps what the Update tab shows current: asks for the releases when the
+    /// companion starts and a few times a day, looks at the addon's folder, and works
+    /// out what there is to do.
+    fn keep_updated(&mut self, ctx: &egui::Context) {
+        if self.restart {
+            self.restart = false;
+            self.start_again(ctx, true);
+        }
+        let updates = &mut self.updates;
+        if updates.asked.is_none_or(|asked| asked.elapsed() > RELEASES_EVERY) {
+            updates.asked = Some(Instant::now());
+            update::check(updates.ui.clone());
+        }
+        let folder = update::addons_folder(&self.draft.addons_folder, &updates.found);
+        if folder != updates.folder || updates.read.is_none_or(|read| read.elapsed() > ADDON_EVERY) {
+            updates.addon = folder.as_deref().map_or(Addon::Missing, update::addon_in);
+            updates.folder = folder;
+            updates.read = Some(Instant::now());
+        }
+        let target = update::target(&updates.releases, &self.draft.version).map(|release| release.version);
+        let silent = self.addon_version.is_none() && updates.heard.is_some_and(|heard| heard.elapsed() > SILENT_AFTER);
+        updates.advice = update::advice(Version::own(), target, &updates.addon, self.addon_version.as_ref(), silent);
+    }
+
+    /// What to put in place for the advice given, or why nothing can be.
+    fn update_plan(&self) -> Result<update::Plan, String> {
+        let updates = &self.updates;
+        // A linked addon is a developer's and stays; with no folder known there is none to replace.
+        let addons = updates.folder.clone().filter(|_| updates.addon != Addon::Linked);
+        match updates.advice {
+            Advice::Update(version) => {
+                let release = updates.releases.iter().find(|release| release.version == version).cloned();
+                Ok(update::Plan { release: release.ok_or("That release is no longer listed.")?, addons, companion: true })
+            }
+            Advice::InstallAddon => {
+                let own = Version::own();
+                let release = updates.releases.iter().find(|release| release.version == own).cloned();
+                let release = release.ok_or(format!("This companion is v{own}, which is no release, so there is no addon to go with it."))?;
+                let addons = addons.ok_or("Say where the game's AddOns folder is first.")?;
+                Ok(update::Plan { release, addons: Some(addons), companion: false })
+            }
+            _ => Err("There is nothing to update.".into()),
+        }
+    }
+
+    fn start_update(&mut self) {
+        match self.update_plan() {
+            Ok(plan) => {
+                self.updates.problem.clear();
+                self.updates.step = Some("Starting".into());
+                update::install(plan, self.updates.ui.clone());
+            }
+            Err(problem) => self.updates.problem = problem,
+        }
+    }
+
+    /// Once, when the releases first arrive: updates without asking, if the settings
+    /// say so. An addon that is not installed at all is only offered.
+    fn update_unasked(&mut self) {
+        let first = !std::mem::replace(&mut self.updates.started, true);
+        let held_back = std::env::var_os(config::JUST_UPDATED).is_some() || std::env::var_os("TRANSLATE_SHOTS").is_some();
+        if !first || !self.draft.auto_update || held_back {
+            return;
+        }
+        // The advice was worked out before these releases arrived.
+        let target = update::target(&self.updates.releases, &self.draft.version).map(|release| release.version);
+        self.updates.advice = update::advice(Version::own(), target, &self.updates.addon, None, false);
+        let outdated_addon = self.updates.advice == Advice::InstallAddon && self.updates.addon != Addon::Missing;
+        if matches!(self.updates.advice, Advice::Update(_)) || outdated_addon {
+            self.start_update();
+        }
+    }
+
+    fn update_tab(&mut self, ui: &mut egui::Ui) {
+        let own = Version::own();
+        let busy = self.updates.step.is_some();
+        ui.label(theme::label("Companion"));
+        ui.label(format!("v{own}"));
+
+        ui.label(theme::label("Newest release"));
+        ui.horizontal(|ui| {
+            match self.updates.releases.first() {
+                Some(newest) => ui.label(format!("v{}", newest.version)),
+                None if self.updates.problem.is_empty() => ui.label("Asking GitHub"),
+                None => ui.label("Not known"),
+            };
+            if ui.add(theme::button("Look again")).clicked() {
+                self.updates.asked = None;
+            }
+        });
+
+        ui.label(theme::label("Addon in the game's folder"));
+        ui.label(match (&self.updates.folder, &self.updates.addon) {
+            (None, _) => "The game's AddOns folder was not found.".to_string(),
+            (_, Addon::Missing) => "Not installed".into(),
+            (_, Addon::Linked) => "A link to a folder elsewhere, which is left as it is".into(),
+            (_, Addon::Installed(Some(version))) => format!("v{version}"),
+            (_, Addon::Installed(None)) => "Installed, but its files name no version".into(),
+        });
+        let found = self.updates.folder.as_ref().map(|folder| folder.display().to_string()).unwrap_or_default();
+        let hint = if found.is_empty() { "The game's Interface/AddOns folder".to_string() } else { found };
+        ui.add(theme::field(&mut self.draft.addons_folder).hint_text(hint).desired_width(f32::INFINITY))
+            .on_hover_text("Where the addon is installed: the Interface/AddOns folder of the game you play. Empty to use the one found.");
+        // Several kinds of the game are installed and none holds the addon yet.
+        if self.updates.folder.is_none() {
+            for folder in &self.updates.found {
+                if ui.link(folder.display().to_string()).clicked() {
+                    self.draft.addons_folder = folder.display().to_string();
+                }
+            }
+        }
+
+        ui.label(theme::label("Addon in the game"));
+        ui.label(match &self.addon_version {
+            Some(version) if version.running == version.listed => format!("v{}", version.running),
+            Some(version) => format!("v{}, in a game started with v{}", version.running, version.listed),
+            None if self.updates.heard.is_some_and(|heard| heard.elapsed() > SILENT_AFTER) => "Too old to say its version".into(),
+            None => "Not heard from: the game is not running, or the addon is not on".into(),
+        });
+        ui.add_space(10.0);
+
+        let advice = self.updates.advice;
+        let (text, color, action) = match advice {
+            Advice::Nothing => ("Nothing to do.".to_string(), theme::GOOD, None),
+            Advice::Update(version) => {
+                let (word, action) = if version > own { ("newer", format!("Update to v{version}")) } else { ("older", format!("Go back to v{version}")) };
+                let permission = if cfg!(target_os = "macos") {
+                    " macOS will then ask again for the Screen Recording permission: remove the companion from that list in System Settings and add it back."
+                } else {
+                    ""
+                };
+                let text = format!("v{version} is {word}. It replaces the addon, then the companion, which starts again.{permission}");
+                (text, theme::GOLD, Some(action))
+            }
+            Advice::InstallAddon => {
+                let action = if self.updates.addon == Addon::Missing { "Install the addon" } else { "Update the addon" };
+                (format!("The companion needs the addon at v{own} too."), theme::GOLD, Some(action.to_string()))
+            }
+            Advice::Reload => ("The game still runs the addon it had: type /reload in the game's chat.".to_string(), theme::GOLD, None),
+            Advice::RestartGame => {
+                let text = "The game started with another version of the addon and may miss files of this one: quit the game and start it again.";
+                (text.to_string(), theme::GOLD, None)
+            }
+        };
+        ui.label(RichText::new(text).color(color));
+        if let Some(action) = action {
+            if ui.add_enabled(!busy, theme::button(&action)).clicked() {
+                self.start_update();
+            }
+        }
+        if let Some(step) = &self.updates.step {
+            ui.label(RichText::new(format!("{step}…")).color(theme::MUTED));
+        }
+        if !self.updates.problem.is_empty() {
+            ui.label(RichText::new(&self.updates.problem).color(theme::BAD));
+        }
+        ui.add_space(10.0);
+
+        ui.label(theme::label("Release to use"));
+        let chosen = Version::parse(&self.draft.version);
+        let shown = chosen.map_or("The newest".to_string(), |version| format!("v{version}"));
+        egui::ComboBox::from_id_salt("release").width(ui.available_width()).selected_text(shown).show_ui(ui, |ui| {
+            ui.selectable_value(&mut self.draft.version, String::new(), "The newest");
+            for release in self.updates.releases.iter().filter(|release| release.version >= update::OLDEST_OFFERED) {
+                ui.selectable_value(&mut self.draft.version, release.version.to_string(), format!("v{}", release.version));
+            }
+        })
+        .response
+        .on_hover_text(format!("Stay on an earlier release if a newer one misbehaves. Releases before v{} cannot update themselves and are not offered.", update::OLDEST_OFFERED));
+        ui.checkbox(&mut self.draft.auto_update, "Update when the companion starts")
+            .on_hover_text("When the companion starts and finds that it or the addon is not the release to use, it puts that release in place without asking, and starts again.");
     }
 
     /// Why the overlay is not showing on the chosen tab, if it is not.
@@ -1364,6 +1619,7 @@ impl eframe::App for TranslateApp {
         let ctx = ui.ctx().clone();
         self.passes.begin();
         self.drain_events();
+        self.keep_updated(&ctx);
         self.ask_for_names();
         self.control_panel(ui);
         self.window_visibility(&ctx);
