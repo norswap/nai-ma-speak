@@ -51,6 +51,8 @@ pub enum UiEvent {
     Command(crate::protocol::Command),
     /// Mouse wheel steps a chat window has had since login, up counted positive.
     Wheel { name: String, count: i64 },
+    /// The version of the addon the game holds.
+    AddonVersion(crate::protocol::AddonVersion),
     /// Pixel strip state: searching, or where it was found.
     Strip(String),
     /// Whether WoW has focus; None when the focused window cannot be read.

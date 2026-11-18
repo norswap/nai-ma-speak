@@ -1,5 +1,8 @@
 local addonName, ns = ...
 
+-- The release this file belongs to; the release workflow writes it here and in the .toc.
+ns.VERSION = "0.3.0"
+
 -- One event frame, one handler table keyed by event name.
 ns.handlers = {}
 local frame = CreateFrame("Frame")
@@ -43,12 +46,25 @@ ns.On("ADDON_LOADED", function(name)
     frame:UnregisterEvent("ADDON_LOADED")
 end)
 
+-- Tells the companion which version runs, for it to say when the game holds an older
+-- addon than the folder does: the version in this file, which /reload reads again,
+-- and the one in the .toc, which the game reads only when it starts.
+local VERSION_TIME = 5 -- seconds between tellings, for a companion started later
+
+function ns.SayVersion()
+    local metadata = (C_AddOns and C_AddOns.GetAddOnMetadata) or GetAddOnMetadata
+    local listed = metadata and metadata(addonName, "Version")
+    ns.SendToStrip("V\t" .. ns.VERSION .. "\t" .. (type(listed) == "string" and listed or ""), "V\t")
+end
+
 ns.On("PLAYER_LOGIN", function()
     if ns.InitChat then ns.InitChat() end
     if ns.InitLayout then ns.InitLayout() end
     if ns.InitTabs then ns.InitTabs() end
     if ns.InitButtons then ns.InitButtons() end
     if ns.InitOptions then ns.InitOptions() end
+    ns.SayVersion()
+    if C_Timer and C_Timer.NewTicker then C_Timer.NewTicker(VERSION_TIME, ns.SayVersion) end
 end)
 
 -- The most lines "/tr test <count>" sends: 1 to 99 is what ChineseNumber writes.

@@ -37,6 +37,7 @@ C_Timer = { After = function(_, fn) timers[#timers + 1] = fn end, NewTicker = fu
 function time() return 1700000000 end
 function GetPhysicalScreenSize() return 1920, 1080 end
 function GetCVarBool() return true end
+function GetAddOnMetadata() return "0.0.1" end
 function hooksecurefunc(object, name, hook)
     local original = object[name]
     object[name] = function(...) original(...); hook(...) end
@@ -91,7 +92,7 @@ local function Frames()
     frames = {}
     return shown
 end
-Frames() -- the layout sent at login
+Frames() -- what was sent at login
 
 local failures = 0
 local function Check(name, got, want)
@@ -114,6 +115,9 @@ local function Chat(event, text, channel, channelIndex)
     ns.handlers[event](unpack(args))
     return lineID, shown or text
 end
+
+ns.SayVersion()
+Check("the version is told, with the one the game read at its start", Frames(), { "V | " .. ns.VERSION .. " | 0.0.1" })
 
 -- Chat events, with no chat window copied ------------------------------------------
 
@@ -351,6 +355,9 @@ ChatFrame2.IsShown = function() return false end
 Check("a free chat window becomes a tab that shows nothing", ns.NewEmptyTab() == ChatFrame3 and table.concat(cleared, " "), "types channels")
 _, problem = ns.NewEmptyTab()
 Check("a second tab of that name is not made", problem, "There is already a tab named \"Translated\".")
+
+local toc = assert(io.open(ADDON .. "Translate.toc")):read("*a")
+Check("the .toc and Core.lua name the same version", toc:match("## Version: (%S+)"), ns.VERSION)
 
 Check("SLASH aliases", SLASH_TRANSLATE1 .. " " .. SLASH_TRANSLATE3, "/tr /nms")
 local numbers = {}

@@ -144,6 +144,8 @@ pub struct TranslateApp {
     /// New overlay text arrived, so the font texture is re-sent after this frame.
     font_texture_stale: bool,
     chat_windows: Vec<ChatWindow>,
+    /// The version of the addon the game holds, once the addon has told it.
+    addon_version: Option<crate::protocol::AddonVersion>,
     /// Whether the overlay was on a chat tab last frame, and where it was last sent.
     overlay_anchored: bool,
     overlay_sent: Option<egui::Pos2>,
@@ -325,6 +327,7 @@ impl TranslateApp {
             font_texture_sent: Instant::now(),
             font_texture_stale: false,
             chat_windows: Vec::new(),
+            addon_version: None,
             overlay_anchored: false,
             overlay_sent: None,
             overlay_hidden: false,
@@ -484,6 +487,12 @@ impl TranslateApp {
                     };
                 }
                 UiEvent::Strip(text) => self.strip_status = text,
+                UiEvent::AddonVersion(version) => {
+                    if self.addon_version.as_ref() != Some(&version) {
+                        crate::diag::log(format!("addon in the game: {version:?}"));
+                    }
+                    self.addon_version = Some(version);
+                }
                 UiEvent::WowView(view) => self.wow_view = view,
                 UiEvent::ChatWindows(windows) => {
                     // Once, and when tabs come or go: not each time one is selected or moved.
@@ -1149,9 +1158,11 @@ impl TranslateApp {
             Backend::OpenAiCompatible => format!(", model {} at {}", draft.model, draft.api_base),
         };
         format!(
-            "System: {} {}\nBackend: {}{model}\nTranslation: {}\nPixel strip: {}\nChat windows: {:?}\nOverlay: on tab {:?}, hidden {}, game in view {:?}",
+            "System: {} {}\nCompanion: {}\nAddon in the game: {:?}\nBackend: {}{model}\nTranslation: {}\nPixel strip: {}\nChat windows: {:?}\nOverlay: on tab {:?}, hidden {}, game in view {:?}",
             std::env::consts::OS,
             std::env::consts::ARCH,
+            env!("CARGO_PKG_VERSION"),
+            self.addon_version,
             draft.backend.short_label(),
             self.status,
             self.strip_status,
