@@ -73,7 +73,8 @@ end
 local frame, textures
 local queue = {}
 -- Lines shown again, in turn, while the queue is empty: the last
--- `repeatLines` given to RepeatOnStrip. `turn` is the one shown last.
+-- `repeatLines` given to RepeatOnStrip, each a function that returns the
+-- line's text. `turn` is the one shown last.
 local again, turn = {}, 0
 local seq = 0
 local ticking = false
@@ -132,7 +133,7 @@ local function NextText()
     end
     ForgetOld()
     for _ = 1, #again do
-        local line = again[turn % #again + 1]
+        local line = again[turn % #again + 1]()
         if text and #text + 1 + #line > MAX_TEXT then break end
         text = text and (text .. "\n" .. line) or line
         turn = turn % #again + 1
@@ -170,17 +171,9 @@ function ns.SendToStrip(text, key)
     if not ticking then Advance() end
 end
 
--- Has the strip show this line again from time to time, once it has been sent:
--- as a new line, or in place of the line `earlier`, of which it is a newer
--- wording, if that is still among them.
-function ns.RepeatOnStrip(text, earlier)
-    for i = #again, 1, -1 do
-        if earlier and again[i] == earlier then
-            again[i] = text
-            return
-        end
-    end
-    if earlier then return end
+-- Has the strip show a line again from time to time, once it has been sent.
+-- `text` is called each time for the line as it then reads.
+function ns.RepeatOnStrip(text)
     again[#again + 1] = text
     ForgetOld()
 end

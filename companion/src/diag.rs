@@ -13,8 +13,10 @@ use std::time::{Duration, Instant};
 const LARGEST: u64 = 512 * 1024;
 /// A pass that takes longer than this is logged as stuck.
 const STUCK: Duration = Duration::from_secs(3);
-/// More passes per second than this, kept up, is logged with what asked for them.
-const BUSY_PASSES: f32 = 25.0;
+/// More passes per second than this, kept up, is logged with what asked for them. Chat
+/// coming in steadily, scrolling and a spinner make 30 to 50; a window that redraws
+/// without cause runs at the screen's rate, 60 or more.
+const BUSY_PASSES: f32 = 55.0;
 
 fn started() -> Instant {
     static STARTED: OnceLock<Instant> = OnceLock::new();

@@ -169,14 +169,15 @@ end
 -- the time of login, so they keep rising from one login to the next.
 local number = time() * 1000
 
-local NAME_TRIES, NAME_WAIT = 5, 1 -- how often, and how many seconds apart, a line is built again
+local NAME_TRIES = 5 -- how many times a line is built again for the names of its links
 
 -- Sends a line of the chat. `build` returns its kind (0 or 1), prefix, body,
 -- color and speaker, or nothing for a line that is not sent. Where the game
 -- could not yet name a link, the line goes out with the sender's Chinese name
--- for it, which the companion translates word for word; it is built again a
--- few times while the game loads the name, and sent again under the same
--- number once it reads differently, for the companion to put in its place.
+-- for it, which the companion translates word for word. The game loads the
+-- name meanwhile, so the line is built again the next few times the strip
+-- repeats it; the companion puts a line that reads differently under the same
+-- number in the earlier one's place.
 local function SendChat(build)
     unnamed = false
     local kind, prefix, body, color, speaker = build()
@@ -184,22 +185,17 @@ local function SendChat(build)
     number = number + 1
     local own = string.format("%.0f", number)
     local line = Line(kind, prefix, body, color, speaker, own)
+    local tries = unnamed and NAME_TRIES or 0
     ns.SendToStrip(line)
-    ns.RepeatOnStrip(line)
-    local tries = 0
-    local function Again()
-        unnamed = false
-        local kind, prefix, body, color, speaker = build()
-        local named = kind and Line(kind, prefix, body, color, speaker, own)
-        if named and named ~= line then
-            ns.SendToStrip(named)
-            ns.RepeatOnStrip(named, line)
-            line = named
+    ns.RepeatOnStrip(function()
+        if tries > 0 then
+            unnamed = false
+            local kind, prefix, body, color, speaker = build()
+            if kind then line = Line(kind, prefix, body, color, speaker, own) end
+            tries = unnamed and tries - 1 or 0
         end
-        tries = tries + 1
-        if unnamed and tries < NAME_TRIES then C_Timer.After(NAME_WAIT, Again) end
-    end
-    if unnamed then C_Timer.After(NAME_WAIT, Again) end
+        return line
+    end)
 end
 
 ns.Markup, ns.Plain, ns.MarkupIndex = Markup, Plain, MarkupIndex

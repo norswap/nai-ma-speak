@@ -210,15 +210,17 @@ Check("a link is named as this client names the thing, where the game knows it",
     "1 | [Bob] says:  | |cffffffff[不明之物]|r | ffffff | Bob",
 })
 
--- A link the game names a moment later: the line is sent again under its number.
-numbered = true
+-- A link the game names a moment later: the line reads differently when the strip
+-- repeats it, under the same number.
+numbered, ns.db.repeatLines = true, 1
 Chat("CHAT_MSG_SAY", "|cffffffff|Hitem:7777::::|h[符文布]|h|r")
 itemNames[7777] = "Runecloth"
-local sent = Frames()
-Check("the line goes out as it is, then with the name once the game has it",
-    { sent[1]:match("(%[[^%[]-%])|r"), sent[2]:match("(%[[^%[]-%])|r"), tostring(sent[1]:match("%d+$") == sent[2]:match("%d+$")), #sent },
-    { "[符文布]", "[Runecloth]", "true", 2 })
-numbered = false
+table.remove(timers, 1)()
+Check("the line goes out as it is, and is repeated with the name once the game has it",
+    { frames[1]:match("(%[[^%[]-%])|r"), frames[2]:match("(%[[^%[]-%])|r"), tostring(frames[1]:match("%d+$") == frames[2]:match("%d+$")) },
+    { "[符文布]", "[Runecloth]", "true" })
+numbered, ns.db.repeatLines, frames = false, 0, {}
+Frames()
 
 -- The strip's queue ----------------------------------------------------------------------
 
