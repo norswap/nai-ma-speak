@@ -540,11 +540,16 @@ impl TranslateApp {
                     };
                 }
                 UiEvent::Releases(Ok(releases)) => {
+                    let versions: Vec<String> = releases.iter().map(|release| release.version.to_string()).collect();
+                    crate::diag::log(format!("releases: {}", versions.join(", ")));
                     self.updates.releases = releases;
                     self.updates.problem.clear();
                     self.update_unasked();
                 }
-                UiEvent::Releases(Err(problem)) => self.updates.problem = problem,
+                UiEvent::Releases(Err(problem)) => {
+                    crate::diag::log(format!("releases: {problem}"));
+                    self.updates.problem = problem;
+                }
                 UiEvent::UpdateStep(step) => self.updates.step = Some(step),
                 UiEvent::Updated { version, companion, result } => {
                     self.updates.step = None;
