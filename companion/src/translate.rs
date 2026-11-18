@@ -9,7 +9,7 @@ The server has Taiwanese players typing Traditional Chinese and mainland players
 Taiwanese internet slang, Zhuyin shorthand and Hokkien-derived words, or mainland gaming slang. \
 Keep player names, numbers and English words as they are. In chat, 1 usually means yes/ready. \
 Text in [square brackets] is a link to a quest, item, spell or achievement. Keep each link in its brackets, wherever it stands in the line, \
-in the same order, and translate the name inside into English word for word, without guessing at an official name. Never leave Chinese inside brackets. \
+in the same order, and translate the name inside into English: a place by its English name where one is given below, the rest word for word, without guessing at an official name. Never leave Chinese inside brackets. \
 A line without square brackets gets none. \
 Reply with the translation only: no quotes, notes or romanization.";
 
@@ -53,6 +53,9 @@ If it is a plain name with nothing behind it, say so in a few words. Do not offe
 /// it, so long lists cost no extra tokens.
 const SLANG_ZH_CN: &str = include_str!("slang/zh_cn.txt");
 const SLANG_ZH_TW: &str = include_str!("slang/zh_tw.txt");
+/// Places of the game's world and what the English version calls them, which the smaller
+/// models do not know: they make 激流堡 a "Fortress of the Rapids", not Stromgarde.
+const PLACES: &str = include_str!("slang/places.txt");
 
 /// The `zh=en` pairs of a slang file; blank lines and lines starting with # are skipped.
 fn slang_pairs(file: &'static str) -> impl Iterator<Item = (&'static str, &'static str)> {
@@ -83,7 +86,7 @@ fn slang() -> &'static [(String, &'static str)] {
     static SLANG: OnceLock<Vec<(String, &'static str)>> = OnceLock::new();
     SLANG.get_or_init(|| {
         let mut terms: Vec<(String, &'static str)> = Vec::new();
-        for (zh, en) in slang_pairs(SLANG_ZH_CN).chain(slang_pairs(SLANG_ZH_TW)) {
+        for (zh, en) in slang_pairs(SLANG_ZH_CN).chain(slang_pairs(SLANG_ZH_TW)).chain(slang_pairs(PLACES)) {
             let key = to_simplified(zh).to_ascii_lowercase();
             if !terms.iter().any(|(known, _)| *known == key) {
                 terms.push((key, en));
@@ -144,7 +147,7 @@ pub fn system_prompt(text: &str, task: Task, variant: ReplyVariant) -> String {
             if slang.is_empty() {
                 format!("{TO_ENGLISH}{names}")
             } else {
-                format!("{TO_ENGLISH} Slang in this line: {}.{names}", slang.join(", "))
+                format!("{TO_ENGLISH} Slang and places in this line: {}.{names}", slang.join(", "))
             }
         }
         Task::ToChinese => match variant {
@@ -158,7 +161,7 @@ pub fn system_prompt(text: &str, task: Task, variant: ReplyVariant) -> String {
             if slang.is_empty() {
                 format!("{prompt}{names}")
             } else {
-                format!("{prompt} Slang in this line: {}.{names}", slang.join(", "))
+                format!("{prompt} Slang and places in this line: {}.{names}", slang.join(", "))
             }
         }
         Task::Name => NAME.to_string(),
@@ -263,6 +266,14 @@ mod tests {
         assert_eq!(restore("還有人要解護送任務嗎? -3", "Anyone still want to do the escort [quest]? -3"), "Anyone still want to do the escort quest? -3");
     }
 
+    #[test]
+    fn places_are_named_in_either_script_and_by_their_short_forms() {
+        assert_eq!(slang_in("[激流堡符印]有一起的吗"), vec![("激流堡".to_string(), "Stromgarde")]);
+        assert_eq!(slang_in("阿拉希高地 有人嗎"), vec![("阿拉希高地".to_string(), "Arathi Highlands")]);
+        assert_eq!(slang_in("stsm 來個坦"), vec![("stsm".to_string(), "Stratholme")]);
+        assert_eq!(slang_in("杜洛塔"), slang_in("杜隆塔尔").iter().map(|(_, en)| ("杜洛塔".to_string(), *en)).collect::<Vec<_>>());
+    }
+
     fn slang_of(text: &str) -> Vec<(String, &'static str)> {
         slang_in(text)
     }
@@ -314,8 +325,8 @@ mod tests {
         assert!(system_prompt("need a healer", Task::ToChinese, ReplyVariant::Taiwan).contains("Never use Simplified"));
         assert!(system_prompt("need a healer", Task::ToChinese, ReplyVariant::Simplified).contains("Simplified Chinese"));
         let hinted = system_prompt("副本缺補", Task::ToEnglish, ReplyVariant::Taiwan);
-        assert!(hinted.ends_with("Slang in this line: 副本 = dungeon, 缺補 = need a healer."), "{hinted}");
-        assert!(!system_prompt("你好", Task::ToEnglish, ReplyVariant::Taiwan).contains("Slang in this line"));
+        assert!(hinted.ends_with("Slang and places in this line: 副本 = dungeon, 缺補 = need a healer."), "{hinted}");
+        assert!(!system_prompt("你好", Task::ToEnglish, ReplyVariant::Taiwan).contains("Slang and places in this line"));
     }
 
     #[test]

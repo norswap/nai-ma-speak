@@ -168,7 +168,7 @@ mod tests {
         let general = request_body("qwen2.5:7b", "缺奶骑", Task::ToEnglish, ReplyVariant::Taiwan, false);
         assert_eq!(general["messages"][0]["role"], "system");
         let system = general["messages"][0]["content"].as_str().unwrap();
-        assert!(system.ends_with("Slang in this line: 缺奶 = need a healer, 奶骑 = holy paladin."), "{system}");
+        assert!(system.ends_with("Slang and places in this line: 缺奶 = need a healer, 奶骑 = holy paladin."), "{system}");
     }
 
     #[test]

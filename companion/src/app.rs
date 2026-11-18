@@ -1108,7 +1108,11 @@ impl TranslateApp {
             None => self.overlay_rect.map(|r| [r.min.x, r.min.y, r.width(), r.height()]),
         };
         let covered = locked && self.draft.hide_when_unfocused && !self.wow_view.shows_overlay(area);
-        let hidden = covered || anchor.as_ref().is_some_and(|window| !window.shown);
+        // Until the addon has reported the chat windows, which takes a few seconds after
+        // the companion starts, an overlay meant for a chat tab has no place yet; it is
+        // not shown where it was last put by hand meanwhile.
+        let waiting = !self.draft.anchor_tab.trim().is_empty() && self.chat_windows.is_empty();
+        let hidden = covered || waiting || anchor.as_ref().is_some_and(|window| !window.shown);
         let builder = ViewportBuilder::default()
             .with_title("Translate overlay")
             .with_decorations(false)

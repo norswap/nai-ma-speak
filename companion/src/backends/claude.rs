@@ -131,7 +131,7 @@ mod tests {
         assert_eq!(body["model"], "claude-haiku-5-5");
         assert_eq!(body["thinking"]["type"], "disabled");
         assert_eq!(body["messages"], json!([{ "role": "user", "content": "副本缺補 密我" }]));
-        assert!(body["system"].as_str().unwrap().contains("Slang in this line: 副本 = dungeon"));
+        assert!(body["system"].as_str().unwrap().contains("Slang and places in this line: 副本 = dungeon"));
         for rejected in ["temperature", "top_p", "top_k"] {
             assert!(body.get(rejected).is_none(), "{rejected} must not be sent");
         }
