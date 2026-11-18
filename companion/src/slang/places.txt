@@ -120,3 +120,9 @@ RAQ=Ruins of Ahn'Qiraj (AQ20)
 阿拉希盆地=Arathi Basin
 奥特兰克山谷=Alterac Valley
 奥山=Alterac Valley
+# Bahamut's WoW wiki (用語事典): what Taiwanese players call the places
+公主=Onyxia's Lair (unless a princess is meant)
+OL=Onyxia's Lair
+ONX=Onyxia's Lair
+ST=Stratholme among Taiwanese players (Sunken Temple among English speakers)
+HJ=Mount Hyjal (raid)

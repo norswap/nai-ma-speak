@@ -99,12 +99,11 @@ M我=whisper me
 雷包=bad teammate
 划水=slacking
 DD=DPS
-# Taiwanese players' own glossaries on Bahamut (forum.gamer.com.tw), as far as a web
-# search shows them: the site turns automated readers away, so these are the terms its
-# results quoted with their meaning, not the full lists.
+# Taiwanese players' own glossaries on Bahamut: the WoW board's "魔獸中文版術語" (2008)
+# and the WoW wiki's 用語事典.
 亂roll=rolling need on everything
 人品=luck (on a loot roll)
-木樁=training dummy
+木樁=a fight fought standing still (tank and spank); also a training dummy
 單刷=soloing
 洗頻=spamming chat
 白牧=holy priest
@@ -115,3 +114,39 @@ DD=DPS
 糖果=healthstone
 副坦=off-tank
 ++=invite me
+牌子=badges (the currency gear is bought with)
+便當團=easy run (for badges or points, not gear)
+便當王=easy boss
+便當=mage food; also something easy
+摸摸團=stealth run (a group of stealth classes skipping trash)
+出團=going on a run (dungeon or raid)
+公會團=guild run
+親友團=run with friends
+天堂路=gauntlet (a stretch where enemies keep spawning)
+骰礦=rolling for an ore node
+搓布=making cloth (tailoring)
+刷裝=farming a dungeon for gear
+散裝=gear that is not part of a set
+封頂=reaching max level
+坐鳥=riding a flying mount
+種田=farming mobs (for materials or gold)
+當農夫=farming mobs (for materials or gold)
+龜山=turtling in Alterac Valley
+守屍=corpse camping
+天梯=arena ladder
+卡點=stuck in the terrain
+錯頻=wrong channel
+每日=daily quests
+藍帖=blue post (news from Blizzard)
+鳥D=boomkin
+樹D=resto druid
+熊D=bear tank
+貓D=cat druid
+神騎=holy paladin
+恢復薩=resto shaman
+黑人=shadow priest
+腳印=Mark of the Wild
+冰腳=Frost Nova
+冰箱=Ice Block
+開門=mage portal
+rd=raid

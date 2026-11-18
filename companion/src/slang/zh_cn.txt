@@ -224,3 +224,4 @@
 退坑=quit the game
 白嫖=freeload
 氪金=spent real money
+OT=pulled aggro off the tank (not off-tank)

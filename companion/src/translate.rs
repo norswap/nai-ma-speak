@@ -363,7 +363,7 @@ mod tests {
             assert_eq!(lines.count(), slang_pairs(file).count(), "every line that is not a comment is a zh=en pair");
             assert!(slang_pairs(file).all(|(zh, en)| !zh.is_empty() && !en.is_empty()));
         }
-        assert_eq!(slang_pairs(SLANG_ZH_CN).count(), 221);
-        assert_eq!(slang_pairs(SLANG_ZH_TW).count(), 102);
+        assert_eq!(slang_pairs(SLANG_ZH_CN).count(), 222);
+        assert_eq!(slang_pairs(SLANG_ZH_TW).count(), 138);
     }
 }
