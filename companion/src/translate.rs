@@ -8,8 +8,9 @@ const TO_ENGLISH: &str = "You translate World of Warcraft in-game chat from Chin
 The server has Taiwanese players typing Traditional Chinese and mainland players typing Simplified Chinese, so slang can come from either side: \
 Taiwanese internet slang, Zhuyin shorthand and Hokkien-derived words, or mainland gaming slang. \
 Keep player names, numbers and English words as they are. In chat, 1 usually means yes/ready. \
-Where the line has a name in [square brackets], it is a link: keep it in its brackets, wherever it stands in the line, \
-with the name in English. A line without square brackets gets none. \
+Text in [square brackets] is a link to a quest, item, spell or achievement. Keep each link in its brackets, wherever it stands in the line, \
+in the same order, and translate the name inside into English word for word, without guessing at an official name. Never leave Chinese inside brackets. \
+A line without square brackets gets none. \
 Reply with the translation only: no quotes, notes or romanization.";
 
 const TO_TAIWANESE: &str = "Translate the user's World of Warcraft chat message into casual Traditional Chinese (繁體中文) with Taiwanese vocabulary, \
