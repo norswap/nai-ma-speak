@@ -1,7 +1,7 @@
 //! Any OpenAI-compatible /chat/completions endpoint: Ollama, LM Studio, OpenAI and others.
 
-use crate::config::{Config, Server};
-use crate::translate::{slang_in, system_prompt, Task};
+use crate::config::{Config, Region};
+use crate::translate::{region, slang_in, system_prompt, Task};
 use serde_json::{json, Value};
 use std::time::Duration;
 
@@ -12,13 +12,13 @@ fn is_hy_mt(model: &str) -> bool {
 }
 
 /// Builds the request body for either prompt style.
-fn request_body(model: &str, text: &str, task: Task, server: Server, is_claude: bool) -> Value {
+fn request_body(model: &str, text: &str, task: Task, region: Region, is_claude: bool) -> Value {
     // HY-MT only translates chat; anything else is asked for the ordinary way even of it.
     if !is_hy_mt(model) || !matches!(task, Task::ToEnglish | Task::ToChinese) {
         let mut body = json!({
             "model": model,
             "messages": [
-                { "role": "system", "content": system_prompt(text, task, server) },
+                { "role": "system", "content": system_prompt(text, task, region) },
                 { "role": "user", "content": text },
             ],
         });
@@ -34,9 +34,9 @@ fn request_body(model: &str, text: &str, task: Task, server: Server, is_claude: 
     let target = match task {
         Task::ToEnglish => "英语",
         // The model card's names for Chinese and Traditional Chinese.
-        Task::ToChinese => match server {
-            Server::Taiwan => "繁体中文",
-            Server::Mainland => "中文",
+        Task::ToChinese => match region {
+            Region::Taiwan => "繁体中文",
+            Region::Mainland => "中文",
         },
         Task::Explain(_) | Task::Name | Task::ExplainName => unreachable!("asked for with the ordinary prompt above"),
     };
@@ -82,7 +82,7 @@ fn completions_url(base: &str) -> String {
 pub fn translate(config: &Config, text: &str, task: Task) -> Result<String, String> {
     let url = completions_url(&config.api_base);
     let is_claude = config.model.trim().to_lowercase().starts_with("claude-") || url.contains("api.anthropic.com");
-    let body = request_body(&config.model, text, task, config.server, is_claude);
+    let body = request_body(&config.model, text, task, region(config, task), is_claude);
 
     let send = |body: &Value| {
         let mut request = ureq::post(&url).timeout(Duration::from_secs(60));
@@ -149,7 +149,7 @@ mod tests {
 
     #[test]
     fn hy_mt_uses_model_card_prompt_and_glossary() {
-        let body = request_body("hf.co/tencent/HY-MT1.5-7B-GGUF:Q4_K_M", "副本来人 缺奶", Task::ToEnglish, Server::Taiwan, false);
+        let body = request_body("hf.co/tencent/HY-MT1.5-7B-GGUF:Q4_K_M", "副本来人 缺奶", Task::ToEnglish, Region::Taiwan, false);
         let messages = body["messages"].as_array().unwrap();
         assert_eq!(messages.len(), 1, "HY-MT takes no system prompt");
         let prompt = messages[0]["content"].as_str().unwrap();
@@ -160,12 +160,12 @@ mod tests {
         assert!(prompt.ends_with("不要额外解释：\n副本来人 缺奶"));
         assert_eq!(body["top_k"], 20);
 
-        let plain = request_body("HY-MT1.5-7B", "你好", Task::ToEnglish, Server::Taiwan, false);
+        let plain = request_body("HY-MT1.5-7B", "你好", Task::ToEnglish, Region::Taiwan, false);
         assert_eq!(
             plain["messages"][0]["content"],
             "将以下文本翻译为英语，注意只需要输出翻译后的结果，不要额外解释：\n\n你好"
         );
-        let general = request_body("qwen2.5:7b", "缺奶骑", Task::ToEnglish, Server::Taiwan, false);
+        let general = request_body("qwen2.5:7b", "缺奶骑", Task::ToEnglish, Region::Taiwan, false);
         assert_eq!(general["messages"][0]["role"], "system");
         let system = general["messages"][0]["content"].as_str().unwrap();
         assert!(system.ends_with("Slang and places in this line: 缺奶 = need a healer, 奶骑 = holy paladin."), "{system}");
@@ -177,8 +177,8 @@ mod tests {
             let body = request_body("hy-mt1.5", "need a healer", Task::ToChinese, server, false);
             body["messages"][0]["content"].as_str().unwrap().to_string()
         };
-        assert!(prompt(Server::Taiwan).contains("翻译为繁体中文"));
-        assert!(prompt(Server::Mainland).contains("翻译为中文"));
+        assert!(prompt(Region::Taiwan).contains("翻译为繁体中文"));
+        assert!(prompt(Region::Mainland).contains("翻译为中文"));
     }
 
     #[test]
@@ -203,9 +203,9 @@ mod tests {
 
     #[test]
     fn claude_models_get_no_temperature() {
-        let plain = request_body("gpt-4o-mini", "缺奶", Task::ToEnglish, Server::Taiwan, false);
+        let plain = request_body("gpt-4o-mini", "缺奶", Task::ToEnglish, Region::Taiwan, false);
         assert_eq!(plain["temperature"], 0.2);
-        let claude = request_body("claude-haiku-5-5", "缺奶", Task::ToEnglish, Server::Taiwan, true);
+        let claude = request_body("claude-haiku-5-5", "缺奶", Task::ToEnglish, Region::Taiwan, true);
         assert!(claude.get("temperature").is_none());
         assert_eq!(claude["messages"][1]["content"], "缺奶");
     }

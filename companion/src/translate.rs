@@ -1,5 +1,5 @@
 use crate::backends;
-use crate::config::{Backend, Config, Server};
+use crate::config::{Backend, Config, Region};
 use ferrous_opencc::config::BuiltinConfig;
 use ferrous_opencc::OpenCC;
 use std::sync::OnceLock;
@@ -142,16 +142,24 @@ pub fn slang_in(text: &str) -> Vec<(String, &'static str)> {
     kept.into_iter().map(|((key, en), start)| (as_written(key, start), *en)).collect()
 }
 
+/// The Chinese a task is about: the reply's for a reply, the server's for chat.
+pub fn region(config: &Config, task: Task) -> Region {
+    match task {
+        Task::ToChinese => config.reply_variant,
+        _ => config.server,
+    }
+}
+
 /// The instructions for a chat model: how to translate, and for a Chinese line the slang
 /// found in it.
-pub fn system_prompt(text: &str, task: Task, server: Server) -> String {
+pub fn system_prompt(text: &str, task: Task, region: Region) -> String {
     match task {
         Task::ToEnglish => {
             let slang: Vec<String> = slang_in(text).iter().map(|(zh, en)| format!("{zh} = {en}")).collect();
             let names = crate::names::hint(text);
-            let players = match server {
-                Server::Taiwan => ON_TAIWAN,
-                Server::Mainland => ON_MAINLAND,
+            let players = match region {
+                Region::Taiwan => ON_TAIWAN,
+                Region::Mainland => ON_MAINLAND,
             };
             let rules = format!("{TO_ENGLISH} {players} {TO_ENGLISH_RULES}");
             if slang.is_empty() {
@@ -160,9 +168,9 @@ pub fn system_prompt(text: &str, task: Task, server: Server) -> String {
                 format!("{rules} Slang and places in this line: {}.{names}", slang.join(", "))
             }
         }
-        Task::ToChinese => match server {
-            Server::Taiwan => TO_TAIWANESE.to_string(),
-            Server::Mainland => TO_SIMPLIFIED.to_string(),
+        Task::ToChinese => match region {
+            Region::Taiwan => TO_TAIWANESE.to_string(),
+            Region::Mainland => TO_SIMPLIFIED.to_string(),
         },
         Task::Explain(reading) => {
             let slang: Vec<String> = slang_in(text).iter().map(|(zh, en)| format!("{zh} = {en}")).collect();
@@ -199,7 +207,7 @@ pub fn translate(config: &Config, text: &str, task: Task, notify: &dyn Fn(String
         Task::ToEnglish => restore_links(text, reply),
         _ => reply,
     };
-    Ok(finish(reply, task, config.server))
+    Ok(finish(reply, task, region(config, task)))
 }
 
 /// Makes a translation's links those of its line, where the model got them plainly
@@ -235,9 +243,9 @@ fn restore_links(original: &str, translated: String) -> String {
 /// The last step for every translation. A Taiwanese reply is passed through the
 /// Simplified-to-Taiwanese conversion, so no Simplified character reaches the clipboard
 /// even when the model drifts.
-fn finish(reply: String, task: Task, server: Server) -> String {
-    match (task, server) {
-        (Task::ToChinese, Server::Taiwan) => to_taiwanese(&reply),
+fn finish(reply: String, task: Task, region: Region) -> String {
+    match (task, region) {
+        (Task::ToChinese, Region::Taiwan) => to_taiwanese(&reply),
         _ => reply,
     }
 }
@@ -327,19 +335,19 @@ mod tests {
     #[test]
     fn replies_come_out_in_the_chosen_chinese() {
         let drifted = "需要治疗，组我".to_string();
-        assert_eq!(finish(drifted.clone(), Task::ToChinese, Server::Taiwan), "需要治療，組我");
-        assert_eq!(finish(drifted.clone(), Task::ToChinese, Server::Mainland), drifted);
-        assert_eq!(finish("LF healer 治疗".into(), Task::ToEnglish, Server::Taiwan), "LF healer 治疗");
+        assert_eq!(finish(drifted.clone(), Task::ToChinese, Region::Taiwan), "需要治療，組我");
+        assert_eq!(finish(drifted.clone(), Task::ToChinese, Region::Mainland), drifted);
+        assert_eq!(finish("LF healer 治疗".into(), Task::ToEnglish, Region::Taiwan), "LF healer 治疗");
 
-        assert!(system_prompt("need a healer", Task::ToChinese, Server::Taiwan).contains("繁體中文"));
-        assert!(system_prompt("need a healer", Task::ToChinese, Server::Taiwan).contains("Never use Simplified"));
-        assert!(system_prompt("need a healer", Task::ToChinese, Server::Mainland).contains("Simplified Chinese"));
-        let hinted = system_prompt("副本缺補", Task::ToEnglish, Server::Taiwan);
+        assert!(system_prompt("need a healer", Task::ToChinese, Region::Taiwan).contains("繁體中文"));
+        assert!(system_prompt("need a healer", Task::ToChinese, Region::Taiwan).contains("Never use Simplified"));
+        assert!(system_prompt("need a healer", Task::ToChinese, Region::Mainland).contains("Simplified Chinese"));
+        let hinted = system_prompt("副本缺補", Task::ToEnglish, Region::Taiwan);
         assert!(hinted.ends_with("Slang and places in this line: 副本 = dungeon, 缺補 = need a healer."), "{hinted}");
         let plain = |server| system_prompt("你好", Task::ToEnglish, server);
-        assert!(!plain(Server::Taiwan).contains("Slang and places in this line"));
-        assert!(plain(Server::Taiwan).contains("Hokkien") && !plain(Server::Mainland).contains("Taiwanese"));
-        assert!(plain(Server::Mainland).contains("pinyin initials") && plain(Server::Mainland).contains("square brackets"));
+        assert!(!plain(Region::Taiwan).contains("Slang and places in this line"));
+        assert!(plain(Region::Taiwan).contains("Hokkien") && !plain(Region::Mainland).contains("Taiwanese"));
+        assert!(plain(Region::Mainland).contains("pinyin initials") && plain(Region::Mainland).contains("square brackets"));
     }
 
     #[test]

@@ -1,28 +1,35 @@
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
-/// The kind of server played on: whose slang to expect in chat, and the Chinese that
-/// replies are written in.
+/// Which Chinese: of the server played on, whose slang to expect in chat, and of the
+/// replies written for the player.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum Server {
-    /// Taiwanese and mainland players together; replies in Traditional characters with
-    /// Taiwanese wording.
+pub enum Region {
+    /// Traditional characters with Taiwanese wording. A Taiwanese server has mainland
+    /// players too.
     #[default]
     #[serde(alias = "zh-Hant-TW")]
     Taiwan,
-    /// Mainland players; replies in Simplified characters with mainland wording.
+    /// Simplified characters with mainland wording.
     #[serde(alias = "zh-Hans")]
     Mainland,
 }
 
-impl Server {
-    pub const ALL: [Server; 2] = [Server::Taiwan, Server::Mainland];
+impl Region {
+    pub const ALL: [Region; 2] = [Region::Taiwan, Region::Mainland];
 
-    pub fn label(self) -> &'static str {
+    pub fn server_label(self) -> &'static str {
         match self {
-            Server::Taiwan => "Taiwan (replies in Traditional Chinese)",
-            Server::Mainland => "Mainland China (replies in Simplified Chinese)",
+            Region::Taiwan => "Taiwan",
+            Region::Mainland => "Mainland China",
+        }
+    }
+
+    pub fn reply_label(self) -> &'static str {
+        match self {
+            Region::Taiwan => "Traditional Chinese (Taiwan)",
+            Region::Mainland => "Simplified Chinese",
         }
     }
 }
@@ -154,9 +161,10 @@ pub struct Config {
     /// Where the services are reached. Only tests change these, to use a local stand-in.
     pub google_free_base: String,
     pub claude_base: String,
-    /// Called reply_variant before it also chose the prompt for chat.
-    #[serde(alias = "reply_variant")]
-    pub server: Server,
+    /// Whose slang to expect in chat.
+    pub server: Region,
+    /// The Chinese that replies are written in.
+    pub reply_variant: Region,
     pub reading: Reading,
     /// Show what a Chinese player name means, or how it sounds, after it.
     pub translate_names: bool,
@@ -185,7 +193,8 @@ impl Default for Config {
             api_base: OLLAMA_BASE.into(),
             api_key: String::new(),
             model: OLLAMA_MODEL.into(),
-            server: Server::default(),
+            server: Region::default(),
+            reply_variant: Region::default(),
             reading: Reading::default(),
             translate_names: false,
             overlay_x: 20.0,
@@ -272,15 +281,18 @@ mod tests {
     }
 
     #[test]
-    fn old_config_files_keep_their_reply_language_as_the_server() {
+    fn the_server_and_the_reply_language_are_kept_apart() {
         let old: Config = serde_json::from_str(r#"{"api_base":"http://localhost:1234/v1","model":"m"}"#).unwrap();
-        assert_eq!(old.server, Server::Taiwan);
+        assert_eq!((old.server, old.reply_variant), (Region::Taiwan, Region::Taiwan));
         assert_eq!(old.api_base, "http://localhost:1234/v1");
+        // As written before there was a server setting.
         let simplified: Config = serde_json::from_str(r#"{"reply_variant":"zh-Hans"}"#).unwrap();
-        assert_eq!(simplified.server, Server::Mainland);
-        let saved = serde_json::to_string(&simplified).unwrap();
-        assert!(saved.contains(r#""server":"mainland""#), "{saved}");
-        assert_eq!(serde_json::from_str::<Config>(&saved).unwrap().server, Server::Mainland);
+        assert_eq!((simplified.server, simplified.reply_variant), (Region::Taiwan, Region::Mainland));
+        let mixed = Config { server: Region::Mainland, ..Config::default() };
+        let saved = serde_json::to_string(&mixed).unwrap();
+        assert!(saved.contains(r#""server":"mainland""#) && saved.contains(r#""reply_variant":"taiwan""#), "{saved}");
+        let read: Config = serde_json::from_str(&saved).unwrap();
+        assert_eq!((read.server, read.reply_variant), (Region::Mainland, Region::Taiwan));
     }
 
     #[test]

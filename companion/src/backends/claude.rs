@@ -1,7 +1,7 @@
 //! Claude through Anthropic's Messages API, with a Claude Console API key.
 
 use crate::config::Config;
-use crate::translate::{system_prompt, Task};
+use crate::translate::{region, system_prompt, Task};
 use serde_json::{json, Value};
 use std::thread;
 use std::time::Duration;
@@ -32,7 +32,7 @@ fn request_body(config: &Config, text: &str, task: Task) -> Value {
     let model = config.claude_model.trim();
     let mut body = json!({
         "model": model,
-        "system": system_prompt(text, task, config.server),
+        "system": system_prompt(text, task, region(config, task)),
         "messages": [{ "role": "user", "content": text }],
     });
     if model.to_lowercase().contains("haiku") {
