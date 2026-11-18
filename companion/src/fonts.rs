@@ -70,14 +70,14 @@ pub fn add(ctx: &egui::Context) {
     });
     match found {
         Some((path, index, bytes)) => {
-            eprintln!("Chinese font: {path} (face {index})");
+            crate::diag::log(format!("Chinese font: {path} (face {index})"));
             let data = egui::FontData { index, ..egui::FontData::from_owned(bytes) };
             fonts.font_data.insert("cjk".into(), Arc::new(data));
             for family in [egui::FontFamily::Proportional, egui::FontFamily::Monospace] {
                 fonts.families.entry(family).or_default().push("cjk".into());
             }
         }
-        None => eprintln!("No usable Chinese system font found; Chinese text will show as empty boxes."),
+        None => crate::diag::log("No usable Chinese system font found; Chinese text will show as empty boxes."),
     }
     add_overlay_family(&mut fonts);
     add_heading_family(&mut fonts);

@@ -117,6 +117,8 @@ pub struct TranslateApp {
     overlay_start: egui::Pos2,
     overlay_rect: Option<egui::Rect>,
     test_result: String,
+    /// The report on the Status tab was copied.
+    report_copied: bool,
     strip_status: String,
     passes: crate::diag::Passes,
     /// The overlay's lines changed since the backlog file was written, and when it was.
@@ -314,6 +316,7 @@ impl TranslateApp {
             window_summoned: false,
             was_active: true,
             test_result: String::new(),
+            report_copied: false,
             strip_status: "Starting the pixel strip reader".into(),
             draft,
         }
@@ -455,7 +458,14 @@ impl TranslateApp {
                 }
                 UiEvent::Strip(text) => self.strip_status = text,
                 UiEvent::WowView(view) => self.wow_view = view,
-                UiEvent::ChatWindows(windows) => self.chat_windows = windows,
+                UiEvent::ChatWindows(windows) => {
+                    // Once, and when tabs come or go: not each time one is selected or moved.
+                    let names = |windows: &[layout::ChatWindow]| windows.iter().map(|window| window.name.clone()).collect::<Vec<_>>();
+                    if names(&windows) != names(&self.chat_windows) {
+                        crate::diag::log(format!("chat windows: {windows:?}"));
+                    }
+                    self.chat_windows = windows;
+                }
                 UiEvent::Wheel { name, count } => {
                     // The first count only sets the starting point: its steps were made
                     // before the companion was watching.
@@ -467,7 +477,12 @@ impl TranslateApp {
                         }
                     }
                 }
-                UiEvent::Status(text) => self.status = text,
+                UiEvent::Status(text) => {
+                    if text != self.status {
+                        crate::diag::log(format!("status: {text}"));
+                    }
+                    self.status = text;
+                }
             }
         }
     }
@@ -1075,6 +1090,29 @@ impl TranslateApp {
         ui.label(RichText::new("Holds as many lines as \"Lines kept\" on the Overlay tab.").color(theme::MUTED));
     }
 
+    /// How things stand, for a report of a problem: what the Status tab shows and the
+    /// settings that bear on it. No keys and no chat.
+    fn state_for_report(&self) -> String {
+        let draft = &self.draft;
+        let model = match draft.backend {
+            Backend::GoogleFree => String::new(),
+            Backend::Claude => format!(", model {}", draft.claude_model),
+            Backend::OpenAiCompatible => format!(", model {} at {}", draft.model, draft.api_base),
+        };
+        format!(
+            "System: {} {}\nBackend: {}{model}\nTranslation: {}\nPixel strip: {}\nChat windows: {:?}\nOverlay: on tab {:?}, hidden {}, game in view {:?}",
+            std::env::consts::OS,
+            std::env::consts::ARCH,
+            draft.backend.short_label(),
+            self.status,
+            self.strip_status,
+            self.chat_windows,
+            draft.anchor_tab,
+            self.overlay_hidden,
+            self.wow_view,
+        )
+    }
+
     fn status_tab(&mut self, ui: &mut egui::Ui) {
         ui.label(theme::label("Translation"));
         ui.label(format!("{} · translating with {}", self.status, self.draft.backend.short_label()));
@@ -1089,6 +1127,19 @@ impl TranslateApp {
         }
         ui.label(theme::label("Settings file"));
         ui.label(config::path().display().to_string());
+        ui.add_space(10.0);
+        ui.horizontal(|ui| {
+            if ui.add(theme::button("Copy report")).clicked() {
+                ui.ctx().copy_text(crate::diag::report(&self.state_for_report()));
+                self.report_copied = true;
+            }
+            let note = if self.report_copied {
+                "Copied. Paste it where you report the problem."
+            } else {
+                "The lines above and the end of the log. No keys, no chat."
+            };
+            ui.label(RichText::new(note).color(theme::MUTED));
+        });
     }
 
     /// Why the overlay is not showing on the chosen tab, if it is not.

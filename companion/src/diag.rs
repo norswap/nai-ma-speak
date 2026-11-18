@@ -1,5 +1,7 @@
 //! A log file beside the settings, `translate.log`, for what cannot be seen from outside:
-//! panics, a window pass that never finishes, and passes that run without pause.
+//! panics, a window pass that never finishes, passes that run without pause, and what
+//! became of the pixel strip and the translations. It holds no chat and no keys, so its
+//! end can go into a report of a problem as it is.
 
 use eframe::egui;
 use std::io::Write;
@@ -32,6 +34,27 @@ pub fn log(message: impl AsRef<str>) {
     }
 }
 
+/// How many of the log's last lines go into a report.
+const REPORT_LINES: usize = 150;
+
+/// What to send along when reporting a problem: `state`, the app's own account of how
+/// things stand, then the end of the log. Anything that looks like an API key is cut out,
+/// in case a service quoted one back in an error.
+pub fn report(state: &str) -> String {
+    let log = std::fs::read_to_string(path()).unwrap_or_default();
+    let lines: Vec<&str> = log.lines().collect();
+    let last = lines[lines.len().saturating_sub(REPORT_LINES)..].join("\n");
+    without_keys(&format!("Nai Ma Speak {}\n{state}\n\nLog:\n{last}\n", env!("CARGO_PKG_VERSION")))
+}
+
+/// The text with every word that starts like an API key ("sk-...") replaced.
+fn without_keys(text: &str) -> String {
+    let key_like = |word: &str| word.trim_start_matches(|c: char| !c.is_ascii_alphanumeric()).starts_with("sk-");
+    text.split_inclusive(char::is_whitespace)
+        .map(|word| if key_like(word) { "(key removed) " } else { word })
+        .collect()
+}
+
 /// When the pass under way began, in milliseconds since the start; 0 between passes.
 static PASS_BEGAN: AtomicU64 = AtomicU64::new(0);
 
@@ -61,7 +84,7 @@ pub fn start() {
     if std::fs::metadata(path()).is_ok_and(|file| file.len() > LARGEST) {
         let _ = std::fs::remove_file(path());
     }
-    log(format!("started, version {}", env!("CARGO_PKG_VERSION")));
+    log(format!("started, version {} on {} {}", env!("CARGO_PKG_VERSION"), std::env::consts::OS, std::env::consts::ARCH));
     let earlier = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |panic| {
         log(format!("PANIC in thread {:?}: {panic}", std::thread::current().name().unwrap_or("unnamed")));
@@ -116,5 +139,16 @@ impl Passes {
         }
         self.count = 0;
         self.since = Instant::now();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_report_carries_no_keys() {
+        let text = "Translation failed: Incorrect API key provided: sk-proj-abc123. Check \"sk-ant-api03-xyz\"\nstrip: found";
+        assert_eq!(without_keys(text), "Translation failed: Incorrect API key provided: (key removed) Check (key removed) strip: found");
     }
 }

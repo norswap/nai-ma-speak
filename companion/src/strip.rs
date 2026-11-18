@@ -243,6 +243,7 @@ const HAD_MOST: usize = 2000;
 /// Sets the Status tab's line about the strip, unless it says that already.
 fn tell(ui: &UiSender, told: &mut String, text: String) {
     if *told != text {
+        crate::diag::log(format!("strip: {text}"));
         ui.send(UiEvent::Strip(text.clone()));
         *told = text;
     }
@@ -284,7 +285,6 @@ pub fn spawn(jobs: Sender<Job>, asked: Sender<Job>, ui: UiSender) {
                             // Used to be skipped silently, which looks exactly
                             // like "no strip on screen".
                             if !said_capture_error {
-                                eprintln!("screen {}: capture failed: {e}", index + 1);
                                 tell(&ui, &mut told, format!("Screen {} capture failed: {e}", index + 1));
                                 said_capture_error = true;
                             }
@@ -307,7 +307,18 @@ pub fn spawn(jobs: Sender<Job>, asked: Sender<Job>, ui: UiSender) {
                         }
                     }
                     if let Some(lock) = find(&img) {
-                        eprintln!("screen {}: strip found at {},{} ({} px blocks)", index + 1, lock.x, lock.y, lock.block);
+                        crate::diag::log(format!(
+                            "strip: found on screen {} at {},{} with {} px blocks; the screen is {}x{} points at scale {}, captured as {}x{} px",
+                            index + 1,
+                            lock.x,
+                            lock.y,
+                            lock.block,
+                            monitor.width().unwrap_or(0),
+                            monitor.height().unwrap_or(0),
+                            monitor.scale_factor().unwrap_or(0.0),
+                            img.width(),
+                            img.height()
+                        ));
                         locked = Some((index, lock));
                         last_good = Instant::now();
                         unread_since = None;
@@ -392,7 +403,7 @@ pub fn spawn(jobs: Sender<Job>, asked: Sender<Job>, ui: UiSender) {
                 Decoded::Missing => {
                     // Hidden UI, a loading screen, or the window moved.
                     if last_good.elapsed() > Duration::from_secs(3) {
-                        eprintln!("lost the strip: no frame read at the locked spot for 3 s");
+                        crate::diag::log("strip: lost, no frame read at its place for 3 s");
                         locked = None;
                     }
                 }
