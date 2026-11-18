@@ -491,6 +491,21 @@ mod tests {
         assert!(matches!(decode(&img, lock), Decoded::Frame(f) if f.text == text));
     }
 
+    /// A capture of the strip on a MacBook's own screen, whose color profile turns
+    /// magenta (255, 0, 255) into (234, 51, 247).
+    #[test]
+    fn reads_a_capture_of_a_real_screen() {
+        let bytes = include_bytes!("../tests/fixtures/macbook-screen.png");
+        let img = xcap::image::load_from_memory(bytes).expect("fixture").to_rgba8();
+        let lock = find(&img).expect("strip found");
+        match decode(&img, lock) {
+            Decoded::Frame(frame) => {
+                assert!(frame.text.starts_with("0\t\tChanged Channel: [1. General - Alterac Mountains]"), "{}", frame.text)
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+
     #[test]
     fn tells_a_strip_without_its_palette() {
         let symbols = encode(3, "1\tA\t你好");
