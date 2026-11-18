@@ -24,7 +24,7 @@ Needs Rust 1.95 or newer.
 
 - `./macos-app.sh <folder>` installs the app into a folder of its own; its `config.json` sits next to the app (holds API keys; never commit it).
 - The companion writes `translate.log` next to `config.json`: panics, a window pass that never finishes ("STUCK") and passes running without pause ("BUSY", with what asked for them).
-- To see the companion window without sitting at the screen: `open -n "<folder>/Nai Ma Speak.app" --env TRANSLATE_SHOTS=<pictures folder>` saves a picture of each tab and `report.txt`, what the Status tab's Copy report button copies, and quits. It draws no overlay.
+- To see the companion window without sitting at the screen: `open -n "<folder>/Nai Ma Speak.app" --env TRANSLATE_SHOTS=<pictures folder>` saves a picture of each tab, one of the reply box, and `report.txt`, what the Status tab's Copy report button copies, and quits. It draws no overlay.
 - For a picture of the overlay at work: `open -n "<folder>/Nai Ma Speak.app" --env TRANSLATE_GAME_SHOT=<file.png>` saves the game's window as it is on screen and quits. It uses the app's own Screen Recording permission, so it works where a shell's `screencapture` does not.
 - With the certificate from `./macos-signing-cert.sh` in the login keychain, the app is signed the same way each build, so the Screen Recording permission survives rebuilds. Without it the build is signed ad hoc and needs the permission again each time.
 - Where the app and the addon are installed on a given computer belongs in `CLAUDE.local.md`, which is not committed.

@@ -161,6 +161,8 @@ pub struct TranslateApp {
     /// The reply box is open, and whether it still has to take the keyboard.
     reply_box: bool,
     reply_box_focus: bool,
+    /// How tall the reply box's contents were when last drawn; the box is made that tall.
+    reply_box_height: f32,
     /// The game's App button asked for this window to come forward.
     show_window: bool,
     /// This window was hidden with its Hide button.
@@ -202,8 +204,8 @@ const BACKLOG_EVERY: Duration = Duration::from_secs(2);
 const SAVE_AFTER: Duration = Duration::from_millis(500);
 /// How long the overlay says a reply was copied.
 const COPIED_SHOWN: Duration = Duration::from_secs(6);
-/// Size of the reply box, and how far above the chat window it opens, past the tab row.
-const REPLY_BOX_HEIGHT: f32 = 86.0;
+/// How far above the chat window the reply box opens, past the tab row.
+const REPLY_BOX_TITLE: &str = "Translate reply";
 const REPLY_BOX_GAP: f32 = 34.0;
 
 fn reply_id() -> ViewportId {
@@ -310,6 +312,7 @@ impl TranslateApp {
             reply_state: ReplyState::Idle,
             reply_box: false,
             reply_box_focus: false,
+            reply_box_height: 56.0,
             show_window: false,
             window_hidden: false,
             window_placed: false,
@@ -488,7 +491,7 @@ impl TranslateApp {
     }
 
     /// For looking at the window without sitting at the screen: with TRANSLATE_SHOTS set
-    /// to a folder, saves a picture of this window on each tab there, then quits.
+    /// to a folder, saves a picture of this window on each tab and of the reply box there, then quits.
     fn shots(&mut self, ctx: &egui::Context) {
         let Some(folder) = std::env::var_os("TRANSLATE_SHOTS") else {
             return;
@@ -510,20 +513,26 @@ impl TranslateApp {
         if since.elapsed() < Duration::from_millis(900) {
             return;
         }
+        // The tabs of the main window one by one, then the reply box.
+        let (title, name) = match Tab::ALL.get(*step) {
+            Some(_) => ("Speak", format!("tab-{step}")),
+            None => (REPLY_BOX_TITLE, "reply-box".to_string()),
+        };
         let own = xcap::Window::all().unwrap_or_default().into_iter().find(|window| {
-            window.pid().ok() == Some(std::process::id()) && window.title().is_ok_and(|title| title.contains("Speak"))
+            window.pid().ok() == Some(std::process::id()) && window.title().is_ok_and(|found| found.contains(title))
         });
         match own.map(|window| window.capture_image()) {
             Some(Ok(image)) => {
-                let _ = image.save(std::path::Path::new(&folder).join(format!("tab-{step}.png")));
+                let _ = image.save(std::path::Path::new(&folder).join(format!("{name}.png")));
             }
-            Some(Err(e)) => crate::diag::log(format!("no picture of tab {step}: {e}")),
-            None => crate::diag::log(format!("no picture of tab {step}: window not found")),
+            Some(Err(e)) => crate::diag::log(format!("no picture of {name}: {e}")),
+            None => crate::diag::log(format!("no picture of {name}: window not found")),
         }
         *step += 1;
         *since = Instant::now();
         match Tab::ALL.get(*step) {
             Some((tab, _)) => self.tab = *tab,
+            None if !self.reply_box => self.reply_box = true,
             None => {
                 // The report of the Status tab's button too, to read without clicking it.
                 let report = crate::diag::report(&self.state_for_report());
@@ -591,25 +600,22 @@ impl TranslateApp {
         let area = window.or(self.overlay_rect.map(|r| [r.min.x, r.min.y, r.width(), r.height()]));
         let width = area.map_or(520.0, |area| area[2].clamp(380.0, 720.0));
         let mut builder = ViewportBuilder::default()
-            .with_title("Translate reply")
+            .with_title(REPLY_BOX_TITLE)
             .with_decorations(false)
             .with_transparent(true)
             .with_always_on_top()
             .with_taskbar(false)
             .with_active(true)
-            .with_inner_size([width, REPLY_BOX_HEIGHT]);
+            .with_inner_size([width, self.reply_box_height]);
         if let Some(area) = area {
-            builder = builder.with_position([area[0], area[1] - REPLY_BOX_HEIGHT - REPLY_BOX_GAP]);
+            builder = builder.with_position([area[0], area[1] - self.reply_box_height - REPLY_BOX_GAP]);
         }
-        let hint = ("Enter translates and copies, and this box closes. Esc closes.".to_string(), theme::MUTED);
-        let (problem, (note, color)) = match self.reply_problem() {
-            Some(problem) => (true, problem),
-            None => (false, hint),
-        };
-        let edge = if problem { color } else { theme::BORDER };
+        let problem = self.reply_problem();
+        let edge = problem.as_ref().map_or(theme::BORDER, |(_, color)| *color);
         let too_long = matches!(self.reply_state, ReplyState::TooLong(_));
         let take_focus = std::mem::take(&mut self.reply_box_focus);
         let (mut submit, mut close, mut copy_anyway) = (false, false, false);
+        let mut height = self.reply_box_height;
         let reply = &mut self.reply;
         ctx.show_viewport_immediate(reply_id(), builder, |root, _class| {
             let ctx = root.ctx().clone();
@@ -628,15 +634,21 @@ impl TranslateApp {
                         edit.request_focus();
                     }
                 });
-                ui.horizontal(|ui| {
-                    if too_long {
-                        copy_anyway = ui.add(theme::button("Copy anyway").small()).clicked();
-                    }
-                    ui.add(egui::Label::new(RichText::new(&note).size(11.5).color(color)).truncate());
-                });
+                if let Some((note, color)) = &problem {
+                    ui.horizontal(|ui| {
+                        if too_long {
+                            copy_anyway = ui.add(theme::button("Copy anyway").small()).clicked();
+                        }
+                        ui.add(egui::Label::new(RichText::new(note).size(11.5).color(*color)).truncate());
+                    });
+                }
+                // A border's width and the frame's margin below the last row. A box shorter
+                // than its contents would lose its bottom border.
+                height = ui.cursor().top() - ui.spacing().item_spacing.y + 12.0;
                 close = ui.input(|i| i.key_pressed(egui::Key::Escape) || i.viewport().close_requested());
             });
         });
+        self.reply_box_height = height;
         if copy_anyway {
             self.copy_anyway(ctx);
         }
@@ -1312,8 +1324,8 @@ impl eframe::App for TranslateApp {
         // A copy started only to be pictured must not put a second overlay over the game.
         if std::env::var_os("TRANSLATE_SHOTS").is_none() {
             self.overlay(&ctx);
-            self.reply_box(&ctx);
         }
+        self.reply_box(&ctx);
         self.undo_question(&ctx);
         self.keep_settings(&ctx);
         self.keep_backlog(&ctx);
