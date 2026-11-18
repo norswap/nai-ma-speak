@@ -3,7 +3,8 @@
 //! says what the line is:
 //!
 //! - `0`, `1`, `T`, `E` or `N`, then prefix, body, `rrggbb`, the speaker's name and,
-//!   for `0` and `1`, the line's number (see `ChatLine::number`): a chat line. Prefix and body carry WoW color codes and together make the line as the
+//!   for `0` and `1`, the line's number (see `ChatLine::number`): a chat line. A number
+//!   that comes again with other text is the same line worded anew, to take its place. Prefix and body carry WoW color codes and together make the line as the
 //!   game shows it, in that color. With `0` the line is shown as it is; with `1` its
 //!   body is to be translated. `T`, `E` and `N` are a line the player clicked a link on,
 //!   handled ahead of the others: [T] to translate it again, [?] to explain it word by

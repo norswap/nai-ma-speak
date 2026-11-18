@@ -170,8 +170,17 @@ function ns.SendToStrip(text, key)
     if not ticking then Advance() end
 end
 
--- Has the strip show this line again from time to time, once it has been sent.
-function ns.RepeatOnStrip(text)
+-- Has the strip show this line again from time to time, once it has been sent:
+-- as a new line, or in place of the line `earlier`, of which it is a newer
+-- wording, if that is still among them.
+function ns.RepeatOnStrip(text, earlier)
+    for i = #again, 1, -1 do
+        if earlier and again[i] == earlier then
+            again[i] = text
+            return
+        end
+    end
+    if earlier then return end
     again[#again + 1] = text
     ForgetOld()
 end

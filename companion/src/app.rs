@@ -319,9 +319,21 @@ impl TranslateApp {
         }
     }
 
-    fn push_line(&mut self, line: OverlayLine) {
-        let place = place(self.lines.iter().map(|line| line.line.number), line.line.number);
-        self.lines.insert(place, line);
+    fn push_line(&mut self, mut line: OverlayLine) {
+        let number = line.line.number;
+        // The same number again is the line worded anew, with a link now named in
+        // English: it takes the earlier one's place, and keeps showing its translation
+        // until its own arrives.
+        if let Some(earlier) = self.lines.iter_mut().find(|other| number.is_some() && other.line.number == number) {
+            if let (Translation::Pending(_), Translation::Done(_)) = (&line.translation, &earlier.translation) {
+                line.translation = std::mem::replace(&mut earlier.translation, Translation::NotNeeded);
+            }
+            line.seen = earlier.seen;
+            *earlier = line;
+        } else {
+            let place = place(self.lines.iter().map(|line| line.line.number), number);
+            self.lines.insert(place, line);
+        }
         while self.lines.len() > self.draft.max_lines.max(1) {
             self.lines.pop_front();
         }

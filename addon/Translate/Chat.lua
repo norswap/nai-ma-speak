@@ -39,13 +39,16 @@ end
 -- What this client calls the thing a link points to, by the kind of link and
 -- the number in it. A link in chat shows the name in its sender's language; the
 -- number is the same for everyone, so the game can give the name in ours. Nil
--- for a thing the game has not loaded yet: asking makes it load for next time.
+-- for a thing the game has not loaded yet: asking makes it load, and
+-- `unnamed` then tells SendChat to try the line again shortly.
+local unnamed = false
 local OWN_NAME = {
     item = function(id)
         return C_Item and C_Item.GetItemNameByID and C_Item.GetItemNameByID(id) or GetItemInfo and (GetItemInfo(id))
     end,
     quest = function(id)
         local log = C_QuestLog or {}
+        if log.RequestLoadQuestByID then log.RequestLoadQuestByID(id) end
         return log.GetTitleForQuestID and log.GetTitleForQuestID(id) or log.GetQuestInfo and (log.GetQuestInfo(id))
     end,
     spell = function(id)
@@ -64,7 +67,10 @@ local function LinkText(kind, id, text)
     local lookup = OWN_NAME[kind]
     if not lookup or not HasChinese(text) then return text end
     local ok, name = pcall(lookup, tonumber(id))
-    if not ok or not name or ns.IsSecret(name) or type(name) ~= "string" or name == "" then return text end
+    if not ok or not name or ns.IsSecret(name) or type(name) ~= "string" or name == "" then
+        unnamed = true
+        return text
+    end
     return text:match("^[%[%]%d%s+]*") .. name .. text:match("[%]%s]*$")
 end
 
@@ -143,7 +149,19 @@ end
 -- to explain it word by word, or to explain the speaker's name. They go ahead
 -- of everything waiting, here and in the companion, and have no number. A
 -- body too long for the strip is cut, so the fields after it always arrive.
---
+local function Line(kind, prefix, body, color, speaker, number)
+    local fields = { kind, prefix, body, color, speaker or "", number }
+    local others = #table.concat(fields, "\t") - #body
+    fields[3] = ns.Truncate(body, math.max(ns.STRIP.maxText - others, 0))
+    return table.concat(fields, "\t")
+end
+
+-- Sends a line the player asked for by a link or a command.
+local function Ask(kind, prefix, body, color, speaker)
+    local line = Line(kind, prefix, body, color, speaker)
+    ns.SendToStrip(line, line)
+end
+
 -- The number tells the lines of the chat apart and puts them in order. The
 -- strip shows the last of them again and again while nothing new waits, for a
 -- companion that was not looking the first time (the game was covered, or the
@@ -151,18 +169,37 @@ end
 -- the time of login, so they keep rising from one login to the next.
 local number = time() * 1000
 
-local function Send(kind, prefix, body, color, speaker)
-    local fields = { kind, prefix, body, color, speaker or "" }
-    local asked = kind ~= "0" and kind ~= "1"
-    if not asked then
-        number = number + 1
-        fields[#fields + 1] = string.format("%.0f", number)
+local NAME_TRIES, NAME_WAIT = 5, 1 -- how often, and how many seconds apart, a line is built again
+
+-- Sends a line of the chat. `build` returns its kind (0 or 1), prefix, body,
+-- color and speaker, or nothing for a line that is not sent. Where the game
+-- could not yet name a link, the line goes out with the sender's Chinese name
+-- for it, which the companion translates word for word; it is built again a
+-- few times while the game loads the name, and sent again under the same
+-- number once it reads differently, for the companion to put in its place.
+local function SendChat(build)
+    unnamed = false
+    local kind, prefix, body, color, speaker = build()
+    if not kind then return end
+    number = number + 1
+    local own = string.format("%.0f", number)
+    local line = Line(kind, prefix, body, color, speaker, own)
+    ns.SendToStrip(line)
+    ns.RepeatOnStrip(line)
+    local tries = 0
+    local function Again()
+        unnamed = false
+        local kind, prefix, body, color, speaker = build()
+        local named = kind and Line(kind, prefix, body, color, speaker, own)
+        if named and named ~= line then
+            ns.SendToStrip(named)
+            ns.RepeatOnStrip(named, line)
+            line = named
+        end
+        tries = tries + 1
+        if unnamed and tries < NAME_TRIES then C_Timer.After(NAME_WAIT, Again) end
     end
-    local others = #table.concat(fields, "\t") - #body
-    fields[3] = ns.Truncate(body, math.max(ns.STRIP.maxText - others, 0))
-    local line = table.concat(fields, "\t")
-    ns.SendToStrip(line, asked and line or nil)
-    if not asked then ns.RepeatOnStrip(line) end
+    if unnamed then C_Timer.After(NAME_WAIT, Again) end
 end
 
 ns.Markup, ns.Plain, ns.MarkupIndex = Markup, Plain, MarkupIndex
@@ -279,7 +316,7 @@ local function Capture(event, msg, author, _, channel, _, _, _, channelIndex, _,
     elseif around and name then
         prefix = around[1] .. NameMarkup(name, guid, info) .. around[2]
     end
-    Send(chinese and "1" or "0", Markup(prefix), Markup(msg), color, name)
+    SendChat(function() return chinese and "1" or "0", Markup(prefix), Markup(msg), color, name end)
     return lineID, chinese
 end
 
@@ -320,12 +357,11 @@ local function Mirror(frame, text, r, g, b)
     if not ns.db or frame ~= MirroredWindow() then return end
     if ns.IsSecret(text) or ns.IsSecret(r) or ns.IsSecret(g) or ns.IsSecret(b) then return end
     if type(text) ~= "string" then return end
-    local prefix, body, speaker = Split(text)
-    if prefix then
-        Send("1", prefix, body, ns.Hex(r, g, b), speaker)
-    elseif ns.db.allLines then
-        Send("0", "", body, ns.Hex(r, g, b), speaker)
-    end
+    SendChat(function()
+        local prefix, body, speaker = Split(text)
+        if prefix then return "1", prefix, body, ns.Hex(r, g, b), speaker end
+        if ns.db.allLines then return "0", "", body, ns.Hex(r, g, b), speaker end
+    end)
 end
 
 -- The links after a line: [T] sends it to the overlay to be translated again
@@ -354,9 +390,9 @@ local function SendAgain(kind, lineID, clicked)
                 local prefix, body, speaker = Split(text)
                 if kind == "N" then
                     -- Only the name matters; the companion words the line itself.
-                    Send(kind, "", "", ns.Hex(r, g, b), speaker)
+                    Ask(kind, "", "", ns.Hex(r, g, b), speaker)
                 elseif prefix then
-                    Send(kind, prefix, body, ns.Hex(r, g, b), speaker)
+                    Ask(kind, prefix, body, ns.Hex(r, g, b), speaker)
                 end
                 return
             end
@@ -367,12 +403,12 @@ end
 
 -- Asks the companion to explain a player's name, as a [?N] link does.
 function ns.ExplainName(name)
-    Send("N", "", "", "ffffff", name)
+    Ask("N", "", "", "ffffff", name)
 end
 
 -- A made-up Chinese line for the overlay, as if someone had said it.
 function ns.SendTestLine(text)
-    Send("1", "[Test]: ", text, "ffffff", "Test")
+    SendChat(function() return "1", "[Test]: ", text, "ffffff", "Test" end)
 end
 
 -- Runs Mirror for tests, and behind the hook where an error must not reach the chat window.

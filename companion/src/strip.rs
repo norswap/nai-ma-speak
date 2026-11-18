@@ -3,9 +3,10 @@
 //! blocks, then [seq][len hi][len lo][text...][fletcher16 hi][fletcher16 lo] packed
 //! 3 bytes into 4 blocks. Under the frame, a ninth row shows the 64 colors in order.
 
+use crate::markup::ChatLine;
 use crate::protocol::{self, Message};
 use crate::worker::{Job, UiEvent, UiSender};
-use std::collections::BTreeSet;
+use std::collections::BTreeMap;
 use std::sync::mpsc::Sender;
 use std::thread;
 use std::time::{Duration, Instant};
@@ -237,7 +238,7 @@ fn read_locked(monitor: &Monitor, lock: Lock) -> Decoded {
 const UNREADABLE_AFTER: Duration = Duration::from_secs(2);
 
 /// How many line numbers are remembered; the addon repeats far fewer lines than this.
-const HAD_MOST: usize = 5000;
+const HAD_MOST: usize = 2000;
 
 /// Sets the Status tab's line about the strip, unless it says that already.
 fn tell(ui: &UiSender, told: &mut String, text: String) {
@@ -252,9 +253,12 @@ pub fn spawn(jobs: Sender<Job>, asked: Sender<Job>, ui: UiSender) {
         let mut locked: Option<(usize, Lock)> = None;
         let mut last_seen: Option<(u8, u16)> = None;
         let mut next_line: u64 = 1;
-        // The numbers of the chat lines already had, for dropping the addon's repeats:
-        // those shown before a restart, then each one as it comes.
-        let mut had: BTreeSet<u64> = crate::backlog::load().iter().filter_map(|kept| kept.line.number).collect();
+        // The chat lines already had, by their numbers, for dropping the addon's repeats:
+        // those shown before a restart, then each one as it comes. A number that comes
+        // again with another line is that line worded anew (the game has since named a
+        // link in it), and goes on to take its place.
+        let mut had: BTreeMap<u64, ChatLine> =
+            crate::backlog::load().into_iter().filter_map(|kept| Some((kept.line.number?, kept.line))).collect();
         let mut last_good = Instant::now();
         let mut unread_since: Option<Instant> = None;
         let mut told = String::new();
@@ -361,8 +365,11 @@ pub fn spawn(jobs: Sender<Job>, asked: Sender<Job>, ui: UiSender) {
                                 Message::Command(command) => ui.send(UiEvent::Command(command)),
                                 Message::Wheel { name, count } => ui.send(UiEvent::Wheel { name, count }),
                                 Message::Chat { line, handling } => {
-                                    if line.number.is_some_and(|number| !had.insert(number)) {
-                                        continue;
+                                    if let Some(number) = line.number {
+                                        if had.get(&number) == Some(&line) {
+                                            continue;
+                                        }
+                                        had.insert(number, line.clone());
                                     }
                                     while had.len() > HAD_MOST {
                                         had.pop_first();
