@@ -25,7 +25,9 @@ local function MakeButton(text, width, command)
     local button = CreateFrame("Button", nil, bar, "UIPanelButtonTemplate")
     button:SetSize(width, 20)
     button:SetText(text)
-    if GameFontNormalSmall then button:SetNormalFontObject(GameFontNormalSmall) end
+    -- Both, or the text grows to the template's size while the mouse is over the button.
+    button:SetNormalFontObject(GameFontNormalSmall)
+    button:SetHighlightFontObject(GameFontHighlightSmall)
     button:SetScript("OnClick", function() ns.SendCommand(command) end)
     return button
 end
