@@ -94,15 +94,29 @@ function ns.StripOrigin()
     local place = ns.db.stripPosition
     if place == "custom" then
         local function Within(value, most)
-            return math.min(math.max(math.floor((tonumber(value) or 0) + 0.5), 0), most)
+            return math.min(math.max(math.floor((tonumber(value) or 0) * height / 768 + 0.5), 0), most)
         end
-        return Within(ns.db.stripX, right), Within(ns.db.stripY, bottom)
+        local from = ns.db.stripFrom or "topleft"
+        local x, y = Within(ns.db.stripX, right), Within(ns.db.stripY, bottom)
+        return from:find("right") and right - x or x, from:find("bottom") and bottom - y or y
     end
     local low = place == "bottomleft" or place == "bottomright"
     local fullscreen = GetCVarBool and GetCVarBool("gxMaximize")
     local margin = low and not fullscreen and MARGIN or 0
     local left = (place == "topright" or place == "bottomright") and math.max(right - margin, 0) or margin
     return left, low and math.max(bottom - margin, 0) or 0
+end
+
+-- Remembers where the strip was dropped, its top-left corner given in physical pixels:
+-- as the distance from the nearest corner of the screen, in the game's own units (the
+-- screen is 768 high), so that on another screen it sits by the same corner, as far in
+-- as the rest of the interface.
+function ns.KeepStripAt(left, top)
+    local width, height = GetPhysicalScreenSize()
+    local right, bottom = width - WIDTH - left, height - HEIGHT - top
+    ns.db.stripPosition = "custom"
+    ns.db.stripFrom = (bottom < top and "bottom" or "top") .. (right < left and "right" or "left")
+    ns.db.stripX, ns.db.stripY = math.min(left, right) * 768 / height, math.min(top, bottom) * 768 / height
 end
 
 -- One block = one physical pixel grid cell, whatever the UI scale.
@@ -130,7 +144,7 @@ local function MoveInEditMode(edit)
         frame:StopMovingOrSizing()
         local _, height = GetPhysicalScreenSize()
         -- The frame's scale makes its units physical pixels, counted from the bottom.
-        ns.db.stripPosition, ns.db.stripX, ns.db.stripY = "custom", frame:GetLeft(), height - frame:GetTop()
+        ns.KeepStripAt(frame:GetLeft(), height - frame:GetTop())
         ns.PlaceStrip()
     end)
     frame:SetScript("OnEnter", function()

@@ -369,8 +369,8 @@ Check("a second tab of that name is not made", problem, "There is already a tab 
 
 -- Where the strip is drawn ----------------------------------------------------------------
 
-local function Origin(place, x, y)
-    TranslateDB.stripPosition, TranslateDB.stripX, TranslateDB.stripY = place, x, y
+local function Origin(place)
+    TranslateDB.stripPosition = place or TranslateDB.stripPosition
     local left, top = ns.StripOrigin()
     return left .. "," .. top
 end
@@ -383,8 +383,18 @@ fullscreen = true
 Check("and right in the corner in fullscreen", Origin("bottomleft") .. " " .. Origin("bottomright"),
     "0," .. bottom .. " " .. right .. "," .. bottom)
 fullscreen = false
-Check("or where it was dragged, on whole pixels", Origin("custom", 300.4, 99.6), "300,100")
-Check("but never off the screen", Origin("custom", 5000, -20), right .. ",0")
+ns.KeepStripAt(300.4, 99.6)
+Check("or where it was dragged, on whole pixels", Origin(), "300,100")
+ns.KeepStripAt(40, bottom - 60)
+Check("a strip dropped near the bottom", Origin(), "40," .. (bottom - 60))
+local screen = GetPhysicalScreenSize
+function GetPhysicalScreenSize() return 3840, 2160 end
+Check("is as near the bottom on a screen twice the size, twice as far in",
+    Origin(), "80," .. (2160 - (ns.STRIP.rows + 1) * ns.STRIP.block - 120))
+function GetPhysicalScreenSize() return 1280, 720 end
+ns.KeepStripAt(1280, 0)
+GetPhysicalScreenSize = screen
+Check("and one dropped past the edge stays on the screen", Origin(), right .. ",0")
 TranslateDB.stripPosition = "topleft"
 
 local entries = {}
