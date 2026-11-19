@@ -325,6 +325,8 @@ local function Split(text)
     -- The speaker's link holds the name as shown, and the lineID of the
     -- message Capture remembered. The overlay has no use for our own links.
     local lineID, shown = text:match("|Hplayer:[^:|]*:(%d+)[^|]*|h(.-)|h")
+    -- A community channel's link has no lineID.
+    shown = shown or text:match("|HplayerCommunity:[^|]*|h(.-)|h")
     local speaker = shown and Plain(Markup(shown)):gsub("^%[(.*)%]$", "%1") or ""
     local message = lineID and handled[tonumber(lineID)]
     text = text:gsub(" *|Haddon:" .. addonName .. ":%a:%d+|h.-|h", "")

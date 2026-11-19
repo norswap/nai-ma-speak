@@ -187,6 +187,7 @@ Shown("|Hchannel:GUILD|h[Guild]|h |Hplayer:Bob:" .. id .. ":GUILD|h[|cff3fc7ebBo
 ChatFrame1:AddMessage("not the copied window", 1, 1, 1)
 Shown("|cff33ff99DBM|r: Pull in |cffffff005|r")
 Shown("12:30 |Hplayer:小明:999:SAY|h[小明]|h says: hello there")
+Shown("12:31 |Hchannel:channel:8|h[8. Global]|h |HplayerCommunity:小明:57:1:1795077845730000:156503|h[|cffc69b6d小明|r]|h: |Kx37|k")
 Shown("|Hplayer:小明:998:SAY|h[小明]|h says: {star} 缺坦")
 Shown("你獲得了物品", 1, 1, 0)
 Shown("|cnRED_FONT_COLOR:Low health|r and |cnNO_SUCH_COLOR:this|r")
@@ -194,6 +195,7 @@ Check("the copied window's lines, split where the message starts", Frames(), {
     "1 | [Guild] [|cff3fc7ebBob|r]:  | 來打副本 |cffa335ee[劍]|r | 40ff40 | Bob",
     "0 |  | |cff33ff99DBM|r: Pull in |cffffff005|r | ffffff | \n"
         .. "0 |  | 12:30 [小明] says: hello there | ffffff | 小明\n"
+        .. "0 |  | 12:31 [8. Global] [|cffc69b6d小明|r]: ? | ffffff | 小明\n"
         .. "1 | [小明] says:  | {star} 缺坦 | ffffff | 小明\n"
         .. "1 |  | 你獲得了物品 | ffff00 | \n"
         .. "0 |  | |cffff2020Low health|r and |cnNO_SUCH_COLOR:this|r | ffffff | ",
