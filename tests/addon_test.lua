@@ -167,6 +167,12 @@ Check("a click sends the line, read from the window, ahead of what is waiting", 
 })
 local _, named = filters.CHAT_MSG_SAY(nil, "CHAT_MSG_SAY", "hello", "小明", "", "", "", "", 0, 0, "", 0, 555555, "guid-2")
 Check("an English line from a Chinese name gets only the name's link", named, "hello |Haddon:Translate:N:555555|h|cff66ccff[?N]|r|h")
+local _, hidden = filters.CHAT_MSG_COMMUNITIES_CHANNEL(nil, "CHAT_MSG_COMMUNITIES_CHANNEL", "|Kx37|k", "小明", "", "", "", "", 0, 8, "", 0, 555556, "guid-2")
+Check("a community channel's line, its message hidden, gets the name's link too", hidden, "|Kx37|k |Haddon:Translate:N:555556|h|cff66ccff[?N]|r|h")
+Frames()
+ChatFrame1:AddMessage("|HplayerCommunity:小明:57:1:17:15|h[小明]|h: " .. hidden, 1, 1, 1)
+clickLink("addon:Translate:N:555556", ChatFrame1)
+Check("and a click on it asks about the name", Frames(), { "N |  |  | ffffff | 小明" })
 Frames()
 printed = {}
 clickLink("addon:Translate:T:99999", ChatFrame1)

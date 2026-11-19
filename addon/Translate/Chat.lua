@@ -428,6 +428,16 @@ local function Filter(_, event, msg, author, ...)
     return false, msg .. " " .. Links(lineID, chinese, named), author, ...
 end
 
+-- A community channel's line: the game keeps its message from addons, so only
+-- the speaker's name can be asked about. The 11th argument is the lineID.
+local function CommunityFilter(_, _, msg, author, ...)
+    local lineID = select(9, ...)
+    if ns.IsSecret(msg) or ns.IsSecret(author) or ns.IsSecret(lineID) then return false end
+    if not ns.db.showLinks or type(msg) ~= "string" or type(lineID) ~= "number" then return false end
+    if type(author) ~= "string" or not HasChinese(author) then return false end
+    return false, msg .. " " .. Links(lineID, false, true), author, ...
+end
+
 function ns.InitChat()
     -- Mainline moved some ChatFrame_ globals into ChatFrameUtil; probe both.
     local addFilter = ChatFrame_AddMessageEventFilter
@@ -441,6 +451,7 @@ function ns.InitChat()
         ns.Print("No chat filter API found. A copied chat window may translate the speaker's name with the line.")
     else
         for _, event in ipairs(CHAT_EVENTS) do addFilter(event, Filter) end
+        addFilter("CHAT_MSG_COMMUNITIES_CHANNEL", CommunityFilter)
     end
 
     -- Also capture lines on channels no chat window shows. Capture skips
