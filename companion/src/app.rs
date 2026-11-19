@@ -590,7 +590,6 @@ impl TranslateApp {
                     if let (Some(before), Some(window)) = (before, anchored) {
                         let steps = count - before;
                         if window.name == name && steps != 0 && steps.abs() <= MOST_WHEEL_STEPS {
-                            crate::diag::log(format!("wheel: {steps} on {name}"));
                             self.wheel_steps += steps as f32;
                         }
                     }
