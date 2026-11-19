@@ -79,20 +79,74 @@ local again, turn = {}, 0
 local seq = 0
 local ticking = false
 
+local WIDTH, HEIGHT = COLS * BLOCK, (ROWS + 1) * BLOCK
+
+-- The strip's top-left corner in physical screen pixels from the screen's: in the
+-- corner chosen in the options, or where the player dragged it. Whole pixels, so
+-- every block covers exactly its own.
+function ns.StripOrigin()
+    local width, height = GetPhysicalScreenSize()
+    local right, bottom = math.max(width - WIDTH, 0), math.max(height - HEIGHT, 0)
+    local place = ns.db.stripPosition
+    if place == "custom" then
+        local function Within(value, most)
+            return math.min(math.max(math.floor((tonumber(value) or 0) + 0.5), 0), most)
+        end
+        return Within(ns.db.stripX, right), Within(ns.db.stripY, bottom)
+    end
+    return (place == "topright" or place == "bottomright") and right or 0,
+        (place == "bottomleft" or place == "bottomright") and bottom or 0
+end
+
 -- One block = one physical pixel grid cell, whatever the UI scale.
 function ns.PlaceStrip()
     if not frame then return end
     local _, height = GetPhysicalScreenSize()
+    local left, top = ns.StripOrigin()
     frame:SetScale(768 / height)
     frame:ClearAllPoints()
-    frame:SetPoint("TOPLEFT", UIParent, "TOPLEFT", 0, 0)
+    frame:SetPoint("TOPLEFT", UIParent, "TOPLEFT", left, -top)
+end
+
+-- While the game's Edit Mode is open the strip is outlined and can be dragged; where
+-- it is dropped becomes its place. `edit` is the game's EditModeManagerFrame.
+local function MoveInEditMode(edit)
+    local outline = frame:CreateTexture(nil, "BACKGROUND")
+    outline:SetPoint("TOPLEFT", -3, 3)
+    outline:SetPoint("BOTTOMRIGHT", 3, -3)
+    outline:SetColorTexture(0.4, 0.8, 1, 1)
+    frame:SetMovable(true)
+    frame:SetClampedToScreen(true)
+    frame:RegisterForDrag("LeftButton")
+    frame:SetScript("OnDragStart", frame.StartMoving)
+    frame:SetScript("OnDragStop", function()
+        frame:StopMovingOrSizing()
+        local _, height = GetPhysicalScreenSize()
+        -- The frame's scale makes its units physical pixels, counted from the bottom.
+        ns.db.stripPosition, ns.db.stripX, ns.db.stripY = "custom", frame:GetLeft(), height - frame:GetTop()
+        ns.PlaceStrip()
+    end)
+    frame:SetScript("OnEnter", function()
+        GameTooltip:SetOwner(frame, "ANCHOR_CURSOR")
+        GameTooltip:SetText("Nai Ma Speak pixel strip")
+        GameTooltip:AddLine("Drag to move it. The companion app finds it again within seconds.", 1, 1, 1, true)
+        GameTooltip:Show()
+    end)
+    frame:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    local function Editing(on)
+        outline:SetShown(on)
+        frame:EnableMouse(on)
+    end
+    edit:HookScript("OnShow", function() Editing(true) end)
+    edit:HookScript("OnHide", function() Editing(false) end)
+    Editing(edit:IsShown() == true)
 end
 
 local function Build()
     frame = CreateFrame("Frame", "TranslateStrip", UIParent)
     frame:SetIgnoreParentScale(true)
     frame:SetFrameStrata("TOOLTIP")
-    frame:SetSize(COLS * BLOCK, (ROWS + 1) * BLOCK)
+    frame:SetSize(WIDTH, HEIGHT)
     textures = {}
     for i = 0, COLS * (ROWS + 1) - 1 do
         local t = frame:CreateTexture(nil, "OVERLAY")
@@ -102,6 +156,12 @@ local function Build()
     end
     for color = 0, COLS - 1 do ns.PaintBlock(COLS * ROWS + color + 1, color) end
     ns.PlaceStrip()
+    if EditModeManagerFrame and EditModeManagerFrame.HookScript then
+        local ok, problem = pcall(MoveInEditMode, EditModeManagerFrame)
+        ns.stripMoveSource = ok and "Edit Mode" or "failed: " .. tostring(problem)
+    else
+        ns.stripMoveSource = "none (no Edit Mode on this client)"
+    end
 end
 
 -- Colors the block at `index` (from 1) with one of the 64 colors.

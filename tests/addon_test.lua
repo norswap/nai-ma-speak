@@ -360,6 +360,22 @@ Check("a second tab of that name is not made", problem, "There is already a tab 
 
 -- The minimap button ----------------------------------------------------------------
 
+-- Where the strip is drawn ----------------------------------------------------------------
+
+local function Origin(place, x, y)
+    TranslateDB.stripPosition, TranslateDB.stripX, TranslateDB.stripY = place, x, y
+    local left, top = ns.StripOrigin()
+    return left .. "," .. top
+end
+Check("the strip starts in the top-left corner", Origin("topleft"), "0,0")
+local right, bottom = 1920 - ns.STRIP.cols * ns.STRIP.block, 1080 - (ns.STRIP.rows + 1) * ns.STRIP.block
+Check("or sits in another corner of a 1920x1080 screen",
+    Origin("topright") .. " " .. Origin("bottomleft") .. " " .. Origin("bottomright"),
+    right .. ",0 0," .. bottom .. " " .. right .. "," .. bottom)
+Check("or where it was dragged, on whole pixels", Origin("custom", 300.4, 99.6), "300,100")
+Check("but never off the screen", Origin("custom", 5000, -20), right .. ",0")
+TranslateDB.stripPosition = "topleft"
+
 local entries = {}
 MenuUtil = {
     CreateContextMenu = function(_, fill)

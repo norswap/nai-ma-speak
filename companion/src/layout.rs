@@ -3,8 +3,8 @@
 
 use crate::focus::Rect;
 
-/// One chat window. Lengths are in game pixels from the top-left corner of the game's
-/// picture when parsed, and in screen points after `on_screen`.
+/// One chat window. Lengths are in game pixels from the strip's top-left corner
+/// when parsed, and in screen points after `on_screen`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ChatWindow {
     /// The name on the window's tab.
@@ -16,7 +16,7 @@ pub struct ChatWindow {
 }
 
 /// Where the game's picture is on screen, worked out from the strip, which the addon
-/// draws at the picture's top-left corner with blocks of 4 game pixels.
+/// draws with blocks of 4 game pixels and measures the chat windows from.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Picture {
     /// The monitor's top-left corner in screen points.

@@ -24,6 +24,9 @@ local DEFAULTS = {
     sourceWindow = "", -- tab name of the chat window whose settings pick the lines sent; "" sends all
     emptyWindow = "", -- tab name of the chat window kept empty for the overlay; "" keeps none
     repeatLines = 50, -- how many of the last chat lines the strip shows again while nothing new waits
+    stripPosition = "topleft", -- the screen corner the strip is drawn in, or "custom"
+    stripX = 0, -- for "custom": the strip's top-left corner in physical pixels from the screen's
+    stripY = 0,
     minimap = true, -- show the button on the minimap
     minimapAngle = 195, -- where on the minimap's rim, in degrees counted from the right, leftwards
     buttons = "tabs", -- where the Translate and App buttons sit: "tabs", "top", "bottom" or "hidden"
@@ -145,6 +148,7 @@ local commands = {
         ns.Print("Overlay scrolling: " .. tostring(ns.wheelSource))
         ns.Print("Chat window buttons: " .. tostring(ns.buttonSource))
         ns.Print("Minimap button: " .. tostring(ns.minimapSource))
+        ns.Print("Moving the strip: " .. tostring(ns.stripMoveSource))
         local font = ChatFrame1 and ChatFrame1.GetFont and ChatFrame1:GetFont()
         ns.Print("Chat font: " .. tostring(font))
         local w, h = GetPhysicalScreenSize()

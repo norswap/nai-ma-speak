@@ -7,7 +7,7 @@ local _, ns = ...
 -- separated by byte 30 and their fields by byte 31:
 --   name, shown (1 or 0), left, top, width, height, font size
 -- Lengths are physical screen pixels and positions are measured from the
--- top-left corner of the game's picture, where the strip is drawn.
+-- strip's top-left corner, the one place of the game the companion can see.
 
 local FIELD, RECORD = "\31", "\30"
 local CHECK_TIME = 0.25 -- seconds between looks at the chat windows
@@ -25,6 +25,7 @@ end
 
 local function Describe()
     local _, screenHeight = GetPhysicalScreenSize()
+    local stripLeft, stripTop = ns.StripOrigin()
     local records = {}
     for i = 1, NUM_CHAT_WINDOWS or 10 do
         local frame = _G["ChatFrame" .. i]
@@ -38,7 +39,7 @@ local function Describe()
                 local pixels = area:GetEffectiveScale() * screenHeight / 768
                 records[#records + 1] = ns.LayoutRecord(
                     name, frame:IsVisible(),
-                    Round(left * pixels, 1), Round(screenHeight - top * pixels, 1),
+                    Round(left * pixels, 1) - stripLeft, Round(screenHeight - top * pixels, 1) - stripTop,
                     Round(area:GetWidth() * pixels, 1), Round(area:GetHeight() * pixels, 1),
                     Round((fontSize or 14) * frame:GetEffectiveScale() * screenHeight / 768, 0.1))
             end
