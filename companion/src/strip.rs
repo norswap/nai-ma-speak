@@ -429,9 +429,7 @@ pub fn spawn(jobs: Sender<Job>, asked: Sender<Job>, ui: UiSender) {
                         }
                     }
                 }
-                Decoded::Corrupt => unreadable(
-                    "its frames fail their check. Copy report, on the Status tab, includes a picture of what was read.",
-                ),
+                Decoded::Corrupt => unreadable("its frames fail their check. Run the companion with --decode on a screenshot to see more."),
                 Decoded::NoPalette => unreadable("it has no palette row. Update the addon to the companion's version, then /reload."),
                 Decoded::Missing => {
                     // Hidden UI, a loading screen, or the window moved.
