@@ -620,7 +620,10 @@ impl TranslateApp {
             }
         }
         let (step, since) = self.shot.get_or_insert((0, Instant::now()));
-        if since.elapsed() < Duration::from_millis(900) {
+        // The first picture waits for what the addon says every few seconds: its
+        // version and where the chat windows are.
+        let wait = if *step == 0 { 7000 } else { 900 };
+        if since.elapsed() < Duration::from_millis(wait) {
             return;
         }
         // The tabs of the main window one by one, then the reply box.
