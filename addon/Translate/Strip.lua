@@ -80,6 +80,9 @@ local seq = 0
 local ticking = false
 
 local WIDTH, HEIGHT = COLS * BLOCK, (ROWS + 1) * BLOCK
+-- How far in from the right and bottom edges a corner's strip sits: a window's
+-- rounded corners (macOS) cut into what is drawn right in them.
+local MARGIN = 12
 
 -- The strip's top-left corner in physical screen pixels from the screen's: in the
 -- corner chosen in the options, or where the player dragged it. Whole pixels, so
@@ -94,8 +97,9 @@ function ns.StripOrigin()
         end
         return Within(ns.db.stripX, right), Within(ns.db.stripY, bottom)
     end
-    return (place == "topright" or place == "bottomright") and right or 0,
-        (place == "bottomleft" or place == "bottomright") and bottom or 0
+    local low = place == "bottomleft" or place == "bottomright"
+    local left = (place == "topright" or place == "bottomright") and math.max(right - MARGIN, 0) or (low and MARGIN or 0)
+    return left, low and math.max(bottom - MARGIN, 0) or 0
 end
 
 -- One block = one physical pixel grid cell, whatever the UI scale.

@@ -119,7 +119,7 @@ local function Build()
         return container:GetData()
     end, "Where on the screen the small strip of colored blocks is drawn, which the companion app reads the chat from. "
         .. "It can also be dragged anywhere while the game's Edit Mode is open (Game Menu, Edit Mode): "
-        .. "this then reads Custom. Keep it where nothing covers it. Top left is the one place that stays put "
+        .. "this then reads Custom. Keep it where nothing covers it, and out of the very corners of a window with rounded corners. Top left is the one place that stays put "
         .. "when the game's window is resized; elsewhere the companion needs a few seconds to find it again.")
     Settings.SetOnValueChangedCallback("Translate_stripPosition", function() ns.PlaceStrip() end, ns)
 
