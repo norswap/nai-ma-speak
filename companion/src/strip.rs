@@ -73,6 +73,19 @@ fn distance(a: Color, b: Color) -> f32 {
 /// row under the frame is taken for something other than a palette.
 const SAME_COLOR: f32 = 24.0;
 
+/// Whether a row of blocks is the palette: the 64 colors in order, as far as on and off
+/// tell, which is all that is known of a color before the palette is read. Scenery that
+/// happens to show the three sync colors in a row does not pass for a strip this way.
+fn is_palette(row: &[Color; COLS]) -> bool {
+    row.iter().enumerate().all(|(color, seen)| {
+        (0..3).all(|channel| match (color >> (4 - 2 * channel)) & 3 {
+            0 => seen[channel] < 128.0,
+            3 => seen[channel] >= 128.0,
+            _ => true,
+        })
+    })
+}
+
 fn fletcher16(bytes: &[u8]) -> u16 {
     let (mut a, mut b) = (0u16, 0u16);
     for &byte in bytes {
@@ -110,7 +123,7 @@ pub fn decode(img: &RgbaImage, lock: Lock) -> Decoded {
         let (sync, listed) = (block(i).expect("read above"), palette[*color as usize]);
         (0..3).all(|channel| (sync[channel] - listed[channel]).abs() <= SAME_COLOR)
     };
-    if !SYNC.iter().enumerate().all(in_palette) {
+    if !is_palette(&palette) || !SYNC.iter().enumerate().all(in_palette) {
         return Decoded::NoPalette;
     }
     let nearest = |pixel: Color| {
@@ -174,8 +187,13 @@ pub fn find(img: &RgbaImage) -> Option<Lock> {
                 top -= 1;
             }
             let lock = Lock { x: start, y: top, block: block.max(1) };
-            if decode(img, lock) != Decoded::Missing {
-                return Some(lock);
+            match decode(img, lock) {
+                Decoded::Frame(_) | Decoded::Corrupt => return Some(lock),
+                // An addon from before the palette, to say so: it drew blocks of 4
+                // pixels. Without a palette to tell a strip by, smaller sync colors are
+                // taken for scenery, which shows them now and then.
+                Decoded::NoPalette if lock.block >= 4 => return Some(lock),
+                Decoded::NoPalette | Decoded::Missing => {}
             }
         }
     }
@@ -543,6 +561,23 @@ mod tests {
         let symbols = encode(3, "1\tA\t你好");
         let img = paint(&symbols[..COLS * ROWS], (0, 0), 4);
         assert_eq!(decode(&img, Lock { x: 0, y: 0, block: 4 }), Decoded::NoPalette);
+    }
+
+    /// Three pixels in the sync colors turn up in the game's scenery; they are no strip.
+    #[test]
+    fn takes_no_scenery_for_a_strip() {
+        let symbols = encode(3, "1\tA\t你好");
+        // The sync blocks and what follows, but no palette row under them.
+        let scenery = paint(&symbols[..COLS * ROWS], (120, 40), 1);
+        assert_eq!(find(&scenery), None);
+        // A strip from before the palette is still told, to ask for the addon's update.
+        let old = paint(&symbols[..COLS * ROWS], (120, 40), 4);
+        assert_eq!(find(&old).map(|lock| lock.block), Some(4));
+        // A row under the frame that is not the 64 colors in order is no palette.
+        let mut wrong = symbols.clone();
+        wrong[COLS * ROWS + 20] = 63;
+        let img = paint(&wrong, (0, 0), 2);
+        assert_eq!((find(&img), decode(&img, Lock { x: 0, y: 0, block: 2 })), (None, Decoded::NoPalette));
     }
 
     #[test]
