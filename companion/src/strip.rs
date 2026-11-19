@@ -246,8 +246,6 @@ fn read_locked(monitor: &Monitor, lock: Lock) -> (Decoded, Option<RgbaImage>) {
     }
 }
 
-/// Where the picture of a strip that cannot be read is saved: beside the settings file.
-const UNREAD_PICTURE: &str = "translate-strip.png";
 
 /// Polls the screen: a full scan about once a second until the strip turns
 /// up, then only the strip's own rectangle several times a second.
@@ -363,8 +361,7 @@ pub fn spawn(jobs: Sender<Job>, asked: Sender<Job>, ui: UiSender) {
             // Finding the strip takes its three sync blocks; reading it takes every block.
             let (decoded, seen) = read_locked(monitor, lock);
             // Once the strip has stayed unreadable a while, what was captured at its place
-            // is saved, once: the picture shows what a log cannot (something drawn over
-            // the strip, blurred or shifted blocks, colors run together).
+            // is kept for the report, once.
             let mut unreadable = |why: &str| {
                 let since = *unread_since.get_or_insert_with(Instant::now);
                 if since.elapsed() <= UNREADABLE_AFTER {
@@ -373,11 +370,7 @@ pub fn spawn(jobs: Sender<Job>, asked: Sender<Job>, ui: UiSender) {
                 tell(&ui, &mut told, format!("Found the pixel strip {place}, but cannot read it: {why}"));
                 if let (false, Some(seen)) = (pictured, &seen) {
                     pictured = true;
-                    let path = crate::config::path().with_file_name(UNREAD_PICTURE);
-                    match seen.save(&path) {
-                        Ok(()) => crate::diag::log(format!("strip: saved what was captured at its place as {}", path.display())),
-                        Err(e) => crate::diag::log(format!("strip: could not save a picture of it: {e}")),
-                    }
+                    crate::diag::keep_strip(seen);
                 }
             };
             match decoded {
@@ -437,7 +430,7 @@ pub fn spawn(jobs: Sender<Job>, asked: Sender<Job>, ui: UiSender) {
                     }
                 }
                 Decoded::Corrupt => unreadable(
-                    "its frames fail their check. A picture of what was read is saved as translate-strip.png beside the settings file, to send with a report.",
+                    "its frames fail their check. Copy report, on the Status tab, includes a picture of what was read.",
                 ),
                 Decoded::NoPalette => unreadable("it has no palette row. Update the addon to the companion's version, then /reload."),
                 Decoded::Missing => {

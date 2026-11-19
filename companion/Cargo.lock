@@ -3781,6 +3781,7 @@ name = "translate-companion"
 version = "0.3.0"
 dependencies = [
  "arboard",
+ "base64",
  "eframe",
  "ferrous-opencc",
  "log",

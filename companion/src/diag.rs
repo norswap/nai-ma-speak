@@ -6,7 +6,7 @@
 use eframe::egui;
 use std::io::Write;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::OnceLock;
+use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 /// The file is started afresh once it has grown past this.
@@ -36,17 +36,36 @@ pub fn log(message: impl AsRef<str>) {
     }
 }
 
+/// A picture of a pixel strip that could not be read, as a PNG in base64; see `keep_strip`.
+static UNREAD_STRIP: Mutex<Option<String>> = Mutex::new(None);
+
+/// Keeps what was captured where a strip was found but could not be read, for the
+/// report: the picture shows what a log cannot (something drawn over the strip, blurred
+/// or shifted blocks, colors run together).
+pub fn keep_strip(picture: &xcap::image::RgbaImage) {
+    let mut png = Vec::new();
+    if picture.write_to(&mut std::io::Cursor::new(&mut png), xcap::image::ImageFormat::Png).is_ok() {
+        use base64::Engine;
+        *UNREAD_STRIP.lock().unwrap() = Some(base64::engine::general_purpose::STANDARD.encode(png));
+    }
+}
+
 /// How many of the log's last lines go into a report.
 const REPORT_LINES: usize = 150;
 
 /// What to send along when reporting a problem: `state`, the app's own account of how
-/// things stand, then the end of the log. Anything that looks like an API key is cut out,
-/// in case a service quoted one back in an error.
+/// things stand, then the end of the log, then the picture of a strip that could not be
+/// read, if there was one. Anything that looks like an API key is cut out, in case a
+/// service quoted one back in an error.
 pub fn report(state: &str) -> String {
     let log = std::fs::read_to_string(path()).unwrap_or_default();
     let lines: Vec<&str> = log.lines().collect();
     let last = lines[lines.len().saturating_sub(REPORT_LINES)..].join("\n");
-    without_keys(&format!("Nai Ma Speak {}\n{state}\n\nLog:\n{last}\n", env!("CARGO_PKG_VERSION")))
+    let strip = match &*UNREAD_STRIP.lock().unwrap() {
+        Some(picture) => format!("\nThe pixel strip that could not be read, as a PNG picture in base64:\n{picture}\n"),
+        None => String::new(),
+    };
+    without_keys(&format!("Nai Ma Speak {}\n{state}\n\nLog:\n{last}\n{strip}", env!("CARGO_PKG_VERSION")))
 }
 
 /// The text with every word that starts like an API key ("sk-...") replaced.
@@ -145,8 +164,11 @@ impl Passes {
         // The first busy period may be a drag or a scroll; say so once it lasts, and then
         // only every so often.
         if self.busy_periods == 2 || (self.busy_periods > 2 && self.busy_periods.is_multiple_of(12)) {
+            // With nothing asking, the passes follow the pointer moving over the window.
             let causes: Vec<String> = ctx.repaint_causes().iter().map(|cause| cause.to_string()).collect();
-            log(format!("BUSY: {rate:.0} passes a second for {} s; asked for by {causes:?}; {}", self.busy_periods * 5, state()));
+            if !causes.is_empty() {
+                log(format!("BUSY: {rate:.0} passes a second for {} s; asked for by {causes:?}; {}", self.busy_periods * 5, state()));
+            }
         }
         self.count = 0;
         self.since = Instant::now();
@@ -156,6 +178,17 @@ impl Passes {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_report_carries_the_unread_strip() {
+        let picture = xcap::image::RgbaImage::from_pixel(8, 2, xcap::image::Rgba([255, 0, 255, 255]));
+        keep_strip(&picture);
+        use base64::Engine;
+        let report = report("state");
+        let text = report.lines().last().expect("the picture's line");
+        let png = base64::engine::general_purpose::STANDARD.decode(text).expect("base64");
+        assert_eq!(xcap::image::load_from_memory(&png).expect("a PNG").to_rgba8(), picture);
+    }
 
     #[test]
     fn a_report_carries_no_keys() {

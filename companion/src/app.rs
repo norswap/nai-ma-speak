@@ -1290,7 +1290,7 @@ impl TranslateApp {
             let note = if self.report_copied {
                 "Copied. Paste it where you report the problem."
             } else {
-                "The lines above and the end of the log. No keys, no chat."
+                "The lines above and the end of the log, and a picture of a pixel strip that cannot be read. No keys, no chat."
             };
             ui.label(RichText::new(note).color(theme::MUTED));
         });
