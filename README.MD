@@ -29,7 +29,7 @@ This is a fork of [cherryroots/Translate](https://github.com/cherryroots/Transla
 WoW addons cannot reach the internet, so the two parts talk through the screen:
 
 1. **Game to companion.** The addon draws each new chat line as a small strip of colored blocks, in the top-left corner
-   of the screen unless moved (256 x 36 pixels). The companion finds the strip, decodes it and translates the Chinese lines. The strip's last row shows every color it uses, so it is read correctly whatever the display's color profile or the game's gamma setting does to the colors.
+   of the screen unless moved (128 x 18 pixels). The companion finds the strip, decodes it and translates the Chinese lines. The strip's last row shows every color it uses, so it is read correctly whatever the display's color profile or the game's gamma setting does to the colors.
 
 2. **Overlay.** The companion shows the lines in a see-through, click-through window. It can sit exactly on one of your chat tabs, taking its place, size and text size, and it draws lines the way the game does: same colors, wording, class-colored names, chat font and text shadow. A Chinese line appears at once, marked "(translation pending)", and turns into English when the translation arrives.
 3. **Replies.** You type English, and the Chinese is put on your clipboard to paste into the game's chat box. The companion only ever writes to the clipboard.
