@@ -218,8 +218,9 @@ fn region_in_points(lock: Lock, scale: f32, max_w: u32, max_h: u32) -> Option<(u
     (x1 > x0 && y1 > y0).then(|| (x0, y0, x1 - x0, y1 - y0))
 }
 
-/// Reads the strip's own rectangle once it has been found.
-fn read_locked(monitor: &Monitor, lock: Lock) -> Decoded {
+/// Reads the strip's own rectangle once it has been found. Returns what was captured
+/// too, for a picture of a strip that cannot be read.
+fn read_locked(monitor: &Monitor, lock: Lock) -> (Decoded, Option<RgbaImage>) {
     let scale = if cfg!(target_os = "macos") {
         monitor.scale_factor().unwrap_or(1.0).max(1.0)
     } else {
@@ -228,25 +229,25 @@ fn read_locked(monitor: &Monitor, lock: Lock) -> Decoded {
     if scale == 1.0 {
         let (w, h) = size(lock);
         return match monitor.capture_region(lock.x, lock.y, w, h) {
-            Ok(img) => decode(&img, Lock { x: 0, y: 0, block: lock.block }),
-            Err(_) => Decoded::Missing,
+            Ok(img) => (decode(&img, Lock { x: 0, y: 0, block: lock.block }), Some(img)),
+            Err(_) => (Decoded::Missing, None),
         };
     }
     let max_w = monitor.width().unwrap_or(u32::MAX);
     let max_h = monitor.height().unwrap_or(u32::MAX);
     let Some((x, y, w, h)) = region_in_points(lock, scale, max_w, max_h) else {
-        return Decoded::Missing;
+        return (Decoded::Missing, None);
     };
     match monitor.capture_region(x, y, w, h) {
         // The capture comes back in pixels; finding the strip again inside it
         // is cheap and avoids redoing the rounding.
-        Ok(img) => match find(&img) {
-            Some(found) => decode(&img, found),
-            None => Decoded::Missing,
-        },
-        Err(_) => Decoded::Missing,
+        Ok(img) => (find(&img).map_or(Decoded::Missing, |found| decode(&img, found)), Some(img)),
+        Err(_) => (Decoded::Missing, None),
     }
 }
+
+/// Where the picture of a strip that cannot be read is saved: beside the settings file.
+const UNREAD_PICTURE: &str = "translate-strip.png";
 
 /// Polls the screen: a full scan about once a second until the strip turns
 /// up, then only the strip's own rectangle several times a second.
@@ -287,6 +288,7 @@ pub fn spawn(jobs: Sender<Job>, asked: Sender<Job>, ui: UiSender) {
         let mut told = String::new();
         let mut said_capture_error = false;
         let dump = std::env::var_os("TRANSLATE_DUMP").is_some();
+        let mut pictured = false;
 
         loop {
             let monitors = match Monitor::all() {
@@ -359,13 +361,26 @@ pub fn spawn(jobs: Sender<Job>, asked: Sender<Job>, ui: UiSender) {
             };
             let place = format!("on screen {} at {},{}", index + 1, lock.x, lock.y);
             // Finding the strip takes its three sync blocks; reading it takes every block.
+            let (decoded, seen) = read_locked(monitor, lock);
+            // Once the strip has stayed unreadable a while, what was captured at its place
+            // is saved, once: the picture shows what a log cannot (something drawn over
+            // the strip, blurred or shifted blocks, colors run together).
             let mut unreadable = |why: &str| {
                 let since = *unread_since.get_or_insert_with(Instant::now);
-                if since.elapsed() > UNREADABLE_AFTER {
-                    tell(&ui, &mut told, format!("Found the pixel strip {place}, but cannot read it: {why}"));
+                if since.elapsed() <= UNREADABLE_AFTER {
+                    return;
+                }
+                tell(&ui, &mut told, format!("Found the pixel strip {place}, but cannot read it: {why}"));
+                if let (false, Some(seen)) = (pictured, &seen) {
+                    pictured = true;
+                    let path = crate::config::path().with_file_name(UNREAD_PICTURE);
+                    match seen.save(&path) {
+                        Ok(()) => crate::diag::log(format!("strip: saved what was captured at its place as {}", path.display())),
+                        Err(e) => crate::diag::log(format!("strip: could not save a picture of it: {e}")),
+                    }
                 }
             };
-            match read_locked(monitor, lock) {
+            match decoded {
                 Decoded::Frame(frame) => {
                     last_good = Instant::now();
                     unread_since = None;
@@ -421,7 +436,9 @@ pub fn spawn(jobs: Sender<Job>, asked: Sender<Job>, ui: UiSender) {
                         }
                     }
                 }
-                Decoded::Corrupt => unreadable("its frames fail their check. Run the companion with --decode on a screenshot to see more."),
+                Decoded::Corrupt => unreadable(
+                    "its frames fail their check. A picture of what was read is saved as translate-strip.png beside the settings file, to send with a report.",
+                ),
                 Decoded::NoPalette => unreadable("it has no palette row. Update the addon to the companion's version, then /reload."),
                 Decoded::Missing => {
                     // Hidden UI, a loading screen, or the window moved.
