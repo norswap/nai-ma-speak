@@ -411,6 +411,19 @@ local numbers = {}
 for _, n in ipairs({ 1, 9, 10, 11, 20, 21, 99 }) do numbers[#numbers + 1] = ns.ChineseNumber(n) end
 Check("Chinese numbers", table.concat(numbers, " "), "一 九 十 十一 二十 二十一 九十九")
 
+-- The demo ----------------------------------------------------------------------------------
+
+Frames()
+printed = {}
+ns.Demo()
+local demo = table.concat(Frames(), "\n")
+Check("the demo's lines reach the overlay as chat does", demo:match("^[^\n]*"),
+    "1 | [1. General - Undercity] [奶茶 半糖]:  | 血色修道院 教堂 缺坦缺DD 有補 來的密我 | ffbfbf | 奶茶 半糖")
+Check("all of them, the one without Chinese too", select(2, demo:gsub("[^\n]+", "")), 12)
+Check("and are added to the chat window with their links", printed[1]:match("|Haddon.*$"),
+    "|Haddon:Translate:T:1073741825|h|cff66ccff[T]|r|h|Haddon:Translate:E:1073741825|h|cff66ccff[?]|r|h"
+        .. "|Haddon:Translate:N:1073741825|h|cff66ccff[?N]|r|h")
+
 if failures > 0 then
     print(failures .. " failed")
     os.exit(1)

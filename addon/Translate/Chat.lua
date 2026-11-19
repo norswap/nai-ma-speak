@@ -354,15 +354,20 @@ local function Split(text)
     return nil, markup, speaker
 end
 
-local function Mirror(frame, text, r, g, b)
-    if not ns.db or frame ~= MirroredWindow() then return end
-    if ns.IsSecret(text) or ns.IsSecret(r) or ns.IsSecret(g) or ns.IsSecret(b) then return end
-    if type(text) ~= "string" then return end
+-- Sends a line as a chat window shows it.
+local function SendShown(text, r, g, b)
     SendChat(function()
         local prefix, body, speaker = Split(text)
         if prefix then return "1", prefix, body, ns.Hex(r, g, b), speaker end
         if ns.db.allLines then return "0", "", body, ns.Hex(r, g, b), speaker end
     end)
+end
+
+local function Mirror(frame, text, r, g, b)
+    if not ns.db or frame ~= MirroredWindow() then return end
+    if ns.IsSecret(text) or ns.IsSecret(r) or ns.IsSecret(g) or ns.IsSecret(b) then return end
+    if type(text) ~= "string" then return end
+    SendShown(text, r, g, b)
 end
 
 -- The links after a line: [T] sends it to the overlay to be translated again
@@ -410,6 +415,57 @@ end
 -- A made-up Chinese line for the overlay, as if someone had said it.
 function ns.SendTestLine(text)
     SendChat(function() return "1", "[Test]: ", text, "ffffff", "Test" end)
+end
+
+-- A made-up conversation, for trying the overlay or picturing it when chat is
+-- quiet: event, channel name and number, speaker, class, message.
+local DEMO = {
+    { "CHAT_MSG_CHANNEL", "1. General - Undercity", 1, "奶茶 半糖", "PRIEST", "血色修道院 教堂 缺坦缺DD 有補 來的密我" },
+    { "CHAT_MSG_CHANNEL", "2. Trade - City", 2, "老王 打鐵", "WARRIOR",
+        "收 |cffffffff|Hitem:4338::::::::60:::::|h[魔紋布]|h|r 一組50銀 有多少收多少" },
+    { "CHAT_MSG_WHISPER", nil, nil, "奶茶 半糖", "PRIEST", "你是術士嗎? 血色教堂缺DD 要不要來" },
+    { "CHAT_MSG_PARTY_LEADER", nil, nil, "奶茶 半糖", "PRIEST", "人齊了 門口集合 大家先修裝" },
+    { "CHAT_MSG_PARTY", nil, nil, "阿肥 不怕痛", "WARRIOR", "我坦 第一次來 路不熟 請多包涵" },
+    { "CHAT_MSG_PARTY", nil, nil, "月光 小賊", "ROGUE", "沒關係 跟著我走 王的打法我會先講" },
+    { "CHAT_MSG_PARTY", nil, nil, "熊貓 不吃竹", "MAGE", "開怪前等我變羊 不要打羊喔" },
+    { "CHAT_MSG_GUILD", nil, nil, "Mira Oakheart", "DRUID", "anyone up for Uldaman later tonight?" },
+    { "CHAT_MSG_SAY", nil, nil, "小魚 愛睡覺", "HUNTER", "有人要一起解血色十字軍的任務嗎" },
+    { "CHAT_MSG_PARTY", nil, nil, "阿肥 不怕痛", "WARRIOR", "滅團了 抱歉 我一次拉太多" },
+    { "CHAT_MSG_PARTY_LEADER", nil, nil, "奶茶 半糖", "PRIEST", "沒事 跑屍回來 這次慢慢拉" },
+    { "CHAT_MSG_WHISPER", nil, nil, "月光 小賊", "ROGUE", "你打得不錯 下次再一起 加個好友吧" },
+}
+local DEMO_GAP = 1.5 -- seconds between its lines
+local demoID = 2 ^ 30 -- its lineIDs, clear of the game's
+
+-- Plays the conversation: each line is added to the copied chat window, or the
+-- main one, worded and colored as the game would, and reaches the overlay the
+-- way real chat does. Nothing is said in chat; only this player sees it.
+function ns.Demo()
+    for i, line in ipairs(DEMO) do
+        C_Timer.After((i - 1) * DEMO_GAP, function()
+            local event, channel, index, name, class, msg = unpack(line, 1, 6)
+            demoID = demoID + 1
+            local chinese = HasChinese(msg)
+            Remember(demoID, chinese and Plain(Markup(msg)))
+            local _, info = LineColor(event, index)
+            local r, g, b = info and info.r or 1, info and info.g or 1, info and info.b or 1
+            local color = RAID_CLASS_COLORS and RAID_CLASS_COLORS[class]
+            local shown = color and color.colorStr and ("|c" .. color.colorStr .. name .. "|r") or name
+            local around = AROUND_NAME[event] or { "[", "]: " }
+            local stamp = GetChatTimestampFormat and GetChatTimestampFormat() or CHAT_TIMESTAMP_FORMAT
+            local text = (type(stamp) == "string" and date(stamp) or "") .. (channel and ("[" .. channel .. "] ") or "")
+                .. around[1] .. "|Hplayer:" .. name .. ":" .. demoID .. ":" .. event:sub(10) .. "|h" .. shown .. "|h"
+                .. around[2] .. msg
+            if ns.db.showLinks and (chinese or HasChinese(name)) then
+                text = text .. " " .. Links(demoID, chinese, HasChinese(name))
+            end
+            local window = MirroredWindow()
+            local target = window or DEFAULT_CHAT_FRAME
+            target:AddMessage(text, r, g, b)
+            -- A copied window's line is sent by its hook.
+            if not window then SendShown(text, r, g, b) end
+        end)
+    end
 end
 
 -- Runs Mirror for tests, and behind the hook where an error must not reach the chat window.

@@ -92,6 +92,7 @@ local function ShowHelp()
     ns.Print("/tr /all  toggle showing lines without Chinese in the overlay too")
     ns.Print("/tr /test  say a Chinese test line to check the strip and overlay")
     ns.Print("/tr /test 10  send that many short test lines to the overlay only (at most " .. TEST_MOST .. ")")
+    ns.Print("/tr /demo  play a made-up Chinese conversation in your chat window, seen only by you")
     ns.Print("/tr /probe  report which client features this addon found")
     ns.Print("/tr /help  this list")
 end
@@ -134,6 +135,10 @@ local commands = {
         end
         send("大家好，今天一起打副本嗎？ (Translate test)", "SAY")
         ns.Print("Sent a test line in /say. The companion overlay should show it in English shortly.")
+    end,
+    demo = function()
+        ns.Demo()
+        ns.Print("Playing a made-up conversation. Nothing is said in chat; only you see it.")
     end,
     probe = function()
         local _, _, _, toc = GetBuildInfo()

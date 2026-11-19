@@ -118,6 +118,7 @@ The same from the chat box, where `/nms` works in place of `/tr`:
 | `/tr /all` | Toggle lines without Chinese in the overlay |
 | `/tr /test` | Say a Chinese test line in `/say` to check the strip and overlay |
 | `/tr /test 10` | Send that many test lines to the overlay only |
+| `/tr /demo` | Play a made-up Chinese conversation in your chat window, seen only by you, to try the overlay when chat is quiet |
 | `/tr /probe` | Report which client features the addon found |
 | `/tr /help` | List the commands |
 
