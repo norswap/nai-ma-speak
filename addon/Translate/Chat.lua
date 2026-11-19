@@ -83,7 +83,9 @@ local function Markup(text)
     text = text:gsub("|H.-|h(.-)|h", "%1")
     text = text:gsub("|T.-|t", "")
     text = text:gsub("|A.-|a", "")
-    text = text:gsub("|K.-|k", "?")
+    -- Text the game draws but keeps from addons: a community channel's messages,
+    -- Battle.net names.
+    text = text:gsub("|K.-|k", "(hidden from addons)")
     text = text:gsub("|n", " ")
     -- Tabs and newlines separate fields and lines on the strip. Not "%c",
     -- which in some locales also matches bytes inside Chinese characters.
