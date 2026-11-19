@@ -25,6 +25,8 @@ const HIDE_LABEL: &str = "Hide when WoW is in the background";
 /// How often the whole font texture is re-sent even without new text.
 const FONT_TEXTURE_REFRESH: Duration = Duration::from_secs(5);
 
+/// More wheel steps than this between two counts is the addon counting anew, not scrolling.
+const MOST_WHEEL_STEPS: i64 = 100;
 /// How many lines one mouse wheel step scrolls the overlay.
 const WHEEL_LINES: f32 = 3.0;
 /// How far the overlay text's shadow is offset, in points.
@@ -581,12 +583,15 @@ impl TranslateApp {
                 }
                 UiEvent::Wheel { name, count } => {
                     // The first count only sets the starting point: its steps were made
-                    // before the companion was watching.
+                    // before the companion was watching. So does a count far from the
+                    // last: the addon started counting anew.
                     let before = self.wheel_counts.insert(name.clone(), count);
                     let anchored = layout::anchor(&self.chat_windows, &self.draft.anchor_tab);
                     if let (Some(before), Some(window)) = (before, anchored) {
-                        if window.name == name {
-                            self.wheel_steps += (count - before) as f32;
+                        let steps = count - before;
+                        if window.name == name && steps != 0 && steps.abs() <= MOST_WHEEL_STEPS {
+                            crate::diag::log(format!("wheel: {steps} on {name}"));
+                            self.wheel_steps += steps as f32;
                         }
                     }
                 }

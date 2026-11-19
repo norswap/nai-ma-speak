@@ -53,16 +53,24 @@ end
 -- scrolling pass through it to the game), so with the overlay on a chat tab
 -- the game window underneath gets the wheel and the count is sent as
 -- "S\t<name>\t<count>" for the overlay to scroll by the difference. A count,
--- not single steps, so a newer one can replace one still waiting.
+-- not single steps, so a newer one can replace one still waiting. Every count
+-- is also sent now and then unchanged, so a companion started later knows where
+-- counting stands before the first step. Counts start far apart from one login
+-- to the next, so that a new start cannot be taken for scrolling.
 local wheel = {}
+local START = time() % 100000 * 1000
 
-function ns.WheelMoved(index, delta)
+local function SayWheel(index, delta)
     local name = FCF_GetChatWindowInfo(index)
-    if type(name) ~= "string" or name == "" or type(delta) ~= "number" then return end
+    if type(name) ~= "string" or name == "" then return end
     name = name:gsub("[%z\1-\31]", "")
-    wheel[index] = (wheel[index] or 0) + delta
+    wheel[index] = (wheel[index] or START) + delta
     local key = "S\t" .. name .. "\t"
     ns.SendToStrip(key .. wheel[index], key)
+end
+
+function ns.WheelMoved(index, delta)
+    if type(delta) == "number" then SayWheel(index, delta) end
 end
 
 local function WatchWheel()
@@ -98,6 +106,9 @@ function ns.InitLayout()
         end
         local now = GetTime()
         if text ~= last or now - sentAt >= RESEND_TIME then
+            if now - sentAt >= RESEND_TIME then
+                for i = 1, NUM_CHAT_WINDOWS or 10 do SayWheel(i, 0) end
+            end
             last, sentAt = text, now
             ns.SendToStrip(text, "L\t")
         end
