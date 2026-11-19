@@ -36,7 +36,8 @@ function StaticPopup_Show(which, _, _, data) popup = { dialog = StaticPopupDialo
 C_Timer = { After = function(_, fn) timers[#timers + 1] = fn end, NewTicker = function() return Dummy() end }
 function time() return 1700000000 end
 function GetPhysicalScreenSize() return 1920, 1080 end
-function GetCVarBool() return true end
+local fullscreen = false
+function GetCVarBool(name) return name ~= "gxMaximize" or fullscreen end
 function GetAddOnMetadata() return "0.0.1" end
 function hooksecurefunc(object, name, hook)
     local original = object[name]
@@ -369,9 +370,13 @@ local function Origin(place, x, y)
 end
 Check("the strip starts in the top-left corner", Origin("topleft"), "0,0")
 local right, bottom = 1920 - ns.STRIP.cols * ns.STRIP.block, 1080 - (ns.STRIP.rows + 1) * ns.STRIP.block
-Check("or sits near another corner of a 1920x1080 screen, clear of a window's rounded corners",
+Check("or sits in another corner of a 1920x1080 screen, clear of a window's rounded bottom corners",
     Origin("topright") .. " " .. Origin("bottomleft") .. " " .. Origin("bottomright"),
-    (right - 12) .. ",0 12," .. (bottom - 12) .. " " .. (right - 12) .. "," .. (bottom - 12))
+    right .. ",0 6," .. (bottom - 6) .. " " .. (right - 6) .. "," .. (bottom - 6))
+fullscreen = true
+Check("and right in the corner in fullscreen", Origin("bottomleft") .. " " .. Origin("bottomright"),
+    "0," .. bottom .. " " .. right .. "," .. bottom)
+fullscreen = false
 Check("or where it was dragged, on whole pixels", Origin("custom", 300.4, 99.6), "300,100")
 Check("but never off the screen", Origin("custom", 5000, -20), right .. ",0")
 TranslateDB.stripPosition = "topleft"
