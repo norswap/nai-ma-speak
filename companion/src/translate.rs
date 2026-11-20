@@ -191,9 +191,9 @@ pub fn system_prompt(text: &str, task: Task, region: Region) -> String {
 /// progress notes for the status line, such as a wait imposed by the service.
 pub fn translate(config: &Config, text: &str, task: Task, notify: &dyn Fn(String)) -> Result<String, String> {
     let raw = match config.backend {
-        Backend::GoogleFree => backends::google::translate(config, text, task, notify),
         Backend::Claude => backends::claude::translate(config, text, task, notify),
         Backend::OpenAiCompatible => backends::openai::translate(config, text, task),
+        free => backends::free::translate(&backends::free::STATE, free.free_services(), config, text, task, notify),
     }?;
     if let Task::Explain(_) = task {
         // Structured, and read by `explain::parse`, not a line of chat to tidy.

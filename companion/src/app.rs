@@ -1329,7 +1329,10 @@ impl CompanionApp {
             }
         });
         match self.draft.backend {
-            Backend::GoogleFree => {
+            Backend::Free => {
+                ui.label(RichText::new("Bing Translator, and Google Translate whenever Bing refuses or is slow. No account, no slang hints. Either may limit its use or stop working.").color(theme::MUTED));
+            }
+            Backend::Bing | Backend::GoogleFree => {
                 ui.label(RichText::new("No slang hints. Rate-limited and service might be disrupted.").color(theme::MUTED));
             }
             Backend::Claude => {
@@ -1416,7 +1419,7 @@ impl CompanionApp {
             self.backlog_changed = true;
         }
         ui.checkbox(&mut self.draft.show_original, "Show Chinese too");
-        // Google Translate cannot put a name into English as a name.
+        // The free services cannot put a name into English as a name.
         if self.draft.backend.takes_instructions() {
             ui.checkbox(&mut self.draft.translate_names, "Translate player names")
                 .on_hover_text("After a Chinese name, show what it means, or how it sounds if it means nothing.");
@@ -1505,7 +1508,7 @@ impl CompanionApp {
     fn state_for_report(&self) -> String {
         let draft = &self.draft;
         let model = match draft.backend {
-            Backend::GoogleFree => String::new(),
+            Backend::Free | Backend::Bing | Backend::GoogleFree => String::new(),
             Backend::Claude => format!(", model {}", draft.claude_model),
             Backend::OpenAiCompatible => format!(", model {} at {}", draft.model, draft.api_base),
         };

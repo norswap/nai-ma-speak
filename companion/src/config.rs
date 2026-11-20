@@ -1,3 +1,4 @@
+use crate::backends::free::Service;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
@@ -101,8 +102,13 @@ impl Config {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Backend {
-    /// Google Translate's free web endpoint: no key, but unofficial and rate-limited.
+    /// The services that need no account: Bing Translator, and Google Translate when
+    /// Bing refuses or is slow. New installs start here.
     #[default]
+    Free,
+    /// Bing Translator alone, through the endpoint its web page uses.
+    Bing,
+    /// Google Translate's free web endpoint alone.
     GoogleFree,
     /// Claude, with a Claude Console API key.
     Claude,
@@ -112,10 +118,12 @@ pub enum Backend {
 }
 
 impl Backend {
-    pub const ALL: [Backend; 3] = [Backend::GoogleFree, Backend::Claude, Backend::OpenAiCompatible];
+    pub const ALL: [Backend; 5] = [Backend::Free, Backend::Bing, Backend::GoogleFree, Backend::Claude, Backend::OpenAiCompatible];
 
     pub fn label(self) -> &'static str {
         match self {
+            Backend::Free => "Free services: Bing, then Google (no key)",
+            Backend::Bing => "Bing Translator (free, no key)",
             Backend::GoogleFree => "Google Translate (free, no key)",
             Backend::Claude => "Claude",
             Backend::OpenAiCompatible => "OpenAI-compatible (Ollama, LM Studio, OpenAI)",
@@ -125,6 +133,8 @@ impl Backend {
     /// The name without the examples, for the status line.
     pub fn short_label(self) -> &'static str {
         match self {
+            Backend::Free => "Free services",
+            Backend::Bing => "Bing Translator",
             Backend::GoogleFree => "Google Translate",
             Backend::Claude => "Claude",
             Backend::OpenAiCompatible => "OpenAI compatible",
@@ -132,9 +142,19 @@ impl Backend {
     }
 
     /// Whether the backend can follow instructions: explain a line or a name, and put a
-    /// name into English as a name. Google Translate only translates text.
+    /// name into English as a name. The free services only translate text.
     pub fn takes_instructions(self) -> bool {
-        self != Backend::GoogleFree
+        self.free_services().is_empty()
+    }
+
+    /// The free services the backend asks, in the order it asks them; none for a chat model.
+    pub fn free_services(self) -> &'static [Service] {
+        match self {
+            Backend::Free => &[Service::Bing, Service::Google],
+            Backend::Bing => &[Service::Bing],
+            Backend::GoogleFree => &[Service::Google],
+            Backend::Claude | Backend::OpenAiCompatible => &[],
+        }
     }
 
     /// A config file written before backends existed could only use this one.
@@ -146,7 +166,7 @@ impl Backend {
 #[derive(Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Config {
-    /// New installs start on Google's free service, which needs no setup. A file without
+    /// New installs start on the free services, which need no setup. A file without
     /// this field comes from an older version and keeps its OpenAI-compatible endpoint.
     #[serde(default = "Backend::before_backends")]
     pub backend: Backend,
@@ -160,6 +180,7 @@ pub struct Config {
     pub claude_model: String,
     /// Where the services are reached. Only tests change these, to use a local stand-in.
     pub google_free_base: String,
+    pub bing_base: String,
     pub claude_base: String,
     /// Whose slang to expect in chat.
     pub server: Region,
@@ -198,6 +219,7 @@ impl Default for Config {
             claude_api_key: String::new(),
             claude_model: CLAUDE_MODELS[0].1.into(),
             google_free_base: "https://translate.googleapis.com".into(),
+            bing_base: "https://www.bing.com".into(),
             claude_base: "https://api.anthropic.com".into(),
             api_base: OLLAMA_BASE.into(),
             api_key: String::new(),
@@ -300,7 +322,7 @@ mod tests {
         let old: Config = serde_json::from_str(r#"{"api_base":"http://localhost:11434/v1","api_key":"","model":"m"}"#).unwrap();
         assert_eq!(old.backend, Backend::OpenAiCompatible);
         assert_eq!(old.claude_model, "claude-haiku-5-5");
-        assert_eq!(Config::default().backend, Backend::GoogleFree);
+        assert_eq!(Config::default().backend, Backend::Free);
         let saved = serde_json::to_string(&Config { backend: Backend::Claude, ..Config::default() }).unwrap();
         assert!(saved.contains(r#""backend":"claude""#), "{saved}");
         assert_eq!(serde_json::from_str::<Config>(&saved).unwrap().backend, Backend::Claude);
