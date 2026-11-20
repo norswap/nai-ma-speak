@@ -223,9 +223,14 @@ struct Updates {
     advice: Advice,
     /// The releases have arrived once, so updating without asking has had its turn.
     started: bool,
-    /// The player asked for the releases and they have not arrived yet.
-    checking: bool,
+    /// Since when the player has been waiting for the releases they asked for.
+    checking: Option<Instant>,
 }
+
+/// How long the player's "Check for updates" may go unanswered before a box says it is
+/// under way, and before it says the server cannot be reached.
+const CHECK_SHOWN_AFTER: Duration = Duration::from_secs(1);
+const CHECK_GIVEN_UP: Duration = Duration::from_secs(5);
 
 /// Something to tell the player in a box over the companion's window.
 #[derive(Clone, Copy, PartialEq)]
@@ -238,7 +243,7 @@ enum Prompt {
     Updated,
     /// The game is in front but shows no pixel strip.
     NoStrip,
-    /// The releases arrived after the player asked for them.
+    /// The player asked for the releases: they are awaited, or what they say.
     Checked,
 }
 
@@ -490,7 +495,7 @@ impl CompanionApp {
                 heard: None,
                 advice: Advice::Nothing,
                 started: false,
-                checking: false,
+                checking: None,
             },
             restart: false,
             // Started again by an update: says so, and that the game has to load the addon.
@@ -1048,6 +1053,7 @@ impl CompanionApp {
                 Prompt::Updated => format!("Updated to v{}", Version::own()),
                 Prompt::NoStrip => "The game shows no pixel strip".to_string(),
                 Prompt::Checked => match self.newer() {
+                    _ if self.updates.checking.is_some() => "Checking for updates".to_string(),
                     _ if !self.updates.problem.is_empty() => "The releases could not be checked".to_string(),
                     Some(newer) => format!("v{newer} is available"),
                     None => "The companion is up to date".to_string(),
@@ -1077,6 +1083,12 @@ impl CompanionApp {
                     for help in NO_STRIP_HELP {
                         ui.label(format!("• {help}"));
                     }
+                }
+                Prompt::Checked if self.updates.checking.is_some() => {
+                    ui.horizontal(|ui| {
+                        ui.add(egui::Spinner::new().color(theme::GOLD));
+                        ui.label("Asking GitHub for the releases.");
+                    });
                 }
                 Prompt::Checked if !self.updates.problem.is_empty() => {
                     ui.label(self.updates.problem.clone());
@@ -1108,7 +1120,7 @@ impl CompanionApp {
                         close = true;
                     }
                     close |= ui.add(theme::button("Not now")).clicked();
-                } else if let (Prompt::Checked, Some(newer), true) = (prompt, self.newer(), self.updates.problem.is_empty()) {
+                } else if let (Prompt::Checked, Some(newer), true) = (prompt, self.newer(), self.updates.problem.is_empty() && self.updates.checking.is_none()) {
                     if ui.add(theme::button(&format!("Update to v{newer}"))).clicked() {
                         self.update_to(newer);
                         close = true;
@@ -1120,6 +1132,8 @@ impl CompanionApp {
             });
         });
         if close || shown.should_close() {
+            // Closing the box gives up waiting for the releases.
+            self.updates.checking = None;
             self.prompt = None;
         }
     }
@@ -1569,6 +1583,7 @@ impl CompanionApp {
         let target = wanted(&updates.releases, &self.draft);
         let silent = self.addon_version.is_none() && updates.heard.is_some_and(|heard| heard.elapsed() > SILENT_AFTER);
         updates.advice = update::advice(Version::own(), target, &updates.addon, self.addon_version.as_ref(), silent);
+        self.await_check(ctx);
     }
 
     /// What to put in place for the advice given, or why nothing can be. `asked` is
@@ -1601,7 +1616,7 @@ impl CompanionApp {
 
     /// Answers the player's "Check for updates", unless an update has started by itself.
     fn checked(&mut self) {
-        if std::mem::take(&mut self.updates.checking) && self.updates.step.is_none() {
+        if self.updates.checking.take().is_some() && self.updates.step.is_none() {
             self.prompt = Some(Prompt::Checked);
         }
     }
@@ -1621,23 +1636,34 @@ impl CompanionApp {
         self.start_update(true);
     }
 
-    /// Asks GitHub for the releases; a spinner turns in the button until they arrive,
-    /// in room kept for it so the button stays as wide.
+    /// Asks GitHub for the releases, which `checked` answers in a box. Not during an update.
     fn check_button(&mut self, ui: &mut egui::Ui) {
-        const SPINNER: f32 = 14.0;
-        const ROOM: f32 = SPINNER + 6.0;
-        let text = "Check for updates";
-        let width = ui.painter().layout_no_wrap(text.into(), theme::heading_font(15.0), theme::GOLD).size().x;
-        let button = theme::button(text).min_size(egui::vec2(width + 2.0 * (ui.spacing().button_padding.x + ROOM), 0.0));
-        let shown = ui.add_enabled(!self.updates.checking, button);
-        if shown.clicked() {
-            self.updates.asked = None;
-            self.updates.checking = true;
+        let updating = self.updates.step.is_some();
+        ui.horizontal(|ui| {
+            if ui.add_enabled(!updating && self.updates.checking.is_none(), theme::button("Check for updates")).clicked() {
+                self.updates.asked = None;
+                self.updates.checking = Some(Instant::now());
+            }
+            if updating {
+                ui.label(RichText::new("Update in progress.").color(theme::MUTED));
+            }
+        });
+    }
+
+    /// While the player waits for the releases: a box that says so once the wait shows,
+    /// and after `CHECK_GIVEN_UP` that the server cannot be reached.
+    fn await_check(&mut self, ctx: &egui::Context) {
+        let Some(waited) = self.updates.checking.map(|since| since.elapsed()) else {
+            return;
+        };
+        if waited > CHECK_GIVEN_UP {
+            self.updates.checking = None;
+            self.updates.problem = "GitHub could not be reached.".into();
         }
-        if self.updates.checking {
-            let center = shown.rect.right_center() - egui::vec2(ROOM / 2.0 + 2.0, 0.0);
-            egui::Spinner::new().color(theme::GOLD).paint_at(ui, egui::Rect::from_center_size(center, egui::Vec2::splat(SPINNER)));
+        if waited > CHECK_SHOWN_AFTER {
+            self.prompt = Some(Prompt::Checked);
         }
+        ctx.request_repaint_after(Duration::from_millis(100));
     }
 
     fn start_update(&mut self, asked: bool) {
@@ -1780,15 +1806,10 @@ impl CompanionApp {
         self.update_progress(ui);
         ui.add_space(6.0);
 
-        ui.label(theme::label("Release to use"));
-        let named = |version: Version| format!("v{version}{}", if version == own { " (currently installed)" } else { "" });
-        let auto = self.draft.auto_update;
-        let shown = match self.updates.releases.first() {
-            Some(newest) if auto => format!("The newest (v{})", newest.version),
-            None if auto => "The newest".into(),
-            _ => Version::parse(&self.draft.version).map_or(named(own), named),
-        };
-        ui.add_enabled_ui(!auto, |ui| {
+        if !self.draft.auto_update {
+            ui.label(theme::label("Release to use"));
+            let named = |version: Version| format!("v{version}{}", if version == own { " (currently installed)" } else { "" });
+            let shown = Version::parse(&self.draft.version).map_or(named(own), named);
             egui::ComboBox::from_id_salt("release").width(ui.available_width()).selected_text(shown).show_ui(ui, |ui| {
                 ui.selectable_value(&mut self.draft.version, own.to_string(), named(own));
                 let offered = |release: &&update::Release| release.version >= update::OLDEST_OFFERED && release.version != own;
@@ -1797,9 +1818,8 @@ impl CompanionApp {
                 }
             })
             .response
-            .on_hover_text(format!("Pick a newer release to update to it, or an earlier one if a newer one misbehaves. Releases before v{} cannot update themselves and are not offered.", update::OLDEST_OFFERED))
-            .on_disabled_hover_text("Updating automatically always uses the newest release. Untick it to pick one.");
-        });
+            .on_hover_text(format!("Pick a newer release to update to it, or an earlier one if a newer one misbehaves. Releases before v{} cannot update themselves and are not offered.", update::OLDEST_OFFERED));
+        }
         if ui
             .checkbox(&mut self.draft.auto_update, "Update automatically")
             .on_hover_text("Looks for a new release when the companion starts and every half hour, and puts it in place without asking: the addon first, then the companion, which starts again and says to type /reload. Settings are kept.")
