@@ -273,7 +273,8 @@ fn tell(ui: &UiSender, told: &mut String, text: String) {
     }
 }
 
-pub fn spawn(jobs: Sender<Job>, asked: Sender<Job>, ui: UiSender) {
+/// `restored` is how far back, in minutes, the lines the overlay starts with go.
+pub fn spawn(jobs: Sender<Job>, asked: Sender<Job>, ui: UiSender, restored: u64) {
     thread::spawn(move || {
         let mut locked: Option<(usize, Lock)> = None;
         let mut last_seen: Option<(u8, u16)> = None;
@@ -283,7 +284,7 @@ pub fn spawn(jobs: Sender<Job>, asked: Sender<Job>, ui: UiSender) {
         // again with another line is that line worded anew (the game has since named a
         // link in it), and goes on to take its place.
         let mut had: BTreeMap<u64, ChatLine> =
-            crate::backlog::load().into_iter().filter_map(|kept| Some((kept.line.number?, kept.line))).collect();
+            crate::backlog::load(restored).into_iter().filter_map(|kept| Some((kept.line.number?, kept.line))).collect();
         let mut last_good = Instant::now();
         let mut unread_since: Option<Instant> = None;
         let mut told = String::new();

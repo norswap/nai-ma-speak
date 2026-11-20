@@ -190,6 +190,8 @@ pub struct Config {
     pub overlay_opacity: f32,
     pub font_size: f32,
     pub max_lines: usize,
+    /// How far back, in minutes, the lines brought back when the companion starts go.
+    pub restore_minutes: u64,
     /// How many lines of text one mouse wheel step scrolls the overlay.
     pub wheel_lines: usize,
     pub show_original: bool,
@@ -231,6 +233,7 @@ impl Default for Config {
             overlay_opacity: 0.55,
             font_size: 15.0,
             max_lines: 100,
+            restore_minutes: 10,
             wheel_lines: 3,
             show_original: false,
             chat_per_character: true,

@@ -292,6 +292,16 @@ fn place(lines: impl ExactSizeIterator<Item = Option<u64>>, new: Option<u64>) ->
     lines.into_iter().position(|number| number.is_some_and(|number| number > new)).unwrap_or(count)
 }
 
+/// How far back the lines brought back at the start may go, in minutes, as offered.
+const RESTORED: [(u64, &str); 6] = [
+    (0, "None"),
+    (10, "Those of the last 10 minutes"),
+    (60, "Those of the last hour"),
+    (6 * 60, "Those of the last 6 hours"),
+    (24 * 60, "Those of the last day"),
+    (7 * 24 * 60, "Those of the last week"),
+];
+
 /// The backlog file is written at most this often.
 const BACKLOG_EVERY: Duration = Duration::from_secs(2);
 /// How long settings are left alone before they are written to the file.
@@ -458,7 +468,7 @@ impl CompanionApp {
         // Before the settings are remembered for Undo, which this is no change for.
         name_release(&mut draft);
         let overlay_start = egui::pos2(draft.overlay_x, draft.overlay_y);
-        let lines: VecDeque<OverlayLine> = backlog::load().into_iter().map(OverlayLine::restored).collect();
+        let lines: VecDeque<OverlayLine> = backlog::load(draft.restore_minutes).into_iter().map(OverlayLine::restored).collect();
         Self {
             config,
             events,
@@ -1460,7 +1470,6 @@ impl CompanionApp {
             .on_hover_text("After a Chinese name, show what it means, or how it sounds if it means nothing. The free services translate it word for word, less well than a chat model.");
         ui.checkbox(&mut self.draft.hide_when_unfocused, HIDE_LABEL);
         ui.spacing_mut().slider_width = (ui.available_width() - 70.0).max(120.0);
-        slider(ui, "Lines kept (scrollback)", &mut self.draft.max_lines, 1..=500);
         // Without the system's scroll events, the wheel only reaches an overlay on a chat
         // tab, through the addon.
         if self.own_wheel || !self.draft.anchor_tab.trim().is_empty() {
@@ -1519,6 +1528,17 @@ impl CompanionApp {
     fn history_tab(&mut self, ui: &mut egui::Ui) {
         ui.checkbox(&mut self.draft.chat_per_character, "Keep each character's chat apart")
             .on_hover_text("The overlay shows the lines of the character you are playing, and this tab has a list for each. Unticked, all characters share one.");
+        ui.spacing_mut().slider_width = (ui.available_width() - 70.0).max(120.0);
+        let each = if self.draft.chat_per_character { ", for each character" } else { "" };
+        slider(ui, &format!("Lines kept{each} (scrollback)"), &mut self.draft.max_lines, 1..=500);
+        ui.label(theme::label("Lines brought back when the companion starts"));
+        let lasting = |minutes: u64| RESTORED.iter().find(|(length, _)| *length == minutes).map_or(format!("Those of the last {minutes} minutes"), |(_, name)| name.to_string());
+        egui::ComboBox::from_id_salt("restored").width(ui.available_width()).selected_text(lasting(self.draft.restore_minutes)).show_ui(ui, |ui| {
+            for (minutes, name) in RESTORED {
+                ui.selectable_value(&mut self.draft.restore_minutes, minutes, name);
+            }
+        });
+        ui.add_space(6.0);
         let (of, chosen) = self.history_character(ui);
         let list = theme::boxed().show(ui, |ui| {
             let room = (ui.available_height() - 60.0).max(160.0);
@@ -1543,8 +1563,6 @@ impl CompanionApp {
             let gap = (chosen.left() + 1.0)..=(chosen.right() - 1.0);
             ui.painter().hline(gap, list.response.rect.top() + 0.5, egui::Stroke::new(1.0, theme::FIELD));
         }
-        let each = if self.draft.chat_per_character { " for each character" } else { "" };
-        ui.label(RichText::new(format!("Holds as many lines as \"Lines kept\" on the Overlay tab{each}.")).color(theme::MUTED));
     }
 
     /// With chat kept apart, a row of tabs to pick whose lines the Chat history tab shows:
