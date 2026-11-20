@@ -10,7 +10,8 @@ use std::time::{Duration, Instant};
 const SESSION_LASTS: Duration = Duration::from_secs(50 * 60);
 /// The longest text the endpoint takes, in characters.
 const LONGEST: usize = 1000;
-const AGENT: &str = concat!("nai-ma-speak/", env!("CARGO_PKG_VERSION"));
+/// The page is made for browsers, so the requests say they come from one.
+const AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36";
 
 /// What the translator's page hands out for the requests that follow.
 pub struct Session {

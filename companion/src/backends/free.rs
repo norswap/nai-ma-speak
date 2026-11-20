@@ -2,7 +2,8 @@
 //! endpoints their own web pages use. Unofficial, so either may refuse for a while or
 //! change without notice. One backend asks one of them, another both: Bing first, whose
 //! translations of game chat are better, and Google when Bing refuses, fails or is slow.
-//! They are plain machine translation: they take no instructions and no slang hints.
+//! They are plain machine translation: they take no instructions and no slang hints, so
+//! they explain nothing, and translate a player's name as they would any words.
 
 use super::{bing, google};
 use crate::config::{Config, Region};
@@ -196,10 +197,11 @@ fn named(services: &[Service]) -> String {
 pub fn translate(state: &Arc<State>, services: &[Service], config: &Config, text: &str, task: Task, notify: &dyn Fn(String)) -> Result<String, String> {
     let named = named(services);
     let target = match (task, config.reply_variant) {
-        (Task::ToEnglish, _) => Target::English,
+        // A name is translated like any text: its words, with no telling a name from a phrase.
+        (Task::ToEnglish | Task::Name, _) => Target::English,
         (Task::ToChinese, Region::Taiwan) => Target::Taiwanese,
         (Task::ToChinese, Region::Mainland) => Target::Simplified,
-        (Task::Explain(_) | Task::Name | Task::ExplainName, _) => {
+        (Task::Explain(_) | Task::ExplainName, _) => {
             return Err(format!("{named} unable to explain lines or names. Choose Claude or an OpenAI-compatible model on the Backend tab."))
         }
     };
@@ -260,7 +262,7 @@ mod tests {
 
     #[test]
     fn explaining_is_left_to_the_chat_models() {
-        let error = translate(&fresh(), &[Service::Bing, Service::Google], &Config::default(), "缺坦", Task::Name, &|_| ()).unwrap_err();
+        let error = translate(&fresh(), &[Service::Bing, Service::Google], &Config::default(), "缺坦", Task::ExplainName, &|_| ()).unwrap_err();
         assert!(error.starts_with("Bing Translator and Google Translate are unable to explain"), "{error}");
     }
 

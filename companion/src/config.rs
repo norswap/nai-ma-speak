@@ -141,12 +141,6 @@ impl Backend {
         }
     }
 
-    /// Whether the backend can follow instructions: explain a line or a name, and put a
-    /// name into English as a name. The free services only translate text.
-    pub fn takes_instructions(self) -> bool {
-        self.free_services().is_empty()
-    }
-
     /// The free services the backend asks, in the order it asks them; none for a chat model.
     pub fn free_services(self) -> &'static [Service] {
         match self {
@@ -187,8 +181,7 @@ pub struct Config {
     /// The Chinese that replies are written in.
     pub reply_variant: Region,
     pub reading: Reading,
-    /// Show what a Chinese player name means, or how it sounds, after it. Google
-    /// Translate cannot, so the setting only counts with the other backends.
+    /// Show what a Chinese player name means, or how it sounds, after it.
     pub translate_names: bool,
     pub overlay_x: f32,
     pub overlay_y: f32,
