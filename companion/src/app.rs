@@ -1604,7 +1604,10 @@ impl TranslateApp {
                 };
                 (text, theme::GOLD, Some(action.to_string()))
             }
-            Advice::Reload => ("The game still runs the addon it had: type /reload in the game's chat.".to_string(), theme::GOLD, None),
+            Advice::Reload => {
+                let text = "The game is running an older addon than the one now in its folder: type /reload in the game's chat to load the new one.";
+                (text.to_string(), theme::GOLD, None)
+            }
             Advice::RestartGame => {
                 let text = "The game started with another version of the addon and may miss files of this one: quit the game and start it again.";
                 (text.to_string(), theme::GOLD, None)
