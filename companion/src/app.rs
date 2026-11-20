@@ -1450,8 +1450,6 @@ impl CompanionApp {
             self.backlog_changed = true;
         }
         ui.checkbox(&mut self.draft.show_original, "Show Chinese too");
-        ui.checkbox(&mut self.draft.chat_per_character, "Keep each character's chat apart")
-            .on_hover_text("The overlay shows the lines of the character you are playing, and the Chat history tab has a list for each. Unticked, all characters share one.");
         ui.checkbox(&mut self.draft.translate_names, "Translate player names")
             .on_hover_text("After a Chinese name, show what it means, or how it sounds if it means nothing. The free services translate it word for word, less well than a chat model.");
         ui.checkbox(&mut self.draft.hide_when_unfocused, HIDE_LABEL);
@@ -1513,6 +1511,8 @@ impl CompanionApp {
 
     /// The lines the overlay holds, to scroll through and select text from.
     fn history_tab(&mut self, ui: &mut egui::Ui) {
+        ui.checkbox(&mut self.draft.chat_per_character, "Keep each character's chat apart")
+            .on_hover_text("The overlay shows the lines of the character you are playing, and this tab has a list for each. Unticked, all characters share one.");
         let of = self.history_character(ui);
         theme::boxed().show(ui, |ui| {
             let room = (ui.available_height() - 60.0).max(160.0);
@@ -1546,7 +1546,8 @@ impl CompanionApp {
             }
         }
         let mut of = self.history_of.clone().filter(|of| characters.contains(&of.as_str())).unwrap_or_else(|| self.character.clone());
-        if self.draft.chat_per_character && characters.len() > 1 {
+        // Not for a lone character nobody has named: before the addon is heard from.
+        if self.draft.chat_per_character && characters != [""] {
             ui.horizontal_wrapped(|ui| {
                 for character in characters {
                     let label = if character.is_empty() { "Not known" } else { character };
