@@ -293,13 +293,14 @@ fn place(lines: impl ExactSizeIterator<Item = Option<u64>>, new: Option<u64>) ->
 }
 
 /// How far back the lines brought back at the start may go, in minutes, as offered.
-const RESTORED: [(u64, &str); 6] = [
+const RESTORED: [(u64, &str); 7] = [
     (0, "None"),
     (10, "Those of the last 10 minutes"),
     (60, "Those of the last hour"),
     (6 * 60, "Those of the last 6 hours"),
     (24 * 60, "Those of the last day"),
     (7 * 24 * 60, "Those of the last week"),
+    (u64::MAX, "All that are kept"),
 ];
 
 /// The backlog file is written at most this often.
