@@ -73,7 +73,7 @@ impl OverlayLine {
     /// The line as the game words and colors it, with the body in English when there is
     /// one. With `names`, the speaker's name is followed by what it is in English, once
     /// that is known.
-    fn job(&self, font: &egui::FontId, width: f32, names: Option<&HashMap<String, Option<String>>>) -> LayoutJob {
+    fn job(&self, font: &egui::FontId, row: f32, width: f32, names: Option<&HashMap<String, Option<String>>>) -> LayoutJob {
         let mut job = LayoutJob::default();
         job.wrap.max_width = width;
         let (body, dim, note) = match &self.translation {
@@ -92,16 +92,16 @@ impl OverlayLine {
             // The first time the speaker's name comes up, its English goes right after it.
             let name_ends = english.and_then(|_| span.text.find(speaker)).map(|at| at + speaker.len());
             let (before, after) = span.text.split_at(name_ends.unwrap_or(span.text.len()));
-            job.append(before, 0.0, TextFormat::simple(font.clone(), color));
+            job.append(before, 0.0, row_format(font.clone(), row, color));
             if let Some(english) = english.filter(|_| name_ends.is_some()) {
-                job.append(&format!(" ({english})"), 0.0, TextFormat::simple(font.clone(), aside));
+                job.append(&format!(" ({english})"), 0.0, row_format(font.clone(), row, aside));
             }
             if name_ends.is_some() {
                 english = None;
             }
-            job.append(after, 0.0, TextFormat::simple(font.clone(), color));
+            job.append(after, 0.0, row_format(font.clone(), row, color));
         }
-        job.append(&note, 0.0, TextFormat::simple(font.clone(), aside));
+        job.append(&note, 0.0, row_format(font.clone(), row, aside));
         job
     }
 }
@@ -332,6 +332,12 @@ fn preset_combo(ui: &mut egui::Ui, id: &str, labels: &[&str], chosen: Option<usi
 }
 
 /// A setting that is a number: its name, then a slider.
+/// Text in rows of one height, `row`, whatever the fonts its characters come from: the
+/// overlay scrolls by whole rows.
+fn row_format(font: egui::FontId, row: f32, color: Color32) -> TextFormat {
+    TextFormat { line_height: Some(row), ..TextFormat::simple(font, color) }
+}
+
 fn slider<N: egui::emath::Numeric>(ui: &mut egui::Ui, name: &str, value: &mut N, range: std::ops::RangeInclusive<N>) {
     ui.label(theme::label(name));
     ui.add(egui::Slider::new(value, range));
@@ -1246,12 +1252,13 @@ impl TranslateApp {
                 ui.spacing_mut().item_spacing.y = 1.0;
                 let font = egui::FontId::new(14.0, egui::FontFamily::Name(crate::fonts::OVERLAY_FAMILY.into()));
                 let width = ui.available_width();
+                let row = ui.fonts_mut(|fonts| fonts.row_height(&font)).ceil();
                 let names = self.names_shown().then_some(&self.names);
                 if self.lines.is_empty() {
                     ui.label(RichText::new("No chat lines yet.").color(theme::MUTED));
                 }
                 for line in &self.lines {
-                    ui.add(egui::Label::new(line.job(&font, width, names)).selectable(true));
+                    ui.add(egui::Label::new(line.job(&font, row, width, names)).selectable(true));
                 }
             });
         });
@@ -1592,18 +1599,19 @@ impl TranslateApp {
                     let font = egui::FontId::new(draft.font_size, egui::FontFamily::Name(crate::fonts::OVERLAY_FAMILY.into()));
                     let small = egui::FontId::new(draft.font_size * 0.85, font.family.clone());
                     let width = ui.available_width() - SHADOW;
+                    // Every row as high as the main font's, so a wheel step is a whole number of rows.
+                    let row = ui.fonts_mut(|fonts| fonts.row_height(&font)).ceil();
                     if wheel_steps != 0.0 {
                         // Wheel up moves the lines down, bringing earlier ones into view.
-                        let line_height = ui.fonts_mut(|fonts| fonts.row_height(&font));
-                        ui.scroll_with_delta(egui::vec2(0.0, wheel_steps * draft.wheel_lines as f32 * line_height));
+                        ui.scroll_with_delta(egui::vec2(0.0, wheel_steps * draft.wheel_lines as f32 * row));
                     }
                     let mut galleys = Vec::new();
                     for line in lines {
-                        galleys.push(ui.painter().layout_job(line.job(&font, width, names)));
+                        galleys.push(ui.painter().layout_job(line.job(&font, row, width, names)));
                         let original = markup::plain(&line.line.body);
                         // Not under a line that had no body of its own, such as a name explained.
                         if draft.show_original && matches!(line.translation, Translation::Done(_)) && !original.trim().is_empty() {
-                            let format = TextFormat::simple(small.clone(), Color32::from_gray(170));
+                            let format = row_format(small.clone(), row, Color32::from_gray(170));
                             let mut job = LayoutJob::single_section(original, format);
                             job.wrap.max_width = width;
                             galleys.push(ui.painter().layout_job(job));
