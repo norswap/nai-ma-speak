@@ -195,7 +195,7 @@ pub struct TranslateApp {
 }
 
 /// How often GitHub is asked for the releases while the companion runs.
-const RELEASES_EVERY: Duration = Duration::from_secs(6 * 60 * 60);
+const RELEASES_EVERY: Duration = Duration::from_secs(30 * 60);
 /// How often the addon's folder is looked at.
 const ADDON_EVERY: Duration = Duration::from_secs(3);
 /// How long the addon may talk without saying its version before it is taken for one
@@ -232,6 +232,8 @@ enum Prompt {
     Install,
     /// The addon was just put in place.
     Installed,
+    /// The companion started again as a new version, the addon replaced before it.
+    Updated,
     /// The game is in front but shows no pixel strip.
     NoStrip,
 }
@@ -377,6 +379,16 @@ fn slider<N: egui::emath::Numeric>(ui: &mut egui::Ui, name: &str, value: &mut N,
     ui.add(egui::Slider::new(value, range));
 }
 
+/// Settles the release to use. Updating automatically follows the newest release;
+/// otherwise it is a named one: the one installed, until another is picked.
+fn name_release(settings: &mut Config) {
+    if settings.auto_update {
+        settings.version.clear();
+    } else if settings.version.is_empty() {
+        settings.version = Version::own().to_string();
+    }
+}
+
 fn overlay_id() -> ViewportId {
     ViewportId::from_hash_of("overlay")
 }
@@ -389,7 +401,9 @@ impl TranslateApp {
         ui: UiSender,
         own_wheel: bool,
     ) -> Self {
-        let draft = config.lock().unwrap().clone();
+        let mut draft = config.lock().unwrap().clone();
+        // Before the settings are remembered for Undo, which this is no change for.
+        name_release(&mut draft);
         let overlay_start = egui::pos2(draft.overlay_x, draft.overlay_y);
         Self {
             config,
@@ -454,7 +468,8 @@ impl TranslateApp {
                 started: false,
             },
             restart: false,
-            prompt: None,
+            // Started again by an update: says so, and that the game has to load the addon.
+            prompt: std::env::var_os(config::JUST_UPDATED).map(|_| Prompt::Updated),
             install_offered: false,
             no_strip_said: false,
             without_strip: None,
@@ -1001,9 +1016,10 @@ impl TranslateApp {
         let shown = egui::Modal::new(egui::Id::new("prompt")).frame(frame).show(ctx, |ui| {
             ui.set_width(400.0);
             let title = match prompt {
-                Prompt::Install => "The addon is not installed",
-                Prompt::Installed => "The addon is installed",
-                Prompt::NoStrip => "The game shows no pixel strip",
+                Prompt::Install => "The addon is not installed".to_string(),
+                Prompt::Installed => "The addon is installed".to_string(),
+                Prompt::Updated => format!("Updated to v{}", Version::own()),
+                Prompt::NoStrip => "The game shows no pixel strip".to_string(),
             };
             ui.label(RichText::new(title).font(theme::heading_font(18.0)).color(theme::GOLD));
             match prompt {
@@ -1011,11 +1027,17 @@ impl TranslateApp {
                     ui.label("The companion reads the game's chat through its addon, which is not in the game's AddOns folder.");
                     self.addons_folder_choice(ui);
                 }
-                Prompt::Installed => {
+                Prompt::Installed | Prompt::Updated => {
+                    if prompt == Prompt::Updated {
+                        ui.label("The companion and its addon were replaced. Your settings are kept.");
+                        if cfg!(target_os = "macos") {
+                            ui.label("If no chat arrives, macOS wants the Screen Recording permission given again: remove the companion from that list in System Settings > Privacy & Security and add it back.");
+                        }
+                    }
                     ui.label(match self.wow_view {
-                        WowView::Shown { .. } => "Type /reload in the game's chat to load it.",
-                        WowView::Hidden => "The game loads it the next time it starts.",
-                        WowView::Unknown => "If the game is running, type /reload in its chat to load it.",
+                        WowView::Shown { .. } => "Type /reload in the game's chat to load the addon.",
+                        WowView::Hidden => "The game loads the addon the next time it starts.",
+                        WowView::Unknown => "If the game is running, type /reload in its chat to load the addon.",
                     });
                 }
                 Prompt::NoStrip => {
@@ -1182,7 +1204,8 @@ impl TranslateApp {
                     let selected = self.tab == tab;
                     let color = if selected { Color32::WHITE } else { theme::GOLD };
                     // A dot on the Update tab while there is something to do there.
-                    let dot = if tab == Tab::Update && self.updates.advice != Advice::Nothing { " •" } else { "" };
+                    let newer = self.updates.releases.first().is_some_and(|newest| newest.version > Version::own());
+                    let dot = if tab == Tab::Update && (newer || self.updates.advice != Advice::Nothing) { " •" } else { "" };
                     let text = ui.painter().layout_no_wrap(format!("{name}{dot}"), theme::heading_font(15.0), color);
                     let (rect, response) = ui.allocate_exact_size(text.size() + egui::vec2(28.0, 14.0), egui::Sense::click());
                     // The other tabs are a little lower and darker.
@@ -1481,6 +1504,7 @@ impl TranslateApp {
             self.restart = false;
             self.start_again(ctx, true);
         }
+        name_release(&mut self.draft);
         let updates = &mut self.updates;
         if updates.asked.is_none_or(|asked| asked.elapsed() > RELEASES_EVERY) {
             updates.asked = Some(Instant::now());
@@ -1534,19 +1558,25 @@ impl TranslateApp {
         }
     }
 
-    /// Once, when the releases first arrive: updates without asking, if the settings
-    /// say so. An addon that is not installed at all is only offered.
+    /// Each time the releases arrive, which is when the companion starts and every half
+    /// hour after: updates without asking, if the settings say so. Only to a newer
+    /// release, and an addon that is not installed at all is only offered. Not with the
+    /// first releases after an update, so that one that did not take is not tried over
+    /// and over.
     fn update_unasked(&mut self) {
         let first = !std::mem::replace(&mut self.updates.started, true);
-        let held_back = std::env::var_os(config::JUST_UPDATED).is_some() || std::env::var_os("TRANSLATE_SHOTS").is_some();
-        if !first || !self.draft.auto_update || held_back {
+        let just_updated = first && std::env::var_os(config::JUST_UPDATED).is_some();
+        let pictured = std::env::var_os("TRANSLATE_SHOTS").is_some();
+        if !self.draft.auto_update || just_updated || pictured || self.updates.step.is_some() {
             return;
         }
         // The advice was worked out before these releases arrived.
-        let target = update::target(&self.updates.releases, &self.draft.version).map(|release| release.version);
-        self.updates.advice = update::advice(Version::own(), target, &self.updates.addon, None, false);
+        let own = Version::own();
+        let target = update::target(&self.updates.releases, "").map(|release| release.version);
+        self.updates.advice = update::advice(own, target, &self.updates.addon, None, false);
+        let newer = matches!(self.updates.advice, Advice::Update(version) if version > own);
         let outdated_addon = self.updates.advice == Advice::InstallAddon && matches!(self.updates.addon, Addon::Installed(_));
-        if matches!(self.updates.advice, Advice::Update(_)) || outdated_addon {
+        if newer || outdated_addon {
             self.start_update();
         }
     }
@@ -1584,7 +1614,10 @@ impl TranslateApp {
         let own = Version::own();
         let busy = self.updates.step.is_some();
         let (text, color, action) = match self.updates.advice {
-            Advice::Nothing => ("Nothing to do.".to_string(), theme::GOOD, None),
+            Advice::Nothing => match self.updates.releases.first().filter(|newest| newest.version > own) {
+                Some(newest) => (format!("v{} is out. Pick it under \"Release to use\" to update.", newest.version), theme::GOLD, None),
+                None => ("Nothing to do.".to_string(), theme::GOOD, None),
+            },
             Advice::Update(version) => {
                 let (word, action) = if version > own { ("newer", format!("Update to v{version}")) } else { ("older", format!("Go back to v{version}")) };
                 let permission = if cfg!(target_os = "macos") {
@@ -1659,19 +1692,34 @@ impl TranslateApp {
         self.advice(ui);
         ui.add_space(10.0);
 
+        if ui
+            .checkbox(&mut self.draft.auto_update, "Update automatically")
+            .on_hover_text("Looks for a new release when the companion starts and every half hour, and puts it in place without asking: the addon first, then the companion, which starts again and says to type /reload. Settings are kept.")
+            .changed()
+            && self.draft.auto_update
+        {
+            // Looks for a new release at once.
+            self.updates.asked = None;
+        }
         ui.label(theme::label("Release to use"));
-        let chosen = Version::parse(&self.draft.version);
-        let shown = chosen.map_or("The newest".to_string(), |version| format!("v{version}"));
-        egui::ComboBox::from_id_salt("release").width(ui.available_width()).selected_text(shown).show_ui(ui, |ui| {
-            ui.selectable_value(&mut self.draft.version, String::new(), "The newest");
-            for release in self.updates.releases.iter().filter(|release| release.version >= update::OLDEST_OFFERED) {
-                ui.selectable_value(&mut self.draft.version, release.version.to_string(), format!("v{}", release.version));
-            }
-        })
-        .response
-        .on_hover_text(format!("Stay on an earlier release if a newer one misbehaves. Releases before v{} cannot update themselves and are not offered.", update::OLDEST_OFFERED));
-        ui.checkbox(&mut self.draft.auto_update, "Update when the companion starts")
-            .on_hover_text("When the companion starts and finds that it or the addon is not the release to use, it puts that release in place without asking, and starts again.");
+        let named = |version: Version| format!("v{version}{}", if version == own { " (currently installed)" } else { "" });
+        let automatic = self.draft.auto_update;
+        let shown = match Version::parse(&self.draft.version) {
+            Some(version) if !automatic => named(version),
+            _ => "The newest".to_string(),
+        };
+        ui.add_enabled_ui(!automatic, |ui| {
+            egui::ComboBox::from_id_salt("release").width(ui.available_width()).selected_text(shown).show_ui(ui, |ui| {
+                ui.selectable_value(&mut self.draft.version, own.to_string(), named(own));
+                let offered = |release: &&update::Release| release.version >= update::OLDEST_OFFERED && release.version != own;
+                for release in self.updates.releases.iter().filter(offered) {
+                    ui.selectable_value(&mut self.draft.version, release.version.to_string(), named(release.version));
+                }
+            })
+            .response
+            .on_hover_text(format!("Pick a newer release to update to it, or an earlier one if a newer one misbehaves. Releases before v{} cannot update themselves and are not offered.", update::OLDEST_OFFERED))
+            .on_disabled_hover_text("Updating automatically follows the newest release.");
+        });
     }
 
     /// Why the overlay is not showing on the chosen tab, if it is not.
