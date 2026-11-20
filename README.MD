@@ -78,7 +78,7 @@ Restart the client if "Nai Ma Speak" does not appear in the addon list. If retai
 
 ### The companion
 
-Give it a folder of its own: it keeps `config.json`, `translate.log` and `backlog.json` next to the program (next to the `.app` on macOS). `config.json` holds your API keys in plain text, and `backlog.json` the overlay's recent chat lines.
+Give it a folder of its own: it keeps `config.json`, `nai-ma-speak.log` and `backlog.json` next to the program (next to the `.app` on macOS). `config.json` holds your API keys in plain text, and `backlog.json` the overlay's recent chat lines.
 
 - **macOS:** unzip `Nai-Ma-Speak-macos.zip`. The app is not signed by a registered developer, so macOS refuses to open it the first time. To let it through, do one of these once:
   - Right-click (or Control-click) the app and choose **Open**, then **Open** again in the dialog.
@@ -91,7 +91,7 @@ Give it a folder of its own: it keeps `config.json`, `translate.log` and `backlo
 
 ### Building it yourself
 
-It needs Rust 1.95 or newer. On macOS, `./macos-app.sh <folder>` inside `companion/` builds `Nai Ma Speak.app` into that folder; run `./macos-signing-cert.sh` once beforehand to sign your builds with a local certificate, so the Screen Recording permission survives rebuilds. Elsewhere, `cargo build --release` inside `companion/` makes `target/release/translate-companion`; Linux also needs the PipeWire, X11 and Wayland development packages listed in `.github/workflows/build.yml`.
+It needs Rust 1.95 or newer. On macOS, `./macos-app.sh <folder>` inside `companion/` builds `Nai Ma Speak.app` into that folder; run `./macos-signing-cert.sh` once beforehand to sign your builds with a local certificate, so the Screen Recording permission survives rebuilds. Elsewhere, `cargo build --release` inside `companion/` makes `target/release/nai-ma-speak`; Linux also needs the PipeWire, X11 and Wayland development packages listed in `.github/workflows/build.yml`.
 
 Run WoW in **windowed** or **windowed (fullscreen)** mode: overlays cannot draw over exclusive fullscreen, and screen capture may see a black screen there.
 
@@ -142,8 +142,8 @@ Chat lines are sent to whichever backend you choose. Only a local model keeps th
 ## Troubleshooting
 
 - **The overlay stays empty.** Open the Status tab: it says whether the addon is installed, whether the pixel strip was found, and whether it can be read. When the game has been in front for a while without a strip, the companion comes forward to say so: tick Nai Ma Speak in the game's AddOns list, type `/reload`, and keep the strip uncovered. "Found, but cannot read it" with a note about the palette row means the addon is older than the companion: update both from the same release. With a note about frames failing their check, something changes the strip on its way to the companion, often another program's overlay drawn over that corner: send the Status tab's Copy report. The strip must be visible in the game, in the top-left corner unless moved, and on macOS the companion needs the Screen Recording permission. `/tr /probe` in the game reports what the addon found, and `/tr /test` sends a line through.
-- **To check a screenshot for the strip,** run `translate-companion --decode screenshot.png`.
-- **The companion froze or misbehaved.** `translate.log`, next to `config.json`, records crashes, stalls, translation errors and what happened to the strip and the chat tabs. **Copy report** on the Status tab copies it with your settings, without the API keys.
+- **To check a screenshot for the strip,** run `nai-ma-speak --decode screenshot.png`.
+- **The companion froze or misbehaved.** `nai-ma-speak.log`, next to `config.json`, records crashes, stalls, translation errors and what happened to the strip and the chat tabs. **Copy report** on the Status tab copies it with your settings, without the API keys.
 
 ## Known limits
 

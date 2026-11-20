@@ -12,14 +12,14 @@ version="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)"
 binary="${COMPANION_BINARY:-}"
 if [ -z "$binary" ]; then
     cargo build --release --locked
-    binary=target/release/translate-companion
+    binary=target/release/nai-ma-speak
 fi
 
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 app="$work/Nai Ma Speak.app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
-cp "$binary" "$app/Contents/MacOS/translate-companion"
+cp "$binary" "$app/Contents/MacOS/nai-ma-speak"
 
 icons="$work/icon.iconset"
 mkdir "$icons"
@@ -36,8 +36,8 @@ cat > "$app/Contents/Info.plist" <<PLIST
 <dict>
     <key>CFBundleName</key><string>Nai Ma Speak</string>
     <key>CFBundleDisplayName</key><string>Nai Ma Speak</string>
-    <key>CFBundleIdentifier</key><string>com.github.norswap.translate-companion</string>
-    <key>CFBundleExecutable</key><string>translate-companion</string>
+    <key>CFBundleIdentifier</key><string>com.github.norswap.nai-ma-speak</string>
+    <key>CFBundleExecutable</key><string>nai-ma-speak</string>
     <key>CFBundleIconFile</key><string>icon</string>
     <key>CFBundlePackageType</key><string>APPL</string>
     <key>CFBundleShortVersionString</key><string>$version</string>
@@ -53,7 +53,7 @@ PLIST
 # signature stays the same from build to build, so the permission is granted once.
 # Without it the app gets an ad-hoc signature and needs the permission again after
 # every build (clear the old one with: tccutil reset ScreenCapture <bundle id>).
-identity="${TRANSLATE_SIGN_IDENTITY:-Translate Local Signing}"
+identity="${NAIMASPEAK_SIGN_IDENTITY:-Nai Ma Speak Local Signing}"
 if security find-certificate -c "$identity" >/dev/null 2>&1; then
     codesign --force --sign "$identity" "$app" 2>/dev/null
     echo "Signed as \"$identity\""

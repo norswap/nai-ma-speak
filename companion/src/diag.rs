@@ -1,4 +1,4 @@
-//! A log file beside the settings, `translate.log`, for what cannot be seen from outside:
+//! A log file beside the settings, `nai-ma-speak.log`, for what cannot be seen from outside:
 //! panics, a window pass that never finishes, passes that run without pause, and what
 //! became of the pixel strip and the translations. It holds no chat and no keys, so its
 //! end can go into a report of a problem as it is.
@@ -24,7 +24,7 @@ fn started() -> Instant {
 }
 
 fn path() -> std::path::PathBuf {
-    crate::config::path().with_file_name("translate.log")
+    crate::config::path().with_file_name("nai-ma-speak.log")
 }
 
 /// Appends a line, stamped with the seconds since the companion started.

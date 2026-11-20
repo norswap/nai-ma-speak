@@ -38,4 +38,4 @@ body:
     id: probe
     attributes:
       label: /tr probe output, errors or screenshots
-      description: For strip problems, attach a screenshot and the output of `translate-companion --decode screenshot.png`.
+      description: For strip problems, attach a screenshot and the output of `nai-ma-speak --decode screenshot.png`.

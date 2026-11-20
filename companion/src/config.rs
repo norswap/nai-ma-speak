@@ -248,7 +248,7 @@ fn config_dir(exe: &Path) -> Option<&Path> {
 /// Set for a copy of the companion started right after an update, which then does not
 /// update by itself: a release that does not turn out as its number says would
 /// otherwise be put in place over and over.
-pub const JUST_UPDATED: &str = "TRANSLATE_JUST_UPDATED";
+pub const JUST_UPDATED: &str = "NAIMASPEAK_JUST_UPDATED";
 
 /// Starts a second copy of the companion, for the caller to then quit. An app bundle is
 /// opened as one, so the new copy is the same app to macOS and keeps its permissions.
@@ -336,11 +336,11 @@ mod tests {
     #[test]
     fn config_sits_beside_the_program_or_its_app_bundle() {
         let dir = |exe: &str| config_dir(Path::new(exe)).unwrap().to_str().unwrap().to_owned();
-        assert_eq!(dir("/opt/nms/translate-companion"), "/opt/nms");
+        assert_eq!(dir("/opt/nms/nai-ma-speak"), "/opt/nms");
         assert_eq!(
-            dir("/opt/nms/Nai Ma Speak.app/Contents/MacOS/translate-companion"),
+            dir("/opt/nms/Nai Ma Speak.app/Contents/MacOS/nai-ma-speak"),
             "/opt/nms"
         );
-        assert_eq!(dir("/opt/Contents/MacOS/translate-companion"), "/opt/Contents/MacOS");
+        assert_eq!(dir("/opt/Contents/MacOS/nai-ma-speak"), "/opt/Contents/MacOS");
     }
 }

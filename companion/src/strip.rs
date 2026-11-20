@@ -250,7 +250,7 @@ fn read_locked(monitor: &Monitor, lock: Lock) -> (Decoded, Option<RgbaImage>) {
 /// Polls the screen: a full scan about once a second until the strip turns
 /// up, then only the strip's own rectangle several times a second.
 ///
-/// Set TRANSLATE_DUMP=1 to save each full scan as translate-capture-<n>.png
+/// Set NAIMASPEAK_DUMP=1 to save each full scan as nai-ma-speak-capture-<n>.png
 /// in the working directory and log what was captured, for `--decode`.
 /// `jobs` is the queue for chat lines as they come, `asked` the one for what the player
 /// asks for and waits on.
@@ -288,7 +288,7 @@ pub fn spawn(jobs: Sender<Job>, asked: Sender<Job>, ui: UiSender) {
         let mut unread_since: Option<Instant> = None;
         let mut told = String::new();
         let mut said_capture_error = false;
-        let dump = std::env::var_os("TRANSLATE_DUMP").is_some();
+        let dump = std::env::var_os("NAIMASPEAK_DUMP").is_some();
         let mut pictured = false;
 
         loop {
@@ -317,7 +317,7 @@ pub fn spawn(jobs: Sender<Job>, asked: Sender<Job>, ui: UiSender) {
                         }
                     };
                     if dump {
-                        let path = format!("translate-capture-{}.png", index + 1);
+                        let path = format!("nai-ma-speak-capture-{}.png", index + 1);
                         eprintln!(
                             "screen {}: {}x{} points, scale {}, captured {}x{} px, saved to {path}",
                             index + 1,

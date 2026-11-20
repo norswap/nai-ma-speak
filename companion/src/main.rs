@@ -47,7 +47,7 @@ fn decode_file(path: &str) {
     }
 }
 
-/// For a picture of the overlay at work: with TRANSLATE_GAME_SHOT set to a file, saves
+/// For a picture of the overlay at work: with NAIMASPEAK_GAME_SHOT set to a file, saves
 /// the game's window as it is on screen, with whatever is drawn over it, and quits. A
 /// copy of the companion that is already running keeps drawing the overlay meanwhile.
 fn game_shot(path: &std::path::Path) -> Result<(), String> {
@@ -70,13 +70,13 @@ fn game_shot(path: &std::path::Path) -> Result<(), String> {
 }
 
 fn main() -> eframe::Result {
-    // `translate-companion --decode shot.png` reads a strip from a screenshot.
+    // `nai-ma-speak --decode shot.png` reads a strip from a screenshot.
     let args: Vec<String> = std::env::args().collect();
     if args.len() == 3 && args[1] == "--decode" {
         decode_file(&args[2]);
         return Ok(());
     }
-    if let Some(path) = std::env::var_os("TRANSLATE_GAME_SHOT") {
+    if let Some(path) = std::env::var_os("NAIMASPEAK_GAME_SHOT") {
         if let Err(problem) = game_shot(std::path::Path::new(&path)) {
             eprintln!("no picture of the game: {problem}");
         }
@@ -127,7 +127,7 @@ fn main() -> eframe::Result {
             if cfg!(target_os = "macos") {
                 diag::log(format!("wheel: {}", if own_wheel { "hearing the system's scroll events" } else { "left to the addon" }));
             }
-            Ok(Box::new(app::TranslateApp::new(config, ui_rx, interactive_tx, ui, own_wheel)))
+            Ok(Box::new(app::CompanionApp::new(config, ui_rx, interactive_tx, ui, own_wheel)))
         }),
     )
 }

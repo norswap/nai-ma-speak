@@ -106,7 +106,7 @@ impl OverlayLine {
     }
 }
 
-pub struct TranslateApp {
+pub struct CompanionApp {
     config: Arc<Mutex<Config>>,
     draft: Config,
     events: Receiver<UiEvent>,
@@ -284,7 +284,7 @@ const SAVE_AFTER: Duration = Duration::from_millis(500);
 /// How long the overlay says a reply was copied.
 const COPIED_SHOWN: Duration = Duration::from_secs(6);
 /// How far above the chat window the reply box opens, past the tab row.
-const REPLY_BOX_TITLE: &str = "Translate reply";
+const REPLY_BOX_TITLE: &str = "Nai Ma Speak reply";
 const REPLY_BOX_GAP: f32 = 34.0;
 
 /// Draws a window of its own, as `show_viewport_immediate` does, and says whether it did.
@@ -404,7 +404,7 @@ fn overlay_id() -> ViewportId {
     ViewportId::from_hash_of("overlay")
 }
 
-impl TranslateApp {
+impl CompanionApp {
     pub fn new(
         config: Arc<Mutex<Config>>,
         events: Receiver<UiEvent>,
@@ -696,10 +696,10 @@ impl TranslateApp {
         }
     }
 
-    /// For looking at the window without sitting at the screen: with TRANSLATE_SHOTS set
+    /// For looking at the window without sitting at the screen: with NAIMASPEAK_SHOTS set
     /// to a folder, saves a picture of this window on each tab and of the reply box there, then quits.
     fn shots(&mut self, ctx: &egui::Context) {
-        let Some(folder) = std::env::var_os("TRANSLATE_SHOTS") else {
+        let Some(folder) = std::env::var_os("NAIMASPEAK_SHOTS") else {
             return;
         };
         ctx.request_repaint_after(Duration::from_millis(100));
@@ -988,7 +988,7 @@ impl TranslateApp {
     /// not installed, soon after the companion starts, and that the game shows no pixel
     /// strip, once it has been in front without one for a while. Each once.
     fn raise_prompts(&mut self, ctx: &egui::Context) {
-        if std::env::var_os("TRANSLATE_SHOTS").is_some() {
+        if std::env::var_os("NAIMASPEAK_SHOTS").is_some() {
             return;
         }
         let looking = self.strip_status == crate::strip::LOOKING;
@@ -1577,7 +1577,7 @@ impl TranslateApp {
     fn update_unasked(&mut self) {
         let first = !std::mem::replace(&mut self.updates.started, true);
         let just_updated = first && std::env::var_os(config::JUST_UPDATED).is_some();
-        let pictured = std::env::var_os("TRANSLATE_SHOTS").is_some();
+        let pictured = std::env::var_os("NAIMASPEAK_SHOTS").is_some();
         if !self.draft.auto_update || just_updated || pictured || self.updates.step.is_some() {
             return;
         }
@@ -1800,7 +1800,7 @@ impl TranslateApp {
         let hidden = covered || waiting || anchor.as_ref().is_some_and(|window| !window.shown);
         self.overlay_area = area.filter(|_| locked && !hidden);
         let builder = ViewportBuilder::default()
-            .with_title("Translate overlay")
+            .with_title("Nai Ma Speak overlay")
             .with_decorations(false)
             .with_transparent(true)
             .with_always_on_top()
@@ -1923,7 +1923,7 @@ impl TranslateApp {
     }
 }
 
-impl eframe::App for TranslateApp {
+impl eframe::App for CompanionApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
         self.passes.begin();
@@ -1934,7 +1934,7 @@ impl eframe::App for TranslateApp {
         self.control_panel(ui);
         self.window_visibility(&ctx);
         // A copy started only to be pictured must not put a second overlay over the game.
-        if std::env::var_os("TRANSLATE_SHOTS").is_none() {
+        if std::env::var_os("NAIMASPEAK_SHOTS").is_none() {
             self.overlay(&ctx);
         }
         self.reply_box(&ctx);

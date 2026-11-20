@@ -199,7 +199,7 @@ mod tests {
         assert!(is_wow("", r"C:\Games\World of Warcraft\_classic_beta_\WowClassicB.exe"));
         assert!(is_wow("World of Warcraft", "wine64-preloader"));
         assert!(is_wow("", "Wow"));
-        assert!(!is_wow("Translate", "translate-companion"));
+        assert!(!is_wow("Translate", "nai-ma-speak"));
         assert!(!is_wow("Discord", "Discord.exe"));
     }
 
@@ -208,7 +208,7 @@ mod tests {
         let overlay = Some([100.0, 600.0, 500.0, 250.0]);
         let wow = window("Wow", 0, [0.0, 30.0, 1920.0, 1050.0]);
         let menu_bar = window("Window Server", 24, [0.0, 0.0, 1920.0, 30.0]);
-        let own_overlay = window("translate-companion", 3, [100.0, 600.0, 500.0, 250.0]);
+        let own_overlay = window("nai-ma-speak", 3, [100.0, 600.0, 500.0, 250.0]);
         let floating_tool = window("Dictation", 1000, [0.0, 0.0, 1920.0, 1080.0]);
         let above = [menu_bar, floating_tool, own_overlay];
         let with = |front: &[Window], behind: &[Window]| {

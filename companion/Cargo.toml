@@ -1,5 +1,5 @@
 [package]
-name = "translate-companion"
+name = "nai-ma-speak"
 version = "0.3.0"
 edition = "2021"
 description = "Reads the WoW chat log, translates Chinese chat to English, and shows it in an overlay."
