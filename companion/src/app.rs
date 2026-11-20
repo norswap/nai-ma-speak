@@ -447,7 +447,7 @@ impl TranslateApp {
                 step: None,
                 found: update::addon_folders(),
                 folder: None,
-                addon: Addon::Missing,
+                addon: Addon::Unknown,
                 read: None,
                 heard: None,
                 advice: Advice::Nothing,
@@ -955,7 +955,7 @@ impl TranslateApp {
     /// or from each of several games' folders. With no folder known, nothing is.
     fn addon_missing(&self) -> bool {
         let updates = &self.updates;
-        updates.addon == Addon::Missing && (updates.folder.is_some() || updates.found.len() > 1)
+        updates.addon == Addon::Missing || (updates.addon == Addon::Unknown && updates.found.len() > 1)
     }
 
     /// Raises what the player should be told without having asked: that the addon is
@@ -1488,7 +1488,7 @@ impl TranslateApp {
         }
         let folder = update::addons_folder(&self.draft.addons_folder, &updates.found);
         if folder != updates.folder || updates.read.is_none_or(|read| read.elapsed() > ADDON_EVERY) {
-            updates.addon = folder.as_deref().map_or(Addon::Missing, update::addon_in);
+            updates.addon = folder.as_deref().map_or(Addon::Unknown, update::addon_in);
             updates.folder = folder;
             updates.read = Some(Instant::now());
         }
@@ -1545,7 +1545,7 @@ impl TranslateApp {
         // The advice was worked out before these releases arrived.
         let target = update::target(&self.updates.releases, &self.draft.version).map(|release| release.version);
         self.updates.advice = update::advice(Version::own(), target, &self.updates.addon, None, false);
-        let outdated_addon = self.updates.advice == Advice::InstallAddon && self.updates.addon != Addon::Missing;
+        let outdated_addon = self.updates.advice == Advice::InstallAddon && matches!(self.updates.addon, Addon::Installed(_));
         if matches!(self.updates.advice, Advice::Update(_)) || outdated_addon {
             self.start_update();
         }
@@ -1554,7 +1554,7 @@ impl TranslateApp {
     /// What the game's AddOns folder holds of the addon.
     fn addon_files(&self) -> String {
         match (&self.updates.folder, &self.updates.addon) {
-            (None, _) => "The game's AddOns folder was not found.".to_string(),
+            (None, _) | (_, Addon::Unknown) => "The game's AddOns folder was not found.".to_string(),
             (_, Addon::Missing) => "Not installed".into(),
             (_, Addon::Linked) => "A link to a folder elsewhere, which is left as it is".into(),
             (_, Addon::Installed(Some(version))) => format!("v{version}"),
@@ -1596,7 +1596,7 @@ impl TranslateApp {
                 (text, theme::GOLD, Some(action))
             }
             Advice::InstallAddon => {
-                let action = if self.updates.addon == Addon::Missing { "Install the addon" } else { "Update the addon" };
+                let action = if matches!(self.updates.addon, Addon::Installed(_)) { "Update the addon" } else { "Install the addon" };
                 let text = if self.addon_missing() {
                     "The addon is not installed in the game; the companion reads the chat through it.".to_string()
                 } else {

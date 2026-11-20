@@ -100,6 +100,9 @@ pub fn target<'a>(releases: &'a [Release], chosen: &str) -> Option<&'a Release> 
 /// What the game's AddOns folder holds of the addon.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Addon {
+    /// No AddOns folder is known, so there is nowhere to look.
+    Unknown,
+    /// The AddOns folder holds no addon.
     Missing,
     /// A link to a folder elsewhere, as a developer sets up. It is never replaced.
     Linked,
@@ -172,7 +175,9 @@ pub fn advice(own: Version, target: Option<Version>, addon: &Addon, game: Option
     }
     let is_own = |version: &str| Version::parse(version) == Some(own);
     match (addon, game) {
-        (Addon::Missing, None) => Advice::InstallAddon,
+        // Files that are gone are put back even while the game still runs them from
+        // memory. With no folder known, a game that runs the addon has it somewhere.
+        (Addon::Missing, _) | (Addon::Unknown, None) => Advice::InstallAddon,
         (Addon::Installed(version), _) if *version != Some(own) => Advice::InstallAddon,
         (_, Some(game)) if !is_own(&game.running) => Advice::Reload,
         (_, Some(game)) if !is_own(&game.listed) => Advice::RestartGame,
@@ -416,8 +421,11 @@ mod tests {
         assert_eq!(advice(own, Some(own), &older, Some(&game("0.3.0", "0.3.0")), false), Advice::InstallAddon);
         assert_eq!(advice(own, None, &Addon::Installed(None), None, false), Advice::InstallAddon);
         assert_eq!(advice(own, None, &Addon::Missing, None, false), Advice::InstallAddon);
+        assert_eq!(advice(own, None, &Addon::Unknown, None, false), Advice::InstallAddon);
         // The game runs the addon from a folder the companion does not know.
-        assert_eq!(advice(own, None, &Addon::Missing, Some(&game("0.4.0", "0.4.0")), false), Advice::Nothing);
+        assert_eq!(advice(own, None, &Addon::Unknown, Some(&game("0.4.0", "0.4.0")), false), Advice::Nothing);
+        // The files were removed while the game runs: it still has them in memory.
+        assert_eq!(advice(own, None, &Addon::Missing, Some(&game("0.4.0", "0.4.0")), false), Advice::InstallAddon);
         assert_eq!(advice(own, Some(own), &right, Some(&game("0.3.0", "0.3.0")), false), Advice::Reload);
         assert_eq!(advice(own, Some(own), &right, Some(&game("0.4.0", "0.3.0")), false), Advice::RestartGame);
         assert_eq!(advice(own, Some(own), &right, None, true), Advice::Reload, "an addon too old to say its version");
