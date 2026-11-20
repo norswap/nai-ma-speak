@@ -61,7 +61,8 @@ function ns.SayVersion()
     local metadata = (C_AddOns and C_AddOns.GetAddOnMetadata) or GetAddOnMetadata
     local listed = metadata and metadata(addonName, "Version")
     -- With the character's name, which the companion can keep each one's chat by.
-    local character = UnitName and UnitName("player")
+    -- UnitFullName gives both of a WoW: Forever character's names, where UnitName gives the first.
+    local character = (UnitFullName and UnitFullName("player")) or (UnitName and UnitName("player"))
     if type(character) ~= "string" or ns.IsSecret(character) then character = "" end
     ns.SendToStrip("V\t" .. ns.VERSION .. "\t" .. (type(listed) == "string" and listed or "") .. "\t" .. character, "V\t")
 end

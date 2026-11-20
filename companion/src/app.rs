@@ -389,6 +389,24 @@ fn row_format(font: egui::FontId, row: f32, color: Color32) -> TextFormat {
     TextFormat { line_height: Some(row), ..TextFormat::simple(font, color) }
 }
 
+/// One tab of a row: its name in a shape open at the bottom. The chosen one has its
+/// page's color, to be joined to it; the others are a little lower and of another color.
+fn tab_shape(ui: &mut egui::Ui, name: &str, selected: bool, page: Color32, other: Color32) -> egui::Response {
+    let color = if selected { Color32::WHITE } else { theme::GOLD };
+    let text = ui.painter().layout_no_wrap(name.to_string(), theme::heading_font(15.0), color);
+    let (rect, response) = ui.allocate_exact_size(text.size() + egui::vec2(28.0, 14.0), egui::Sense::click());
+    let shape = if selected { rect } else { rect.with_min_y(rect.top() + 3.0) };
+    let (fill, edge) = match (selected, response.hovered()) {
+        (true, _) => (page, theme::BORDER),
+        (false, true) => (page, theme::BORDER_FIELD),
+        (false, false) => (other, theme::BORDER_DIM),
+    };
+    let corners = egui::CornerRadius { nw: 6, ne: 6, sw: 0, se: 0 };
+    ui.painter().rect(shape, corners, fill, egui::Stroke::new(1.0, edge), egui::StrokeKind::Inside);
+    ui.painter().galley(shape.center() - text.size() / 2.0, text, color);
+    response
+}
+
 fn slider<N: egui::emath::Numeric>(ui: &mut egui::Ui, name: &str, value: &mut N, range: std::ops::RangeInclusive<N>) {
     ui.label(theme::label(name));
     ui.add(egui::Slider::new(value, range));
@@ -1298,23 +1316,11 @@ impl CompanionApp {
                 ui.spacing_mut().item_spacing.x = 4.0;
                 for (tab, name) in Tab::ALL {
                     let selected = self.tab == tab;
-                    let color = if selected { Color32::WHITE } else { theme::GOLD };
                     // A dot on the Update tab while there is something to do there.
                     let dot = if tab == Tab::Update && self.updates.advice != Advice::Nothing { " •" } else { "" };
-                    let text = ui.painter().layout_no_wrap(format!("{name}{dot}"), theme::heading_font(15.0), color);
-                    let (rect, response) = ui.allocate_exact_size(text.size() + egui::vec2(28.0, 14.0), egui::Sense::click());
-                    // The other tabs are a little lower and darker.
-                    let shape = if selected { rect } else { rect.with_min_y(rect.top() + 3.0) };
-                    let (fill, edge) = match (selected, response.hovered()) {
-                        (true, _) => (theme::BACKGROUND, theme::BORDER),
-                        (false, true) => (theme::BACKGROUND, theme::BORDER_FIELD),
-                        (false, false) => (theme::FIELD, theme::BORDER_DIM),
-                    };
-                    let corners = egui::CornerRadius { nw: 6, ne: 6, sw: 0, se: 0 };
-                    ui.painter().rect(shape, corners, fill, egui::Stroke::new(1.0, edge), egui::StrokeKind::Inside);
-                    ui.painter().galley(shape.center() - text.size() / 2.0, text, color);
+                    let response = tab_shape(ui, &format!("{name}{dot}"), selected, theme::BACKGROUND, theme::FIELD);
                     if selected {
-                        chosen = rect;
+                        chosen = response.rect;
                     }
                     if response.clicked() {
                         self.tab = tab;
@@ -1513,8 +1519,8 @@ impl CompanionApp {
     fn history_tab(&mut self, ui: &mut egui::Ui) {
         ui.checkbox(&mut self.draft.chat_per_character, "Keep each character's chat apart")
             .on_hover_text("The overlay shows the lines of the character you are playing, and this tab has a list for each. Unticked, all characters share one.");
-        let of = self.history_character(ui);
-        theme::boxed().show(ui, |ui| {
+        let (of, chosen) = self.history_character(ui);
+        let list = theme::boxed().show(ui, |ui| {
             let room = (ui.available_height() - 60.0).max(160.0);
             let scroll = egui::ScrollArea::vertical().id_salt("history").max_height(room).stick_to_bottom(true);
             scroll.auto_shrink([false, true]).show(ui, |ui| {
@@ -1532,13 +1538,19 @@ impl CompanionApp {
                 }
             });
         });
+        if let Some(chosen) = chosen {
+            // The chosen character's tab is open onto its list.
+            let gap = (chosen.left() + 1.0)..=(chosen.right() - 1.0);
+            ui.painter().hline(gap, list.response.rect.top() + 0.5, egui::Stroke::new(1.0, theme::FIELD));
+        }
         let each = if self.draft.chat_per_character { " for each character" } else { "" };
         ui.label(RichText::new(format!("Holds as many lines as \"Lines kept\" on the Overlay tab{each}.")).color(theme::MUTED));
     }
 
-    /// With chat kept apart, a row to pick whose lines the Chat history tab shows: the
-    /// characters that have lines, and the one played. Gives the one picked.
-    fn history_character(&mut self, ui: &mut egui::Ui) -> String {
+    /// With chat kept apart, a row of tabs to pick whose lines the Chat history tab shows:
+    /// the characters that have lines, and the one played. Gives the one picked, and
+    /// where its tab is.
+    fn history_character(&mut self, ui: &mut egui::Ui) -> (String, Option<egui::Rect>) {
         let mut characters: Vec<&str> = Vec::new();
         for character in self.lines.iter().map(|line| line.character.as_str()).chain([self.character.as_str()]) {
             if !characters.contains(&character) {
@@ -1546,19 +1558,28 @@ impl CompanionApp {
             }
         }
         let mut of = self.history_of.clone().filter(|of| characters.contains(&of.as_str())).unwrap_or_else(|| self.character.clone());
+        let mut chosen = None;
         // Not for a lone character nobody has named: before the addon is heard from.
         if self.draft.chat_per_character && characters != [""] {
-            ui.horizontal_wrapped(|ui| {
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = 4.0;
+                ui.add_space(8.0);
                 for character in characters {
                     let label = if character.is_empty() { "Not known" } else { character };
-                    if ui.selectable_label(character == of, label).clicked() {
+                    let tab = tab_shape(ui, label, character == of, theme::FIELD, theme::BACKGROUND);
+                    if tab.clicked() {
                         of = character.to_string();
+                    }
+                    if character == of {
+                        chosen = Some(tab.rect);
                     }
                 }
             });
+            // The tabs stand on the list.
+            ui.add_space(-ui.spacing().item_spacing.y);
         }
         self.history_of = (of != self.character).then(|| of.clone());
-        of
+        (of, chosen)
     }
 
     /// How things stand, for a report of a problem: what the Status tab shows and the
