@@ -185,6 +185,13 @@ pub struct TranslateApp {
     updates: Updates,
     /// An update put a new companion in place of this one, which is to start it and quit.
     restart: bool,
+    prompt: Option<Prompt>,
+    /// Each is said once: that the addon is missing, that the game shows no strip.
+    install_offered: bool,
+    no_strip_said: bool,
+    /// Since when the game has been in front without its strip.
+    without_strip: Option<Instant>,
+    opened_at: Instant,
 }
 
 /// How often GitHub is asked for the releases while the companion runs.
@@ -217,6 +224,33 @@ struct Updates {
     /// The releases have arrived once, so updating without asking has had its turn.
     started: bool,
 }
+
+/// Something to tell the player in a box over the companion's window.
+#[derive(Clone, Copy, PartialEq)]
+enum Prompt {
+    /// The addon's files are not in the game: offers to put them there.
+    Install,
+    /// The addon was just put in place.
+    Installed,
+    /// The game is in front but shows no pixel strip.
+    NoStrip,
+}
+
+/// How long the game may be in front without its strip before the companion says so.
+/// The login and character screens, loading screens and cutscenes show none either.
+const NO_STRIP_AFTER: Duration = Duration::from_secs(25);
+/// How long after starting the companion looks for the strip before it asks about an
+/// addon whose files are missing.
+const INSTALL_ASKED_AFTER: Duration = Duration::from_secs(3);
+
+/// Why the game may show no strip, and what to do about it.
+const NO_STRIP_HELP: &[&str] = &[
+    "In the game's AddOns list (on the character screen, or Esc > AddOns), tick Nai Ma Speak. If it is greyed out, tick \"Load out of date AddOns\" too.",
+    "Type /reload in the game's chat.",
+    "Keep the strip visible: nothing may cover it.",
+    #[cfg(target_os = "macos")]
+    "Give the companion the Screen Recording permission, in System Settings > Privacy & Security.",
+];
 
 /// Where a reply typed in English stands.
 enum ReplyState {
@@ -420,6 +454,11 @@ impl TranslateApp {
                 started: false,
             },
             restart: false,
+            prompt: None,
+            install_offered: false,
+            no_strip_said: false,
+            without_strip: None,
+            opened_at: Instant::now(),
             draft,
         }
     }
@@ -577,6 +616,10 @@ impl TranslateApp {
                         Ok(()) => {
                             crate::diag::log(format!("updated to {version}{}", if companion { "" } else { ": the addon only" }));
                             self.restart = companion;
+                            if !companion {
+                                self.prompt = Some(Prompt::Installed);
+                                self.show_window = true;
+                            }
                         }
                         Err(problem) => self.updates.problem = format!("The update to v{version} failed: {problem}"),
                     }
@@ -905,6 +948,105 @@ impl TranslateApp {
         match config::start_again(just_updated) {
             Ok(()) => ctx.send_viewport_cmd_to(ViewportId::ROOT, ViewportCommand::Close),
             Err(e) => self.notice = format!("Could not restart: {e}"),
+        }
+    }
+
+    /// Whether the addon's files are known to be missing: from the game's AddOns folder,
+    /// or from each of several games' folders. With no folder known, nothing is.
+    fn addon_missing(&self) -> bool {
+        let updates = &self.updates;
+        updates.addon == Addon::Missing && (updates.folder.is_some() || updates.found.len() > 1)
+    }
+
+    /// Raises what the player should be told without having asked: that the addon is
+    /// not installed, soon after the companion starts, and that the game shows no pixel
+    /// strip, once it has been in front without one for a while. Each once.
+    fn raise_prompts(&mut self, ctx: &egui::Context) {
+        if std::env::var_os("TRANSLATE_SHOTS").is_some() {
+            return;
+        }
+        let looking = self.strip_status == crate::strip::LOOKING;
+        let missing = self.addon_missing();
+        let mut raise = None;
+        if missing && looking && !self.install_offered && self.opened_at.elapsed() > INSTALL_ASKED_AFTER {
+            raise = Some(Prompt::Install);
+        }
+        // In front: on screen with no ordinary window before it.
+        let in_front = matches!(&self.wow_view, WowView::Shown { covers } if covers.is_empty());
+        if in_front && looking {
+            let since = *self.without_strip.get_or_insert_with(Instant::now);
+            if !self.no_strip_said && since.elapsed() > NO_STRIP_AFTER {
+                self.no_strip_said = true;
+                raise = Some(if missing { Prompt::Install } else { Prompt::NoStrip });
+            } else if !self.no_strip_said {
+                ctx.request_repaint_after(Duration::from_secs(1));
+            }
+        } else {
+            self.without_strip = None;
+        }
+        if let Some(prompt) = raise.filter(|_| self.prompt.is_none()) {
+            self.install_offered |= prompt == Prompt::Install;
+            self.prompt = Some(prompt);
+            self.show_window = true;
+        }
+    }
+
+    /// The box for `prompt`, over the companion's window.
+    fn prompt_box(&mut self, ctx: &egui::Context) {
+        let Some(prompt) = self.prompt else {
+            return;
+        };
+        let frame = theme::popup(theme::BORDER).inner_margin(18);
+        let mut close = false;
+        let shown = egui::Modal::new(egui::Id::new("prompt")).frame(frame).show(ctx, |ui| {
+            ui.set_width(400.0);
+            let title = match prompt {
+                Prompt::Install => "The addon is not installed",
+                Prompt::Installed => "The addon is installed",
+                Prompt::NoStrip => "The game shows no pixel strip",
+            };
+            ui.label(RichText::new(title).font(theme::heading_font(18.0)).color(theme::GOLD));
+            match prompt {
+                Prompt::Install => {
+                    ui.label("The companion reads the game's chat through its addon, which is not in the game's AddOns folder.");
+                    self.addons_folder_choice(ui);
+                }
+                Prompt::Installed => {
+                    ui.label(match self.wow_view {
+                        WowView::Shown { .. } => "Type /reload in the game's chat to load it.",
+                        WowView::Hidden => "The game loads it the next time it starts.",
+                        WowView::Unknown => "If the game is running, type /reload in its chat to load it.",
+                    });
+                }
+                Prompt::NoStrip => {
+                    ui.label("The companion reads the game's chat from a small strip of colored squares that the addon draws, in the top-left corner of the game unless it was moved. It is nowhere on screen.");
+                    for help in NO_STRIP_HELP {
+                        ui.label(format!("• {help}"));
+                    }
+                }
+            }
+            // Why it cannot be installed yet: no folder to put it in, or no release to take it from.
+            let plan = self.update_plan();
+            if let (Prompt::Install, Err(problem)) = (prompt, &plan) {
+                ui.label(RichText::new(problem).color(theme::MUTED));
+            }
+            ui.add_space(6.0);
+            ui.horizontal(|ui| {
+                if prompt == Prompt::Install {
+                    if ui.add_enabled(plan.is_ok(), theme::button("Install the addon")).clicked() {
+                        self.start_update();
+                        // Where the installing is told, and what went wrong if something does.
+                        self.tab = Tab::Status;
+                        close = true;
+                    }
+                    close |= ui.add(theme::button("Not now")).clicked();
+                } else {
+                    close |= ui.add(theme::button("OK")).clicked();
+                }
+            });
+        });
+        if close || shown.should_close() {
+            self.prompt = None;
         }
     }
 
@@ -1297,6 +1439,16 @@ impl TranslateApp {
         ui.label(format!("{} · translating with {}", self.status, self.draft.backend.short_label()));
         ui.label(theme::label("Pixel strip"));
         ui.label(&self.strip_status);
+        if self.no_strip_said && self.strip_status == crate::strip::LOOKING {
+            for help in NO_STRIP_HELP {
+                ui.label(RichText::new(format!("• {help}")).color(theme::GOLD));
+            }
+        }
+        ui.label(theme::label("Addon"));
+        ui.label(self.addon_files());
+        if self.updates.advice != Advice::Nothing {
+            self.advice(ui);
+        }
         ui.label(theme::label("Chat windows"));
         if self.chat_windows.is_empty() {
             ui.label("Waiting for the addon to report the chat windows.");
@@ -1358,7 +1510,12 @@ impl TranslateApp {
             Advice::InstallAddon => {
                 let own = Version::own();
                 let release = updates.releases.iter().find(|release| release.version == own).cloned();
-                let release = release.ok_or(format!("This companion is v{own}, which is no release, so there is no addon to go with it."))?;
+                let unlisted = if updates.releases.is_empty() {
+                    "The releases are not known yet, so there is no addon to fetch.".to_string()
+                } else {
+                    format!("This companion is v{own}, which is no release, so there is no addon to go with it.")
+                };
+                let release = release.ok_or(unlisted)?;
                 let addons = addons.ok_or("Say where the game's AddOns folder is first.")?;
                 Ok(update::Plan { release, addons: Some(addons), companion: false })
             }
@@ -1394,37 +1551,24 @@ impl TranslateApp {
         }
     }
 
-    fn update_tab(&mut self, ui: &mut egui::Ui) {
-        let own = Version::own();
-        let busy = self.updates.step.is_some();
-        ui.label(theme::label("Companion"));
-        ui.label(format!("v{own}"));
-
-        ui.label(theme::label("Newest release"));
-        ui.horizontal(|ui| {
-            match self.updates.releases.first() {
-                Some(newest) => ui.label(format!("v{}", newest.version)),
-                None if self.updates.problem.is_empty() => ui.label("Asking GitHub"),
-                None => ui.label("Not known"),
-            };
-            if ui.add(theme::button("Look again")).clicked() {
-                self.updates.asked = None;
-            }
-        });
-
-        ui.label(theme::label("Addon in the game's folder"));
-        ui.label(match (&self.updates.folder, &self.updates.addon) {
+    /// What the game's AddOns folder holds of the addon.
+    fn addon_files(&self) -> String {
+        match (&self.updates.folder, &self.updates.addon) {
             (None, _) => "The game's AddOns folder was not found.".to_string(),
             (_, Addon::Missing) => "Not installed".into(),
             (_, Addon::Linked) => "A link to a folder elsewhere, which is left as it is".into(),
             (_, Addon::Installed(Some(version))) => format!("v{version}"),
             (_, Addon::Installed(None)) => "Installed, but its files name no version".into(),
-        });
+        }
+    }
+
+    /// The field for the game's AddOns folder and, while none is settled on, the folders
+    /// found to pick from: several kinds of the game are installed and none holds the addon yet.
+    fn addons_folder_choice(&mut self, ui: &mut egui::Ui) {
         let found = self.updates.folder.as_ref().map(|folder| folder.display().to_string()).unwrap_or_default();
         let hint = if found.is_empty() { "The game's Interface/AddOns folder".to_string() } else { found };
         ui.add(theme::field(&mut self.draft.addons_folder).hint_text(hint).desired_width(f32::INFINITY))
             .on_hover_text("Where the addon is installed: the Interface/AddOns folder of the game you play. Empty to use the one found.");
-        // Several kinds of the game are installed and none holds the addon yet.
         if self.updates.folder.is_none() {
             for folder in &self.updates.found {
                 if ui.link(folder.display().to_string()).clicked() {
@@ -1432,18 +1576,14 @@ impl TranslateApp {
                 }
             }
         }
+    }
 
-        ui.label(theme::label("Addon in the game"));
-        ui.label(match &self.addon_version {
-            Some(version) if version.running == version.listed => format!("v{}", version.running),
-            Some(version) => format!("v{}, in a game started with v{}", version.running, version.listed),
-            None if self.updates.heard.is_some_and(|heard| heard.elapsed() > SILENT_AFTER) => "Too old to say its version".into(),
-            None => "Not heard from: the game is not running, or the addon is not on".into(),
-        });
-        ui.add_space(10.0);
-
-        let advice = self.updates.advice;
-        let (text, color, action) = match advice {
+    /// What there is to do about the companion's and the addon's versions, with the
+    /// button that does it, and how an update under way is going.
+    fn advice(&mut self, ui: &mut egui::Ui) {
+        let own = Version::own();
+        let busy = self.updates.step.is_some();
+        let (text, color, action) = match self.updates.advice {
             Advice::Nothing => ("Nothing to do.".to_string(), theme::GOOD, None),
             Advice::Update(version) => {
                 let (word, action) = if version > own { ("newer", format!("Update to v{version}")) } else { ("older", format!("Go back to v{version}")) };
@@ -1457,7 +1597,12 @@ impl TranslateApp {
             }
             Advice::InstallAddon => {
                 let action = if self.updates.addon == Addon::Missing { "Install the addon" } else { "Update the addon" };
-                (format!("The companion needs the addon at v{own} too."), theme::GOLD, Some(action.to_string()))
+                let text = if self.addon_missing() {
+                    "The addon is not installed in the game; the companion reads the chat through it.".to_string()
+                } else {
+                    format!("The companion needs the addon at v{own} too.")
+                };
+                (text, theme::GOLD, Some(action.to_string()))
             }
             Advice::Reload => ("The game still runs the addon it had: type /reload in the game's chat.".to_string(), theme::GOLD, None),
             Advice::RestartGame => {
@@ -1477,6 +1622,38 @@ impl TranslateApp {
         if !self.updates.problem.is_empty() {
             ui.label(RichText::new(&self.updates.problem).color(theme::BAD));
         }
+    }
+
+    fn update_tab(&mut self, ui: &mut egui::Ui) {
+        let own = Version::own();
+        ui.label(theme::label("Companion"));
+        ui.label(format!("v{own}"));
+
+        ui.label(theme::label("Newest release"));
+        ui.horizontal(|ui| {
+            match self.updates.releases.first() {
+                Some(newest) => ui.label(format!("v{}", newest.version)),
+                None if self.updates.problem.is_empty() => ui.label("Asking GitHub"),
+                None => ui.label("Not known"),
+            };
+            if ui.add(theme::button("Look again")).clicked() {
+                self.updates.asked = None;
+            }
+        });
+
+        ui.label(theme::label("Addon in the game's folder"));
+        ui.label(self.addon_files());
+        self.addons_folder_choice(ui);
+
+        ui.label(theme::label("Addon in the game"));
+        ui.label(match &self.addon_version {
+            Some(version) if version.running == version.listed => format!("v{}", version.running),
+            Some(version) => format!("v{}, in a game started with v{}", version.running, version.listed),
+            None if self.updates.heard.is_some_and(|heard| heard.elapsed() > SILENT_AFTER) => "Too old to say its version".into(),
+            None => "Not heard from: the game is not running, or the addon is not on".into(),
+        });
+        ui.add_space(10.0);
+        self.advice(ui);
         ui.add_space(10.0);
 
         ui.label(theme::label("Release to use"));
@@ -1659,6 +1836,7 @@ impl eframe::App for TranslateApp {
         self.passes.begin();
         self.drain_events();
         self.keep_updated(&ctx);
+        self.raise_prompts(&ctx);
         self.ask_for_names();
         self.control_panel(ui);
         self.window_visibility(&ctx);
@@ -1668,6 +1846,7 @@ impl eframe::App for TranslateApp {
         }
         self.reply_box(&ctx);
         self.undo_question(&ctx);
+        self.prompt_box(&ctx);
         self.keep_settings(&ctx);
         self.keep_backlog(&ctx);
         // After both windows laid out their text, so this frame's new glyphs are included.

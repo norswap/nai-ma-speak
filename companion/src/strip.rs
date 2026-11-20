@@ -262,6 +262,9 @@ const UNREADABLE_AFTER: Duration = Duration::from_secs(2);
 const HAD_MOST: usize = 2000;
 
 /// Sets the Status tab's line about the strip, unless it says that already.
+/// What the Status tab says while no strip is on any screen.
+pub const LOOKING: &str = "Looking for the pixel strip. In game, type /tr /test.";
+
 fn tell(ui: &UiSender, told: &mut String, text: String) {
     if *told != text {
         crate::diag::log(format!("strip: {text}"));
@@ -299,7 +302,7 @@ pub fn spawn(jobs: Sender<Job>, asked: Sender<Job>, ui: UiSender) {
             };
 
             let Some((index, lock)) = locked else {
-                tell(&ui, &mut told, "Looking for the pixel strip. In game, type /tr /test.".into());
+                tell(&ui, &mut told, LOOKING.into());
                 for (index, monitor) in monitors.iter().enumerate() {
                     let img = match monitor.capture_image() {
                         Ok(img) => img,

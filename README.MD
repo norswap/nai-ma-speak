@@ -65,7 +65,7 @@ Download both parts from the [latest release](https://github.com/norswap/nai-ma-
 
 ### The addon
 
-Unzip `Nai-Ma-Speak-addon.zip` into the AddOns folder of the client you play, so the files end up in a folder named `Translate`:
+The companion can install it: when it starts and finds the addon missing from the game's AddOns folder, it offers to put it there, and the Status tab keeps the offer. To do it by hand, unzip `Nai-Ma-Speak-addon.zip` into the AddOns folder of the client you play, so the files end up in a folder named `Translate`:
 
 ```
 Forever: World of Warcraft/_forever_/Interface/AddOns/Translate/
@@ -139,7 +139,7 @@ Chat lines are sent to whichever backend you choose. Only a local model keeps th
 
 ## Troubleshooting
 
-- **The overlay stays empty.** Open the Status tab: it says whether the pixel strip was found, and whether it can be read. "Found, but cannot read it" with a note about the palette row means the addon is older than the companion: update both from the same release. With a note about frames failing their check, something changes the strip on its way to the companion, often another program's overlay drawn over that corner: send the Status tab's Copy report. The strip must be visible in the game, in the top-left corner unless moved, and on macOS the companion needs the Screen Recording permission. `/tr /probe` in the game reports what the addon found, and `/tr /test` sends a line through.
+- **The overlay stays empty.** Open the Status tab: it says whether the addon is installed, whether the pixel strip was found, and whether it can be read. When the game has been in front for a while without a strip, the companion comes forward to say so: tick Nai Ma Speak in the game's AddOns list, type `/reload`, and keep the strip uncovered. "Found, but cannot read it" with a note about the palette row means the addon is older than the companion: update both from the same release. With a note about frames failing their check, something changes the strip on its way to the companion, often another program's overlay drawn over that corner: send the Status tab's Copy report. The strip must be visible in the game, in the top-left corner unless moved, and on macOS the companion needs the Screen Recording permission. `/tr /probe` in the game reports what the addon found, and `/tr /test` sends a line through.
 - **To check a screenshot for the strip,** run `translate-companion --decode screenshot.png`.
 - **The companion froze or misbehaved.** `translate.log`, next to `config.json`, records crashes, stalls, translation errors and what happened to the strip and the chat tabs. **Copy report** on the Status tab copies it with your settings, without the API keys.
 
