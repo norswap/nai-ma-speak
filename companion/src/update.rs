@@ -91,12 +91,6 @@ fn releases(json: &str) -> Result<Vec<Release>, String> {
     Ok(releases)
 }
 
-/// The release to be on: the one the player chose, or else the newest.
-pub fn target<'a>(releases: &'a [Release], chosen: &str) -> Option<&'a Release> {
-    let chosen = Version::parse(chosen);
-    releases.iter().find(|release| Some(release.version) == chosen).or(releases.first())
-}
-
 /// What the game's AddOns folder holds of the addon.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Addon {
@@ -104,21 +98,34 @@ pub enum Addon {
     Unknown,
     /// The AddOns folder holds no addon.
     Missing,
-    /// A link to a folder elsewhere, as a developer sets up. It is never replaced.
-    Linked,
+    /// A link to a folder elsewhere, as a developer sets up, and the version there. It is
+    /// replaced only when the player asks for the update, never by an automatic one.
+    Linked(Option<Version>),
     /// Its version, if the .toc names one.
     Installed(Option<Version>),
 }
 
+impl Addon {
+    /// The version of the addon's files, if there are any and they name one.
+    pub fn version(&self) -> Option<Version> {
+        match self {
+            Addon::Linked(version) | Addon::Installed(version) => *version,
+            Addon::Unknown | Addon::Missing => None,
+        }
+    }
+}
+
 pub fn addon_in(addons: &Path) -> Addon {
     let folder = addons.join(ADDON_FOLDER);
-    match std::fs::symlink_metadata(&folder) {
-        Err(_) => Addon::Missing,
-        Ok(found) if found.is_symlink() => Addon::Linked,
-        Ok(_) => {
-            let toc = std::fs::read_to_string(folder.join("Translate.toc")).unwrap_or_default();
-            Addon::Installed(toc.lines().find_map(|line| Version::parse(line.strip_prefix("## Version:")?)))
-        }
+    let Ok(found) = std::fs::symlink_metadata(&folder) else {
+        return Addon::Missing;
+    };
+    let toc = std::fs::read_to_string(folder.join("Translate.toc")).unwrap_or_default();
+    let version = toc.lines().find_map(|line| Version::parse(line.strip_prefix("## Version:")?));
+    if found.is_symlink() {
+        Addon::Linked(version)
+    } else {
+        Addon::Installed(version)
     }
 }
 
@@ -178,7 +185,7 @@ pub fn advice(own: Version, target: Option<Version>, addon: &Addon, game: Option
         // Files that are gone are put back even while the game still runs them from
         // memory. With no folder known, a game that runs the addon has it somewhere.
         (Addon::Missing, _) | (Addon::Unknown, None) => Advice::InstallAddon,
-        (Addon::Installed(version), _) if *version != Some(own) => Advice::InstallAddon,
+        (Addon::Installed(version) | Addon::Linked(version), _) if *version != Some(own) => Advice::InstallAddon,
         (_, Some(game)) if !is_own(&game.running) => Advice::Reload,
         (_, Some(game)) if !is_own(&game.listed) => Advice::RestartGame,
         (_, None) if silent => Advice::Reload,
@@ -239,7 +246,8 @@ fn swap(target: &Path, new: &Path) -> Result<(), String> {
     let problem = |e: std::io::Error| format!("{} could not be replaced: {e}", target.display());
     let old = beside(target, ".old");
     remove(&old);
-    let had = target.exists();
+    // Not `exists`, which asks about what a link leads to: a link is moved aside itself.
+    let had = std::fs::symlink_metadata(target).is_ok();
     if had {
         std::fs::rename(target, &old).map_err(problem)?;
     }
@@ -255,9 +263,6 @@ fn swap(target: &Path, new: &Path) -> Result<(), String> {
 
 /// Replaces the addon in the game's AddOns folder with the one in a release's zip.
 fn install_addon(zip: &[u8], addons: &Path) -> Result<(), String> {
-    if addon_in(addons) == Addon::Linked {
-        return Err("the addon's folder is a link to another folder, which is left alone".into());
-    }
     if !addons.is_dir() {
         return Err(format!("there is no folder {}", addons.display()));
     }
@@ -404,9 +409,6 @@ mod tests {
         let versions: Vec<String> = releases.iter().map(|release| release.version.to_string()).collect();
         assert_eq!(versions, ["0.10.0", "0.4.0"]);
         assert_eq!(releases[0].companion.browser_download_url, format!("https://example.com/{COMPANION_FILE}"));
-        assert_eq!(target(&releases, "").unwrap().version.to_string(), "0.10.0");
-        assert_eq!(target(&releases, "0.4.0").unwrap().version.to_string(), "0.4.0");
-        assert_eq!(target(&releases, "0.5.0").unwrap().version.to_string(), "0.10.0", "a release that is gone");
         assert!(super::releases("<html>").is_err());
     }
 
@@ -429,7 +431,7 @@ mod tests {
         assert_eq!(advice(own, Some(own), &right, Some(&game("0.3.0", "0.3.0")), false), Advice::Reload);
         assert_eq!(advice(own, Some(own), &right, Some(&game("0.4.0", "0.3.0")), false), Advice::RestartGame);
         assert_eq!(advice(own, Some(own), &right, None, true), Advice::Reload, "an addon too old to say its version");
-        assert_eq!(advice(own, Some(own), &Addon::Linked, Some(&game("0.3.0", "0.3.0")), false), Advice::Reload);
+        assert_eq!(advice(own, Some(own), &Addon::Linked(Some(own)), Some(&game("0.3.0", "0.3.0")), false), Advice::Reload);
         assert_eq!(advice(own, Some(own), &right, Some(&game("0.4.0", "0.4.0")), false), Advice::Nothing);
         assert_eq!(advice(own, Some(own), &right, None, false), Advice::Nothing, "the game is not running");
     }
@@ -464,13 +466,15 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn leaves_a_linked_addon_alone() {
+    fn replaces_a_linked_addon_without_touching_what_it_led_to() {
         let addons = scratch("linked");
         let source = scratch("source");
         std::fs::write(source.join("Translate.toc"), "## Version: 0.1.0\n").unwrap();
         std::os::unix::fs::symlink(&source, addons.join(ADDON_FOLDER)).unwrap();
-        assert_eq!(addon_in(&addons), Addon::Linked);
-        assert!(install_addon(&zipped(&[("Translate/Translate.toc", "## Version: 0.4.0\n")]), &addons).is_err());
+        assert_eq!(addon_in(&addons), Addon::Linked(Some(Version([0, 1, 0]))));
+        // Asked for, the update takes the link's place and leaves what it led to alone.
+        install_addon(&zipped(&[("Translate/Translate.toc", "## Version: 0.4.0\n")]), &addons).unwrap();
+        assert_eq!(addon_in(&addons), Addon::Installed(Some(Version([0, 4, 0]))));
         assert_eq!(std::fs::read_to_string(source.join("Translate.toc")).unwrap(), "## Version: 0.1.0\n");
         remove(&addons);
         remove(&source);

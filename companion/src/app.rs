@@ -389,6 +389,17 @@ fn name_release(settings: &mut Config) {
     }
 }
 
+/// The release to move to, if it is not the one installed: the one picked, or else the
+/// newest once it is newer. Updating automatically never goes back to an earlier one.
+fn wanted(releases: &[update::Release], settings: &Config) -> Option<Version> {
+    let own = Version::own();
+    let picked = Version::parse(&settings.version).filter(|picked| *picked != own && !settings.auto_update);
+    match picked {
+        Some(picked) => releases.iter().map(|release| release.version).find(|version| *version == picked),
+        None => releases.first().map(|release| release.version).filter(|newest| *newest > own),
+    }
+}
+
 fn overlay_id() -> ViewportId {
     ViewportId::from_hash_of("overlay")
 }
@@ -1048,7 +1059,7 @@ impl TranslateApp {
                 }
             }
             // Why it cannot be installed yet: no folder to put it in, or no release to take it from.
-            let plan = self.update_plan();
+            let plan = self.update_plan(true);
             if let (Prompt::Install, Err(problem)) = (prompt, &plan) {
                 ui.label(RichText::new(problem).color(theme::MUTED));
             }
@@ -1056,7 +1067,7 @@ impl TranslateApp {
             ui.horizontal(|ui| {
                 if prompt == Prompt::Install {
                     if ui.add_enabled(plan.is_ok(), theme::button("Install the addon")).clicked() {
-                        self.start_update();
+                        self.start_update(true);
                         // Where the installing is told, and what went wrong if something does.
                         self.tab = Tab::Status;
                         close = true;
@@ -1204,8 +1215,7 @@ impl TranslateApp {
                     let selected = self.tab == tab;
                     let color = if selected { Color32::WHITE } else { theme::GOLD };
                     // A dot on the Update tab while there is something to do there.
-                    let newer = self.updates.releases.first().is_some_and(|newest| newest.version > Version::own());
-                    let dot = if tab == Tab::Update && (newer || self.updates.advice != Advice::Nothing) { " •" } else { "" };
+                    let dot = if tab == Tab::Update && self.updates.advice != Advice::Nothing { " •" } else { "" };
                     let text = ui.painter().layout_no_wrap(format!("{name}{dot}"), theme::heading_font(15.0), color);
                     let (rect, response) = ui.allocate_exact_size(text.size() + egui::vec2(28.0, 14.0), egui::Sense::click());
                     // The other tabs are a little lower and darker.
@@ -1467,11 +1477,10 @@ impl TranslateApp {
                 ui.label(RichText::new(format!("• {help}")).color(theme::GOLD));
             }
         }
-        ui.label(theme::label("Addon"));
+        ui.label(theme::label("AddOn"));
         ui.label(self.addon_files());
-        if self.updates.advice != Advice::Nothing {
-            self.advice(ui);
-        }
+        self.addon_update(ui);
+        self.update_progress(ui);
         ui.label(theme::label("Chat windows"));
         if self.chat_windows.is_empty() {
             ui.label("Waiting for the addon to report the chat windows.");
@@ -1516,16 +1525,18 @@ impl TranslateApp {
             updates.folder = folder;
             updates.read = Some(Instant::now());
         }
-        let target = update::target(&updates.releases, &self.draft.version).map(|release| release.version);
+        let target = wanted(&updates.releases, &self.draft);
         let silent = self.addon_version.is_none() && updates.heard.is_some_and(|heard| heard.elapsed() > SILENT_AFTER);
         updates.advice = update::advice(Version::own(), target, &updates.addon, self.addon_version.as_ref(), silent);
     }
 
-    /// What to put in place for the advice given, or why nothing can be.
-    fn update_plan(&self) -> Result<update::Plan, String> {
+    /// What to put in place for the advice given, or why nothing can be. `asked` is
+    /// whether the player asked for it: an update that starts by itself leaves a linked
+    /// addon, a developer's, as it is.
+    fn update_plan(&self, asked: bool) -> Result<update::Plan, String> {
         let updates = &self.updates;
-        // A linked addon is a developer's and stays; with no folder known there is none to replace.
-        let addons = updates.folder.clone().filter(|_| updates.addon != Addon::Linked);
+        // With no folder known there is no addon to replace.
+        let addons = updates.folder.clone().filter(|_| asked || !matches!(updates.addon, Addon::Linked(_)));
         match updates.advice {
             Advice::Update(version) => {
                 let release = updates.releases.iter().find(|release| release.version == version).cloned();
@@ -1547,8 +1558,8 @@ impl TranslateApp {
         }
     }
 
-    fn start_update(&mut self) {
-        match self.update_plan() {
+    fn start_update(&mut self, asked: bool) {
+        match self.update_plan(asked) {
             Ok(plan) => {
                 self.updates.problem.clear();
                 self.updates.step = Some("Starting".into());
@@ -1571,29 +1582,29 @@ impl TranslateApp {
             return;
         }
         // The advice was worked out before these releases arrived.
-        let own = Version::own();
-        let target = update::target(&self.updates.releases, "").map(|release| release.version);
-        self.updates.advice = update::advice(own, target, &self.updates.addon, None, false);
-        let newer = matches!(self.updates.advice, Advice::Update(version) if version > own);
+        let target = wanted(&self.updates.releases, &self.draft);
+        self.updates.advice = update::advice(Version::own(), target, &self.updates.addon, None, false);
         let outdated_addon = self.updates.advice == Advice::InstallAddon && matches!(self.updates.addon, Addon::Installed(_));
-        if newer || outdated_addon {
-            self.start_update();
+        if matches!(self.updates.advice, Advice::Update(_)) || outdated_addon {
+            self.start_update(false);
         }
     }
 
     /// What the game's AddOns folder holds of the addon.
     fn addon_files(&self) -> String {
-        match (&self.updates.folder, &self.updates.addon) {
-            (None, _) | (_, Addon::Unknown) => "The game's AddOns folder was not found.".to_string(),
-            (_, Addon::Missing) => "Not installed".into(),
-            (_, Addon::Linked) => "A link to a folder elsewhere, which is left as it is".into(),
-            (_, Addon::Installed(Some(version))) => format!("v{version}"),
-            (_, Addon::Installed(None)) => "Installed, but its files name no version".into(),
+        match &self.updates.addon {
+            Addon::Unknown => "The game's AddOns folder was not found.".to_string(),
+            Addon::Missing => "Not installed".into(),
+            Addon::Linked(version) | Addon::Installed(version) => match version {
+                Some(version) => format!("Installed version: v{version}"),
+                None => "Installed, but its files name no version".into(),
+            },
         }
     }
 
-    /// The field for the game's AddOns folder and, while none is settled on, the folders
-    /// found to pick from: several kinds of the game are installed and none holds the addon yet.
+    /// The field for the game's AddOns folder and the folders found to pick from, for
+    /// when none is settled on: the game is not in its usual place, or several kinds of
+    /// it are installed and none holds the addon yet.
     fn addons_folder_choice(&mut self, ui: &mut egui::Ui) {
         let found = self.updates.folder.as_ref().map(|folder| folder.display().to_string()).unwrap_or_default();
         let hint = if found.is_empty() { "The game's Interface/AddOns folder".to_string() } else { found };
@@ -1608,50 +1619,78 @@ impl TranslateApp {
         }
     }
 
-    /// What there is to do about the companion's and the addon's versions, with the
-    /// button that does it, and how an update under way is going.
-    fn advice(&mut self, ui: &mut egui::Ui) {
+    /// The newest release, as the tab says it.
+    fn latest(&self) -> String {
+        match self.updates.releases.first() {
+            Some(newest) => format!("Latest version: v{}", newest.version),
+            None if self.updates.problem.is_empty() => "Latest version: asking GitHub".into(),
+            None => "Latest version: not known".into(),
+        }
+    }
+
+    /// In a word, how the companion and the addon stand against the releases.
+    fn update_status(&self) -> (String, Color32) {
         let own = Version::own();
-        let busy = self.updates.step.is_some();
-        let (text, color, action) = match self.updates.advice {
-            Advice::Nothing => match self.updates.releases.first().filter(|newest| newest.version > own) {
-                Some(newest) => (format!("v{} is out. Pick it under \"Release to use\" to update.", newest.version), theme::GOLD, None),
-                None => ("Nothing to do.".to_string(), theme::GOOD, None),
-            },
-            Advice::Update(version) => {
-                let (word, action) = if version > own { ("newer", format!("Update to v{version}")) } else { ("older", format!("Go back to v{version}")) };
-                let permission = if cfg!(target_os = "macos") {
-                    " macOS will then ask again for the Screen Recording permission: remove the companion from that list in System Settings and add it back."
-                } else {
-                    ""
-                };
-                let text = format!("v{version} is {word}. It replaces the addon, then the companion, which starts again.{permission}");
-                (text, theme::GOLD, Some(action))
-            }
-            Advice::InstallAddon => {
-                let action = if matches!(self.updates.addon, Addon::Installed(_)) { "Update the addon" } else { "Install the addon" };
-                let text = if self.addon_missing() {
-                    "The addon is not installed in the game; the companion reads the chat through it.".to_string()
-                } else {
-                    format!("The companion needs the addon at v{own} too.")
-                };
-                (text, theme::GOLD, Some(action.to_string()))
-            }
-            Advice::Reload => {
-                let text = "The game is running an older addon than the one now in its folder: type /reload in the game's chat to load the new one.";
-                (text.to_string(), theme::GOLD, None)
-            }
-            Advice::RestartGame => {
-                let text = "The game started with another version of the addon and may miss files of this one: quit the game and start it again.";
-                (text.to_string(), theme::GOLD, None)
-            }
+        let updates = &self.updates;
+        let companion = updates.releases.first().is_some_and(|newest| newest.version > own);
+        let addon = match &updates.addon {
+            Addon::Unknown => false,
+            Addon::Missing => true,
+            Addon::Linked(version) | Addon::Installed(version) => companion || *version != Some(own),
         };
-        ui.label(RichText::new(text).color(color));
-        if let Some(action) = action {
-            if ui.add_enabled(!busy, theme::button(&action)).clicked() {
-                self.start_update();
+        let gold = |text: &str| (text.to_string(), theme::GOLD);
+        match (companion, addon, updates.advice) {
+            (true, true, _) => ("Companion & AddOn out of date.".into(), theme::BAD),
+            (true, false, _) => ("Companion out of date.".into(), theme::BAD),
+            (false, true, _) if updates.addon == Addon::Missing => ("AddOn not installed.".into(), theme::BAD),
+            (false, true, _) => ("AddOn out of date.".into(), theme::BAD),
+            (_, _, Advice::Nothing) => ("Everything is up to date.".into(), theme::GOOD),
+            (_, _, Advice::Update(version)) => (format!("v{version} is picked as the release to use."), theme::GOLD),
+            (_, _, Advice::InstallAddon) => gold("The game's AddOns folder was not found."),
+            (_, _, Advice::Reload) => gold("The game runs an older AddOn: type /reload in its chat."),
+            (_, _, Advice::RestartGame) => gold("The game has to be started again to load the AddOn."),
+        }
+    }
+
+    /// The button that moves to the release wanted, the addon first, then the companion.
+    fn companion_update(&mut self, ui: &mut egui::Ui) {
+        let Advice::Update(version) = self.updates.advice else {
+            return;
+        };
+        let action = if version > Version::own() { format!("Update to v{version}") } else { format!("Go back to v{version}") };
+        if ui.add_enabled(self.updates.step.is_none(), theme::button(&action)).clicked() {
+            // The release to use from now on, or the companion would be asked back.
+            if !self.draft.auto_update {
+                self.draft.version = version.to_string();
+            }
+            self.start_update(true);
+        }
+        let mut note = "It replaces the addon, then the companion, which starts again.".to_string();
+        if cfg!(target_os = "macos") {
+            note += " macOS will then ask again for the Screen Recording permission: remove the companion from that list in System Settings and add it back.";
+        }
+        ui.label(RichText::new(note).color(theme::MUTED));
+    }
+
+    /// The button that brings the addon's files to the companion's version, and for a
+    /// linked addon what any update does to it.
+    fn addon_update(&mut self, ui: &mut egui::Ui) {
+        if !matches!(self.updates.advice, Advice::Update(_) | Advice::InstallAddon) {
+            return;
+        }
+        if matches!(self.updates.addon, Addon::Linked(_)) {
+            ui.label(RichText::new("The addon is symlinked, updating will remove the link.").color(theme::GOLD));
+        }
+        if self.updates.advice == Advice::InstallAddon && self.updates.addon != Addon::Unknown {
+            let action = if self.updates.addon == Addon::Missing { "Install the addon" } else { "Update the addon" };
+            if ui.add_enabled(self.updates.step.is_none(), theme::button(action)).clicked() {
+                self.start_update(true);
             }
         }
+    }
+
+    /// How an update under way is going, and what went wrong with the last.
+    fn update_progress(&self, ui: &mut egui::Ui) {
         if let Some(step) = &self.updates.step {
             ui.label(RichText::new(format!("{step}…")).color(theme::MUTED));
         }
@@ -1662,35 +1701,10 @@ impl TranslateApp {
 
     fn update_tab(&mut self, ui: &mut egui::Ui) {
         let own = Version::own();
-        ui.label(theme::label("Companion"));
-        ui.label(format!("v{own}"));
-
-        ui.label(theme::label("Newest release"));
-        ui.horizontal(|ui| {
-            match self.updates.releases.first() {
-                Some(newest) => ui.label(format!("v{}", newest.version)),
-                None if self.updates.problem.is_empty() => ui.label("Asking GitHub"),
-                None => ui.label("Not known"),
-            };
-            if ui.add(theme::button("Look again")).clicked() {
-                self.updates.asked = None;
-            }
-        });
-
-        ui.label(theme::label("Addon in the game's folder"));
-        ui.label(self.addon_files());
-        self.addons_folder_choice(ui);
-
-        ui.label(theme::label("Addon in the game"));
-        ui.label(match &self.addon_version {
-            Some(version) if version.running == version.listed => format!("v{}", version.running),
-            Some(version) => format!("v{}, in a game started with v{}", version.running, version.listed),
-            None if self.updates.heard.is_some_and(|heard| heard.elapsed() > SILENT_AFTER) => "Too old to say its version".into(),
-            None => "Not heard from: the game is not running, or the addon is not on".into(),
-        });
-        ui.add_space(10.0);
-        self.advice(ui);
-        ui.add_space(10.0);
+        let (status, color) = self.update_status();
+        ui.label(RichText::new(status).color(color));
+        self.update_progress(ui);
+        ui.add_space(6.0);
 
         if ui
             .checkbox(&mut self.draft.auto_update, "Update automatically")
@@ -1701,14 +1715,10 @@ impl TranslateApp {
             // Looks for a new release at once.
             self.updates.asked = None;
         }
-        ui.label(theme::label("Release to use"));
-        let named = |version: Version| format!("v{version}{}", if version == own { " (currently installed)" } else { "" });
-        let automatic = self.draft.auto_update;
-        let shown = match Version::parse(&self.draft.version) {
-            Some(version) if !automatic => named(version),
-            _ => "The newest".to_string(),
-        };
-        ui.add_enabled_ui(!automatic, |ui| {
+        if !self.draft.auto_update {
+            ui.label(theme::label("Release to use"));
+            let named = |version: Version| format!("v{version}{}", if version == own { " (currently installed)" } else { "" });
+            let shown = Version::parse(&self.draft.version).map_or(named(own), named);
             egui::ComboBox::from_id_salt("release").width(ui.available_width()).selected_text(shown).show_ui(ui, |ui| {
                 ui.selectable_value(&mut self.draft.version, own.to_string(), named(own));
                 let offered = |release: &&update::Release| release.version >= update::OLDEST_OFFERED && release.version != own;
@@ -1717,9 +1727,41 @@ impl TranslateApp {
                 }
             })
             .response
-            .on_hover_text(format!("Pick a newer release to update to it, or an earlier one if a newer one misbehaves. Releases before v{} cannot update themselves and are not offered.", update::OLDEST_OFFERED))
-            .on_disabled_hover_text("Updating automatically follows the newest release.");
-        });
+            .on_hover_text(format!("Pick a newer release to update to it, or an earlier one if a newer one misbehaves. Releases before v{} cannot update themselves and are not offered.", update::OLDEST_OFFERED));
+        }
+        ui.add_space(10.0);
+
+        ui.label(theme::label("Companion"));
+        ui.label(format!("Installed version: v{own}"));
+        ui.label(self.latest());
+        if ui.add(theme::button("Check for updates")).clicked() {
+            self.updates.asked = None;
+        }
+        self.companion_update(ui);
+        ui.add_space(10.0);
+
+        ui.label(theme::label("AddOn"));
+        ui.label(self.addon_files());
+        if self.updates.addon == Addon::Unknown {
+            self.addons_folder_choice(ui);
+        }
+        // What the game has loaded, where that is not what its folder holds.
+        let files = self.updates.addon.version().map(|version| version.to_string());
+        let silent = self.updates.heard.is_some_and(|heard| heard.elapsed() > SILENT_AFTER);
+        let reload = "type /reload in the game's chat to load the one installed.";
+        let loaded = match &self.addon_version {
+            Some(game) if game.running != game.listed => {
+                Some(format!("The game runs v{} but started with v{}: quit the game and start it again.", game.running, game.listed))
+            }
+            Some(game) if files.as_ref().is_some_and(|files| *files != game.running) => Some(format!("The game runs v{}: {reload}", game.running)),
+            None if silent && files.is_some() => Some(format!("The game runs an older version: {reload}")),
+            _ => None,
+        };
+        if let Some(loaded) = loaded {
+            ui.label(RichText::new(loaded).color(theme::GOLD));
+        }
+        ui.label(self.latest());
+        self.addon_update(ui);
     }
 
     /// Why the overlay is not showing on the chosen tab, if it is not.
