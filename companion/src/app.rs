@@ -1423,7 +1423,11 @@ impl CompanionApp {
         ui.checkbox(&mut self.draft.hide_when_unfocused, HIDE_LABEL);
         ui.spacing_mut().slider_width = (ui.available_width() - 70.0).max(120.0);
         slider(ui, "Lines kept (scrollback)", &mut self.draft.max_lines, 1..=500);
-        slider(ui, "Lines scrolled by a mouse wheel step", &mut self.draft.wheel_lines, 1..=10);
+        // Without the system's scroll events, the wheel only reaches an overlay on a chat
+        // tab, through the addon.
+        if self.own_wheel || !self.draft.anchor_tab.trim().is_empty() {
+            slider(ui, "Lines scrolled by a mouse wheel step", &mut self.draft.wheel_lines, 1..=10);
+        }
 
         // On a chat tab the overlay takes the tab's place, size, text size and
         // background. Placed by hand, it has its own, and can be unlocked to drag it.
