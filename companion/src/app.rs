@@ -223,6 +223,8 @@ struct Updates {
     advice: Advice,
     /// The releases have arrived once, so updating without asking has had its turn.
     started: bool,
+    /// The player asked for the releases and they have not arrived yet.
+    checking: bool,
 }
 
 /// Something to tell the player in a box over the companion's window.
@@ -236,6 +238,8 @@ enum Prompt {
     Updated,
     /// The game is in front but shows no pixel strip.
     NoStrip,
+    /// The releases arrived after the player asked for them.
+    Checked,
 }
 
 /// How long the game may be in front without its strip before the companion says so.
@@ -391,6 +395,15 @@ fn name_release(settings: &mut Config) {
 
 /// The release to move to, if it is not the one installed: the one picked, or else the
 /// newest once it is newer. Updating automatically never goes back to an earlier one.
+/// What an update of the companion does, said beside its button.
+fn update_note() -> String {
+    let mut note = "It replaces the addon, then the companion, which starts again.".to_string();
+    if cfg!(target_os = "macos") {
+        note += " macOS will then ask again for the Screen Recording permission: remove the companion from that list in System Settings and add it back.";
+    }
+    note
+}
+
 fn wanted(releases: &[update::Release], settings: &Config) -> Option<Version> {
     let own = Version::own();
     let picked = Version::parse(&settings.version).filter(|picked| *picked != own && !settings.auto_update);
@@ -477,6 +490,7 @@ impl CompanionApp {
                 heard: None,
                 advice: Advice::Nothing,
                 started: false,
+                checking: false,
             },
             restart: false,
             // Started again by an update: says so, and that the game has to load the addon.
@@ -629,10 +643,12 @@ impl CompanionApp {
                     self.updates.releases = releases;
                     self.updates.problem.clear();
                     self.update_unasked();
+                    self.checked();
                 }
                 UiEvent::Releases(Err(problem)) => {
                     crate::diag::log(format!("releases: {problem}"));
                     self.updates.problem = problem;
+                    self.checked();
                 }
                 UiEvent::UpdateStep(step) => self.updates.step = Some(step),
                 UiEvent::Updated { version, companion, result } => {
@@ -1031,6 +1047,11 @@ impl CompanionApp {
                 Prompt::Installed => "The addon is installed".to_string(),
                 Prompt::Updated => format!("Updated to v{}", Version::own()),
                 Prompt::NoStrip => "The game shows no pixel strip".to_string(),
+                Prompt::Checked => match self.newer() {
+                    _ if !self.updates.problem.is_empty() => "The releases could not be checked".to_string(),
+                    Some(newer) => format!("v{newer} is available"),
+                    None => "The companion is up to date".to_string(),
+                },
             };
             ui.label(RichText::new(title).font(theme::heading_font(18.0)).color(theme::GOLD));
             match prompt {
@@ -1057,6 +1078,20 @@ impl CompanionApp {
                         ui.label(format!("• {help}"));
                     }
                 }
+                Prompt::Checked if !self.updates.problem.is_empty() => {
+                    ui.label(self.updates.problem.clone());
+                }
+                Prompt::Checked => match self.newer() {
+                    Some(_) => {
+                        ui.label(format!("This companion is v{}. {}", Version::own(), update_note()));
+                        if matches!(self.updates.addon, Addon::Linked(_)) {
+                            ui.label(RichText::new("The addon is symlinked, updating will remove the link.").color(theme::GOLD));
+                        }
+                    }
+                    None => {
+                        ui.label(format!("v{} is the latest version.", Version::own()));
+                    }
+                },
             }
             // Why it cannot be installed yet: no folder to put it in, or no release to take it from.
             let plan = self.update_plan(true);
@@ -1070,6 +1105,12 @@ impl CompanionApp {
                         self.start_update(true);
                         // Where the installing is told, and what went wrong if something does.
                         self.tab = Tab::Status;
+                        close = true;
+                    }
+                    close |= ui.add(theme::button("Not now")).clicked();
+                } else if let (Prompt::Checked, Some(newer), true) = (prompt, self.newer(), self.updates.problem.is_empty()) {
+                    if ui.add(theme::button(&format!("Update to v{newer}"))).clicked() {
+                        self.update_to(newer);
                         close = true;
                     }
                     close |= ui.add(theme::button("Not now")).clicked();
@@ -1558,6 +1599,47 @@ impl CompanionApp {
         }
     }
 
+    /// Answers the player's "Check for updates", unless an update has started by itself.
+    fn checked(&mut self) {
+        if std::mem::take(&mut self.updates.checking) && self.updates.step.is_none() {
+            self.prompt = Some(Prompt::Checked);
+        }
+    }
+
+    /// The newest release, if it is newer than this companion.
+    fn newer(&self) -> Option<Version> {
+        self.updates.releases.first().map(|newest| newest.version).filter(|newest| *newest > Version::own())
+    }
+
+    /// Moves to `version`, the addon first, then the companion.
+    fn update_to(&mut self, version: Version) {
+        // The release to use from now on, or the companion would be asked back.
+        if !self.draft.auto_update {
+            self.draft.version = version.to_string();
+        }
+        self.updates.advice = Advice::Update(version);
+        self.start_update(true);
+    }
+
+    /// Asks GitHub for the releases; a spinner turns in the button until they arrive,
+    /// in room kept for it so the button stays as wide.
+    fn check_button(&mut self, ui: &mut egui::Ui) {
+        const SPINNER: f32 = 14.0;
+        const ROOM: f32 = SPINNER + 6.0;
+        let text = "Check for updates";
+        let width = ui.painter().layout_no_wrap(text.into(), theme::heading_font(15.0), theme::GOLD).size().x;
+        let button = theme::button(text).min_size(egui::vec2(width + 2.0 * (ui.spacing().button_padding.x + ROOM), 0.0));
+        let shown = ui.add_enabled(!self.updates.checking, button);
+        if shown.clicked() {
+            self.updates.asked = None;
+            self.updates.checking = true;
+        }
+        if self.updates.checking {
+            let center = shown.rect.right_center() - egui::vec2(ROOM / 2.0 + 2.0, 0.0);
+            egui::Spinner::new().color(theme::GOLD).paint_at(ui, egui::Rect::from_center_size(center, egui::Vec2::splat(SPINNER)));
+        }
+    }
+
     fn start_update(&mut self, asked: bool) {
         match self.update_plan(asked) {
             Ok(plan) => {
@@ -1659,17 +1741,9 @@ impl CompanionApp {
         };
         let action = if version > Version::own() { format!("Update to v{version}") } else { format!("Go back to v{version}") };
         if ui.add_enabled(self.updates.step.is_none(), theme::button(&action)).clicked() {
-            // The release to use from now on, or the companion would be asked back.
-            if !self.draft.auto_update {
-                self.draft.version = version.to_string();
-            }
-            self.start_update(true);
+            self.update_to(version);
         }
-        let mut note = "It replaces the addon, then the companion, which starts again.".to_string();
-        if cfg!(target_os = "macos") {
-            note += " macOS will then ask again for the Screen Recording permission: remove the companion from that list in System Settings and add it back.";
-        }
-        ui.label(RichText::new(note).color(theme::MUTED));
+        ui.label(RichText::new(update_note()).color(theme::MUTED));
     }
 
     /// The button that brings the addon's files to the companion's version, and for a
@@ -1706,6 +1780,26 @@ impl CompanionApp {
         self.update_progress(ui);
         ui.add_space(6.0);
 
+        ui.label(theme::label("Release to use"));
+        let named = |version: Version| format!("v{version}{}", if version == own { " (currently installed)" } else { "" });
+        let auto = self.draft.auto_update;
+        let shown = match self.updates.releases.first() {
+            Some(newest) if auto => format!("The newest (v{})", newest.version),
+            None if auto => "The newest".into(),
+            _ => Version::parse(&self.draft.version).map_or(named(own), named),
+        };
+        ui.add_enabled_ui(!auto, |ui| {
+            egui::ComboBox::from_id_salt("release").width(ui.available_width()).selected_text(shown).show_ui(ui, |ui| {
+                ui.selectable_value(&mut self.draft.version, own.to_string(), named(own));
+                let offered = |release: &&update::Release| release.version >= update::OLDEST_OFFERED && release.version != own;
+                for release in self.updates.releases.iter().filter(offered) {
+                    ui.selectable_value(&mut self.draft.version, release.version.to_string(), named(release.version));
+                }
+            })
+            .response
+            .on_hover_text(format!("Pick a newer release to update to it, or an earlier one if a newer one misbehaves. Releases before v{} cannot update themselves and are not offered.", update::OLDEST_OFFERED))
+            .on_disabled_hover_text("Updating automatically always uses the newest release. Untick it to pick one.");
+        });
         if ui
             .checkbox(&mut self.draft.auto_update, "Update automatically")
             .on_hover_text("Looks for a new release when the companion starts and every half hour, and puts it in place without asking: the addon first, then the companion, which starts again and says to type /reload. Settings are kept.")
@@ -1715,28 +1809,12 @@ impl CompanionApp {
             // Looks for a new release at once.
             self.updates.asked = None;
         }
-        if !self.draft.auto_update {
-            ui.label(theme::label("Release to use"));
-            let named = |version: Version| format!("v{version}{}", if version == own { " (currently installed)" } else { "" });
-            let shown = Version::parse(&self.draft.version).map_or(named(own), named);
-            egui::ComboBox::from_id_salt("release").width(ui.available_width()).selected_text(shown).show_ui(ui, |ui| {
-                ui.selectable_value(&mut self.draft.version, own.to_string(), named(own));
-                let offered = |release: &&update::Release| release.version >= update::OLDEST_OFFERED && release.version != own;
-                for release in self.updates.releases.iter().filter(offered) {
-                    ui.selectable_value(&mut self.draft.version, release.version.to_string(), named(release.version));
-                }
-            })
-            .response
-            .on_hover_text(format!("Pick a newer release to update to it, or an earlier one if a newer one misbehaves. Releases before v{} cannot update themselves and are not offered.", update::OLDEST_OFFERED));
-        }
         ui.add_space(10.0);
 
         ui.label(theme::label("Companion"));
         ui.label(format!("Installed version: v{own}"));
         ui.label(self.latest());
-        if ui.add(theme::button("Check for updates")).clicked() {
-            self.updates.asked = None;
-        }
+        self.check_button(ui);
         self.companion_update(ui);
         ui.add_space(10.0);
 
