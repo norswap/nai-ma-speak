@@ -26,7 +26,9 @@ objc2-core-foundation = "0.3.2"
 objc2-core-graphics = "0.3.2"
 # Whether the app is the active one, to bring its window back on a click on its Dock icon.
 objc2 = "0.6"
-objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "NSApplication", "NSResponder"] }
+# And the mouse wheel over the overlay, which the game reports only in part.
+objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "NSApplication", "NSResponder", "NSEvent", "block2", "objc2-core-foundation", "objc2-core-graphics"] }
+block2 = "0.6"
 
 [profile.release]
 opt-level = 3

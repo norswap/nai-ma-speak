@@ -175,6 +175,8 @@ pub struct Config {
     pub overlay_opacity: f32,
     pub font_size: f32,
     pub max_lines: usize,
+    /// How many lines of text one mouse wheel step scrolls the overlay.
+    pub wheel_lines: usize,
     pub show_original: bool,
     /// Name of the chat tab the overlay sits on and follows; empty to place it by hand.
     pub anchor_tab: String,
@@ -210,6 +212,7 @@ impl Default for Config {
             overlay_opacity: 0.55,
             font_size: 15.0,
             max_lines: 100,
+            wheel_lines: 3,
             show_original: false,
             anchor_tab: String::new(),
             hide_when_unfocused: true,

@@ -1,7 +1,7 @@
 use crate::backends::claude::key_problem;
 use crate::config::{self, Backend, Config, Reading, Region, CLAUDE_MODELS, CUSTOM_LABEL, ENDPOINT_PRESETS};
 use crate::translate::WOW_CHAT_BYTES;
-use crate::focus::WowView;
+use crate::focus::{Rect, WowView};
 use crate::layout::{self, ChatWindow};
 use crate::protocol::Command;
 use crate::backlog;
@@ -27,8 +27,6 @@ const FONT_TEXTURE_REFRESH: Duration = Duration::from_secs(5);
 
 /// More wheel steps than this between two counts is the addon counting anew, not scrolling.
 const MOST_WHEEL_STEPS: i64 = 100;
-/// How many lines one mouse wheel step scrolls the overlay.
-const WHEEL_LINES: f32 = 3.0;
 /// How far the overlay text's shadow is offset, in points.
 const SHADOW: f32 = 1.0;
 /// How much of its brightness a Chinese line keeps while it waits for its translation.
@@ -161,6 +159,11 @@ pub struct TranslateApp {
     /// over the overlay's tab that the overlay has not scrolled by yet.
     wheel_counts: HashMap<String, i64>,
     wheel_steps: f32,
+    /// The companion hears the system's scroll events itself (see `wheel`), so the
+    /// addon's counts are not used.
+    own_wheel: bool,
+    /// Where the overlay is on screen while it is shown and lets the pointer through.
+    overlay_area: Option<Rect>,
     tab: Tab,
     /// Where the last reply stands; shown as a pill on the overlay.
     reply_state: ReplyState,
@@ -339,7 +342,13 @@ fn overlay_id() -> ViewportId {
 }
 
 impl TranslateApp {
-    pub fn new(config: Arc<Mutex<Config>>, events: Receiver<UiEvent>, interactive: Sender<Job>, ui: UiSender) -> Self {
+    pub fn new(
+        config: Arc<Mutex<Config>>,
+        events: Receiver<UiEvent>,
+        interactive: Sender<Job>,
+        ui: UiSender,
+        own_wheel: bool,
+    ) -> Self {
         let draft = config.lock().unwrap().clone();
         let overlay_start = egui::pos2(draft.overlay_x, draft.overlay_y);
         Self {
@@ -375,6 +384,8 @@ impl TranslateApp {
             custom_claude_model: draft.claude_preset().is_none(),
             wheel_counts: HashMap::new(),
             wheel_steps: 0.0,
+            own_wheel,
+            overlay_area: None,
             tab: Tab::Backend,
             reply_state: ReplyState::Idle,
             reply_box: false,
@@ -581,13 +592,19 @@ impl TranslateApp {
                     self.chat_windows = windows;
                     self.updates.heard.get_or_insert_with(Instant::now);
                 }
+                UiEvent::Scrolled { at: (x, y), steps } => {
+                    let over = |[left, top, width, height]: Rect| x >= left && x < left + width && y >= top && y < top + height;
+                    if self.overlay_area.is_some_and(over) {
+                        self.wheel_steps += steps;
+                    }
+                }
                 UiEvent::Wheel { name, count } => {
                     // The first count only sets the starting point: its steps were made
                     // before the companion was watching. So does a count far from the
                     // last: the addon started counting anew.
                     let before = self.wheel_counts.insert(name.clone(), count);
                     let anchored = layout::anchor(&self.chat_windows, &self.draft.anchor_tab);
-                    if let (Some(before), Some(window)) = (before, anchored) {
+                    if let (Some(before), Some(window), false) = (before, anchored, self.own_wheel) {
                         let steps = count - before;
                         if window.name == name && steps != 0 && steps.abs() <= MOST_WHEEL_STEPS {
                             self.wheel_steps += steps as f32;
@@ -1170,6 +1187,7 @@ impl TranslateApp {
         ui.checkbox(&mut self.draft.hide_when_unfocused, HIDE_LABEL);
         ui.spacing_mut().slider_width = (ui.available_width() - 70.0).max(120.0);
         slider(ui, "Lines kept (scrollback)", &mut self.draft.max_lines, 1..=500);
+        slider(ui, "Lines scrolled by a mouse wheel step", &mut self.draft.wheel_lines, 1..=10);
 
         // On a chat tab the overlay takes the tab's place, size, text size and
         // background. Placed by hand, it has its own, and can be unlocked to drag it.
@@ -1503,6 +1521,7 @@ impl TranslateApp {
         // not shown where it was last put by hand meanwhile.
         let waiting = !self.draft.anchor_tab.trim().is_empty() && self.chat_windows.is_empty();
         let hidden = covered || waiting || anchor.as_ref().is_some_and(|window| !window.shown);
+        self.overlay_area = area.filter(|_| locked && !hidden);
         let builder = ViewportBuilder::default()
             .with_title("Translate overlay")
             .with_decorations(false)
@@ -1576,7 +1595,7 @@ impl TranslateApp {
                     if wheel_steps != 0.0 {
                         // Wheel up moves the lines down, bringing earlier ones into view.
                         let line_height = ui.fonts_mut(|fonts| fonts.row_height(&font));
-                        ui.scroll_with_delta(egui::vec2(0.0, wheel_steps * WHEEL_LINES * line_height));
+                        ui.scroll_with_delta(egui::vec2(0.0, wheel_steps * draft.wheel_lines as f32 * line_height));
                     }
                     let mut galleys = Vec::new();
                     for line in lines {

@@ -20,6 +20,7 @@ mod text;
 mod theme;
 mod translate;
 mod update;
+mod wheel;
 mod worker;
 
 use eframe::egui;
@@ -122,7 +123,11 @@ fn main() -> eframe::Result {
             focus::spawn(ui.clone());
             clipboard::spawn(clip_rx, ui.clone());
 
-            Ok(Box::new(app::TranslateApp::new(config, ui_rx, interactive_tx, ui)))
+            let own_wheel = wheel::watch(ui.clone());
+            if cfg!(target_os = "macos") {
+                diag::log(format!("wheel: {}", if own_wheel { "hearing the system's scroll events" } else { "left to the addon" }));
+            }
+            Ok(Box::new(app::TranslateApp::new(config, ui_rx, interactive_tx, ui, own_wheel)))
         }),
     )
 }

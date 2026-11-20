@@ -51,6 +51,9 @@ pub enum UiEvent {
     Command(crate::protocol::Command),
     /// Mouse wheel steps a chat window has had since login, up counted positive.
     Wheel { name: String, count: i64 },
+    /// The wheel or a trackpad scrolled with the pointer at this place on screen, in
+    /// points; up counted positive, a wheel's notch as one step. See `wheel`.
+    Scrolled { at: (f32, f32), steps: f32 },
     /// The version of the addon the game holds.
     AddonVersion(crate::protocol::AddonVersion),
     /// The releases that can be installed, newest first, or why they are not known.
