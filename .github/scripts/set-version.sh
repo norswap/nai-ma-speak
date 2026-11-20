@@ -14,14 +14,14 @@ if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
 fi
 
 export VERSION="$version"
-perl -pi -e 's/^## Version:.*/## Version: $ENV{VERSION}/' addon/Translate/Translate.toc
-perl -pi -e 's/^ns\.VERSION = ".*"/ns.VERSION = "$ENV{VERSION}"/' addon/Translate/Core.lua
+perl -pi -e 's/^## Version:.*/## Version: $ENV{VERSION}/' addon/NaiMaSpeak/NaiMaSpeak.toc
+perl -pi -e 's/^ns\.VERSION = ".*"/ns.VERSION = "$ENV{VERSION}"/' addon/NaiMaSpeak/Core.lua
 # Only the first version line in Cargo.toml is the package's own.
 perl -pi -e 's/^version = ".*"/version = "$ENV{VERSION}"/ && ($done = 1) unless $done' companion/Cargo.toml
 # In Cargo.lock, the version line right after our package's name.
 perl -0pi -e 's/(name = "translate-companion"\nversion = )"[^"]*"/$1"$ENV{VERSION}"/' companion/Cargo.lock
 
-grep -n '^## Version' addon/Translate/Translate.toc
-grep -n '^ns.VERSION' addon/Translate/Core.lua
+grep -n '^## Version' addon/NaiMaSpeak/NaiMaSpeak.toc
+grep -n '^ns.VERSION' addon/NaiMaSpeak/Core.lua
 grep -n -m1 '^version' companion/Cargo.toml
 grep -n -A1 'name = "translate-companion"' companion/Cargo.lock

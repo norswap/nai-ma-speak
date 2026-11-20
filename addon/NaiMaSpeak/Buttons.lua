@@ -49,7 +49,7 @@ local function MakeButton(text, length, command)
 end
 
 local function Build()
-    bar = CreateFrame("Frame", "TranslateButtons", UIParent)
+    bar = CreateFrame("Frame", "NaiMaSpeakButtons", UIParent)
     bar:SetFrameStrata("MEDIUM")
     MakeButton("Translate", 72, "reply")
     -- "App", not "Settings": the addon has settings of its own, in the game's options.

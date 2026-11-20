@@ -18,7 +18,7 @@
 //! - `V`, then the addon's version as its Lua files say, and as the game read it from
 //!   the .toc when it started.
 //!
-//! The addon side is in `addon/Translate`: Chat.lua (chat lines), Layout.lua (`L`, `S`),
+//! The addon side is in `addon/NaiMaSpeak`: Chat.lua (chat lines), Layout.lua (`L`, `S`),
 //! Buttons.lua (`C`, `R`) and Core.lua (`V`).
 
 use crate::layout::ChatWindow;

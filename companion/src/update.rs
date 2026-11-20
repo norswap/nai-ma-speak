@@ -20,8 +20,13 @@ const COMPANION_FILE: &str = if cfg!(target_os = "macos") {
 } else {
     "nai-ma-speak-linux-x64"
 };
-/// The addon's folder inside the game's AddOns folder.
-const ADDON_FOLDER: &str = "Translate";
+/// The addon's folder inside the game's AddOns folder, which its .toc file and its file
+/// of saved settings are named after.
+const ADDON_FOLDER: &str = "NaiMaSpeak";
+/// What the folder was named before 0.4.0. So plain a name may be another addon's, so
+/// such a folder is ours only if its .toc carries our title.
+const OLD_FOLDER: &str = "Translate";
+const TITLE: &str = "## Title: Nai Ma Speak";
 /// The first release that can update itself. Going back further would leave a
 /// companion with no way forward, so earlier releases are not offered.
 pub const OLDEST_OFFERED: Version = Version([0, 4, 0]);
@@ -115,12 +120,26 @@ impl Addon {
     }
 }
 
+/// The .toc file of the addon in the folder `name`, if there is one.
+fn toc(addons: &Path, name: &str) -> Option<String> {
+    std::fs::read_to_string(addons.join(name).join(format!("{name}.toc"))).ok()
+}
+
+/// The addon's folder under its old name, if it is there and ours.
+fn old_addon(addons: &Path) -> Option<PathBuf> {
+    let ours = toc(addons, OLD_FOLDER)?.lines().any(|line| line.trim() == TITLE);
+    ours.then(|| addons.join(OLD_FOLDER))
+}
+
+/// What the AddOns folder holds of the addon, under its name or, failing that, its old one.
 pub fn addon_in(addons: &Path) -> Addon {
-    let folder = addons.join(ADDON_FOLDER);
-    let Ok(found) = std::fs::symlink_metadata(&folder) else {
-        return Addon::Missing;
+    let there = |name: &str| std::fs::symlink_metadata(addons.join(name)).ok();
+    let (name, found) = match (there(ADDON_FOLDER), old_addon(addons).and_then(|_| there(OLD_FOLDER))) {
+        (Some(found), _) => (ADDON_FOLDER, found),
+        (None, Some(found)) => (OLD_FOLDER, found),
+        (None, None) => return Addon::Missing,
     };
-    let toc = std::fs::read_to_string(folder.join("Translate.toc")).unwrap_or_default();
+    let toc = toc(addons, name).unwrap_or_default();
     let version = toc.lines().find_map(|line| Version::parse(line.strip_prefix("## Version:")?));
     if found.is_symlink() {
         Addon::Linked(version)
@@ -270,7 +289,28 @@ fn install_addon(zip: &[u8], addons: &Path) -> Result<(), String> {
     remove(&unpacked);
     let installed = unzip(zip, &unpacked).and_then(|()| swap(&addons.join(ADDON_FOLDER), &unpacked.join(ADDON_FOLDER)));
     remove(&unpacked);
+    if installed.is_ok() {
+        retire_old(addons);
+    }
     installed
+}
+
+/// Removes the addon under its old name, which the game would load beside the new one,
+/// after handing its saved settings on: the game keeps them in a file named after the
+/// addon, one per account, so each is copied to the new name unless that is there already.
+fn retire_old(addons: &Path) {
+    let Some(old) = old_addon(addons) else {
+        return;
+    };
+    let accounts = addons.parent().and_then(Path::parent).map(|game| game.join("WTF").join("Account"));
+    for account in accounts.and_then(|accounts| std::fs::read_dir(accounts).ok()).into_iter().flatten().flatten() {
+        let saved = account.path().join("SavedVariables");
+        let (from, to) = (saved.join(format!("{OLD_FOLDER}.lua")), saved.join(format!("{ADDON_FOLDER}.lua")));
+        if let (Ok(settings), false) = (std::fs::read_to_string(&from), to.exists()) {
+            let _ = std::fs::write(&to, settings.replace("TranslateDB", "NaiMaSpeakDB"));
+        }
+    }
+    remove(&old);
 }
 
 /// What a release's companion replaces: the app bundle on macOS, the program elsewhere.
@@ -442,11 +482,11 @@ mod tests {
         assert_eq!(addon_in(&addons), Addon::Missing);
         let old = addons.join(ADDON_FOLDER);
         std::fs::create_dir(&old).unwrap();
-        std::fs::write(old.join("Translate.toc"), "## Title: Nai Ma Speak\n## Version: 0.3.0\n").unwrap();
+        std::fs::write(old.join("NaiMaSpeak.toc"), "## Title: Nai Ma Speak\n## Version: 0.3.0\n").unwrap();
         std::fs::write(old.join("Gone.lua"), "").unwrap();
         assert_eq!(addon_in(&addons), Addon::Installed(Some(Version([0, 3, 0]))));
 
-        let zip = zipped(&[("Translate/Translate.toc", "## Version: 0.4.0\n"), ("Translate/Core.lua", "-- new")]);
+        let zip = zipped(&[("NaiMaSpeak/NaiMaSpeak.toc", "## Version: 0.4.0\n"), ("NaiMaSpeak/Core.lua", "-- new")]);
         install_addon(&zip, &addons).unwrap();
         assert_eq!(addon_in(&addons), Addon::Installed(Some(Version([0, 4, 0]))));
         assert_eq!(std::fs::read_to_string(old.join("Core.lua")).unwrap(), "-- new");
@@ -464,18 +504,48 @@ mod tests {
         remove(&addons);
     }
 
+    /// Before 0.4.0 the addon's folder was named Translate.
+    #[test]
+    fn takes_the_place_of_the_addon_under_its_old_name() {
+        let game = scratch("renamed");
+        let addons = game.join("Interface").join("AddOns");
+        let saved = game.join("WTF").join("Account").join("SOMEONE").join("SavedVariables");
+        std::fs::create_dir_all(&saved).unwrap();
+        std::fs::write(saved.join("Translate.lua"), "\nTranslateDB = {\n[\"allLines\"] = true,\n}\n").unwrap();
+        let old = addons.join(OLD_FOLDER);
+        std::fs::create_dir_all(&old).unwrap();
+        std::fs::write(old.join("Translate.toc"), "## Title: Nai Ma Speak\n## Version: 0.3.0\n").unwrap();
+        assert_eq!(addon_in(&addons), Addon::Installed(Some(Version([0, 3, 0]))));
+
+        let zip = zipped(&[("NaiMaSpeak/NaiMaSpeak.toc", "## Version: 0.4.0\n")]);
+        install_addon(&zip, &addons).unwrap();
+        assert_eq!(addon_in(&addons), Addon::Installed(Some(Version([0, 4, 0]))));
+        assert!(!old.exists(), "the old folder is gone");
+        let settings = std::fs::read_to_string(saved.join("NaiMaSpeak.lua")).unwrap();
+        assert_eq!(settings, "\nNaiMaSpeakDB = {\n[\"allLines\"] = true,\n}\n");
+
+        // Another addon that happens to be named Translate is not ours to remove.
+        std::fs::create_dir_all(&old).unwrap();
+        std::fs::write(old.join("Translate.toc"), "## Title: Translate\n## Version: 9.9.9\n").unwrap();
+        install_addon(&zip, &addons).unwrap();
+        assert!(old.join("Translate.toc").exists());
+        remove(&addons.join(ADDON_FOLDER));
+        assert_eq!(addon_in(&addons), Addon::Missing);
+        remove(&game);
+    }
+
     #[cfg(unix)]
     #[test]
     fn replaces_a_linked_addon_without_touching_what_it_led_to() {
         let addons = scratch("linked");
         let source = scratch("source");
-        std::fs::write(source.join("Translate.toc"), "## Version: 0.1.0\n").unwrap();
+        std::fs::write(source.join("NaiMaSpeak.toc"), "## Version: 0.1.0\n").unwrap();
         std::os::unix::fs::symlink(&source, addons.join(ADDON_FOLDER)).unwrap();
         assert_eq!(addon_in(&addons), Addon::Linked(Some(Version([0, 1, 0]))));
         // Asked for, the update takes the link's place and leaves what it led to alone.
-        install_addon(&zipped(&[("Translate/Translate.toc", "## Version: 0.4.0\n")]), &addons).unwrap();
+        install_addon(&zipped(&[("NaiMaSpeak/NaiMaSpeak.toc", "## Version: 0.4.0\n")]), &addons).unwrap();
         assert_eq!(addon_in(&addons), Addon::Installed(Some(Version([0, 4, 0]))));
-        assert_eq!(std::fs::read_to_string(source.join("Translate.toc")).unwrap(), "## Version: 0.1.0\n");
+        assert_eq!(std::fs::read_to_string(source.join("NaiMaSpeak.toc")).unwrap(), "## Version: 0.1.0\n");
         remove(&addons);
         remove(&source);
     }

@@ -164,7 +164,7 @@ local function MoveInEditMode(edit)
 end
 
 local function Build()
-    frame = CreateFrame("Frame", "TranslateStrip", UIParent)
+    frame = CreateFrame("Frame", "NaiMaSpeakStrip", UIParent)
     frame:SetIgnoreParentScale(true)
     frame:SetFrameStrata("TOOLTIP")
     frame:SetSize(WIDTH, HEIGHT)

@@ -3,8 +3,8 @@
 ## Notes: Chinese to English chat translation, paired with the Nai Ma Speak companion app.
 ## Author: cherryroots
 ## Version: 0.3.0
-## IconTexture: Interface\AddOns\Translate\icon
-## SavedVariables: TranslateDB
+## IconTexture: Interface\AddOns\NaiMaSpeak\icon
+## SavedVariables: NaiMaSpeakDB
 
 Core.lua
 Strip.lua

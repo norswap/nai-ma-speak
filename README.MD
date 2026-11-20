@@ -16,7 +16,7 @@ in Simplified.
 
 This is a fork of [cherryroots/Translate](https://github.com/cherryroots/Translate). It has two parts:
 
-- **`addon/Translate`**: the in-game addon, listed in the game as "Nai Ma Speak". One folder loads in both WoW: Forever
+- **`addon/NaiMaSpeak`**: the in-game addon, listed in the game as "Nai Ma Speak". One folder loads in both WoW: Forever
   and retail (`## Interface: 16001, 120105`).
 
 - **`companion`**: a small Rust app that runs next to the game, translates, and draws the result as an overlay over the
@@ -65,14 +65,16 @@ Download both parts from the [latest release](https://github.com/norswap/nai-ma-
 
 ### The addon
 
-The companion can install it: when it starts and finds the addon missing from the game's AddOns folder, it offers to put it there, and the Status tab keeps the offer. To do it by hand, unzip `Nai-Ma-Speak-addon.zip` into the AddOns folder of the client you play, so the files end up in a folder named `Translate`:
+The companion can install it: when it starts and finds the addon missing from the game's AddOns folder, it offers to put it there, and the Status tab keeps the offer. To do it by hand, unzip `Nai-Ma-Speak-addon.zip` into the AddOns folder of the client you play, so the files end up in a folder named `NaiMaSpeak`:
 
 ```
-Forever: World of Warcraft/_forever_/Interface/AddOns/Translate/
-Retail:  World of Warcraft/_retail_/Interface/AddOns/Translate/
+Forever: World of Warcraft/_forever_/Interface/AddOns/NaiMaSpeak/
+Retail:  World of Warcraft/_retail_/Interface/AddOns/NaiMaSpeak/
 ```
 
-Restart the client if "Nai Ma Speak" does not appear in the addon list. If retail lists it as out of date, the retail patch has moved past `120105`: check the number with `/dump select(4, GetBuildInfo())` and update the `## Interface:` line in `Translate.toc`.
+Before 0.4.0 the folder was named `Translate`. The companion's update removes that one and keeps its settings. After unzipping by hand, delete the old `Translate` folder yourself: the addon turns the old one off and takes its settings over the first time both are loaded, and says so in chat.
+
+Restart the client if "Nai Ma Speak" does not appear in the addon list. If retail lists it as out of date, the retail patch has moved past `120105`: check the number with `/dump select(4, GetBuildInfo())` and update the `## Interface:` line in `NaiMaSpeak.toc`.
 
 ### The companion
 
@@ -155,7 +157,7 @@ Chat lines are sent to whichever backend you choose. Only a local model keeps th
 
 ## Icon
 
-`assets/icon.svg` is the source for the icons. `companion/icon.png` is the window icon, `companion/icon.ico` is built into the Windows exe, and `addon/Translate/icon.tga` is shown in the AddOns list through `## IconTexture`. To change the icon, edit the SVG and re-export those files at the same sizes.
+`assets/icon.svg` is the source for the icons. `companion/icon.png` is the window icon, `companion/icon.ico` is built into the Windows exe, and `addon/NaiMaSpeak/icon.tga` is shown in the AddOns list through `## IconTexture`. To change the icon, edit the SVG and re-export those files at the same sizes.
 
 ## Making a release
 

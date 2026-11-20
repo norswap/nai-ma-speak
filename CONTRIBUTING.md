@@ -4,7 +4,7 @@ Thanks for helping. Bug reports, slang suggestions and pull requests are all wel
 
 ## Layout
 
-- `addon/Translate`: the WoW addon (Lua 5.1). It must load on both WoW: Forever (`## Interface: 16001`) and retail, and must handle Midnight secret values: check `issecretvalue` before reading chat text.
+- `addon/NaiMaSpeak`: the WoW addon (Lua 5.1). It must load on both WoW: Forever (`## Interface: 16001`) and retail, and must handle Midnight secret values: check `issecretvalue` before reading chat text.
 - `companion`: the Rust companion app (eframe/egui, xcap, ureq).
 - `assets`: the icon source.
 
@@ -27,4 +27,4 @@ New WoW terms go in the `SLANG` string in `companion/src/translate.rs` as `ä¸­æ–
 
 ## Pixel strip
 
-If you change the strip format, change both `addon/Translate/Strip.lua` and `companion/src/strip.rs`, and keep the tests in `strip.rs` passing; its `encode` is a copy of the addon's encoder.
+If you change the strip format, change both `addon/NaiMaSpeak/Strip.lua` and `companion/src/strip.rs`, and keep the tests in `strip.rs` passing; its `encode` is a copy of the addon's encoder.

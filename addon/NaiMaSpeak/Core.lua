@@ -44,11 +44,11 @@ end
 
 ns.On("ADDON_LOADED", function(name)
     if name ~= addonName then return end
-    TranslateDB = TranslateDB or {}
+    NaiMaSpeakDB = NaiMaSpeakDB or {}
     for k, v in pairs(DEFAULTS) do
-        if TranslateDB[k] == nil then TranslateDB[k] = v end
+        if NaiMaSpeakDB[k] == nil then NaiMaSpeakDB[k] = v end
     end
-    ns.db = TranslateDB
+    ns.db = NaiMaSpeakDB
     frame:UnregisterEvent("ADDON_LOADED")
 end)
 
@@ -63,7 +63,30 @@ function ns.SayVersion()
     ns.SendToStrip("V\t" .. ns.VERSION .. "\t" .. (type(listed) == "string" and listed or ""), "V\t")
 end
 
+-- Before 0.4.0 the addon's folder was named Translate. Left beside this one, the old
+-- addon would draw a strip of its own and send every line twice, so it is turned off;
+-- told by its title, since another addon may go by so plain a name. Its settings are
+-- taken over, once, while both are loaded.
+local OLD = "Translate"
+
+function ns.RetireOld()
+    local addons = C_AddOns
+    if not (addons and addons.GetAddOnMetadata and addons.IsAddOnLoaded and addons.DisableAddOn) then return end
+    -- Asking about an addon that is not installed is an error.
+    local ok, title = pcall(addons.GetAddOnMetadata, OLD, "Title")
+    if not ok or title ~= "Nai Ma Speak" or not addons.IsAddOnLoaded(OLD) then return end
+    if type(TranslateDB) == "table" and not ns.db.tookOverOld then
+        for key, value in pairs(TranslateDB) do ns.db[key] = value end
+        ns.db.tookOverOld = true
+    end
+    addons.DisableAddOn(OLD)
+    if addons.SaveAddOns then addons.SaveAddOns() end
+    ns.Print("This addon's folder is now named " .. addonName .. ". The old one, " .. OLD .. ", is still installed and "
+        .. "has been turned off, its settings taken over: type /reload, then delete Interface/AddOns/" .. OLD .. ".")
+end
+
 ns.On("PLAYER_LOGIN", function()
+    ns.RetireOld()
     if ns.InitChat then ns.InitChat() end
     if ns.InitLayout then ns.InitLayout() end
     if ns.InitTabs then ns.InitTabs() end
@@ -164,13 +187,13 @@ local commands = {
     help = ShowHelp,
 }
 
-SLASH_TRANSLATE1 = "/tr"
-SLASH_TRANSLATE2 = "/translate"
-SLASH_TRANSLATE3 = "/nms"
+SLASH_NAIMASPEAK1 = "/tr"
+SLASH_NAIMASPEAK2 = "/translate"
+SLASH_NAIMASPEAK3 = "/nms"
 -- "/tr" alone is the Translate button. A command is a word after a slash
 -- ("/tr /test 5"), so no English sentence can be taken for one; a slash word
 -- that is no command is a chat target ("/tr /g hello").
-SlashCmdList.TRANSLATE = function(input)
+SlashCmdList.NAIMASPEAK = function(input)
     local text = strtrim(input or "")
     if text == "" then
         ns.SendCommand("reply")

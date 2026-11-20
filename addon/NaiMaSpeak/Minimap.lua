@@ -37,7 +37,7 @@ end
 
 -- Looks like the other addons' minimap buttons: an icon in a round gold border.
 local function Build()
-    button = CreateFrame("Button", "TranslateMinimapButton", Minimap)
+    button = CreateFrame("Button", "NaiMaSpeakMinimapButton", Minimap)
     button:SetSize(31, 31)
     button:SetFrameStrata("MEDIUM")
     button:SetFrameLevel(8)
@@ -47,7 +47,7 @@ local function Build()
     background:SetSize(24, 24)
     background:SetPoint("CENTER")
     local icon = button:CreateTexture(nil, "ARTWORK")
-    icon:SetTexture("Interface\\AddOns\\Translate\\icon")
+    icon:SetTexture("Interface\\AddOns\\NaiMaSpeak\\icon")
     icon:SetSize(18, 18)
     icon:SetPoint("CENTER")
     local border = button:CreateTexture(nil, "OVERLAY")

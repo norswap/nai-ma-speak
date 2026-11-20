@@ -3,7 +3,7 @@
 -- The game's functions the addon calls are replaced by small stand-ins, and what the
 -- addon would draw on the pixel strip is collected as text.
 
-local ADDON = "addon/Translate/"
+local ADDON = "addon/NaiMaSpeak/"
 
 -- An object whose every method does nothing and returns another such object, standing
 -- in for frames, textures and buttons.
@@ -67,12 +67,12 @@ EventRegistry = {
     RegisterCallback = function(_, _, fn) clickLink = function(link, window) fn(nil, link, "[T]", "LeftButton", window) end end,
 }
 
--- Load the addon as the game does, in the order of Translate.toc, and log in.
+-- Load the addon as the game does, in the order of NaiMaSpeak.toc, and log in.
 local ns = {}
 for _, file in ipairs({ "Core.lua", "Strip.lua", "Chat.lua", "Layout.lua", "Tabs.lua", "Buttons.lua", "Minimap.lua", "Options.lua" }) do
-    assert(loadfile(ADDON .. file))("Translate", ns)
+    assert(loadfile(ADDON .. file))("NaiMaSpeak", ns)
 end
-ns.handlers.ADDON_LOADED("Translate")
+ns.handlers.ADDON_LOADED("NaiMaSpeak")
 ns.handlers.PLAYER_LOGIN()
 
 -- The strip shows one frame at a time; `Frames` plays out the waiting ones and returns
@@ -135,11 +135,11 @@ Check("each event's line is sent once, worded and colored as the game does", Fra
         .. "0 | Ragnaros yells:  | You will die! | ffffff | Ragnaros",
 })
 
-TranslateDB.allLines = false
+NaiMaSpeakDB.allLines = false
 Chat("CHAT_MSG_SAY", "plain")
 Chat("CHAT_MSG_SAY", "缺坦")
 Check("without allLines only Chinese lines are sent", Frames(), { "1 | [Bob] says:  | 缺坦 | ffffff | Bob" })
-TranslateDB.allLines = true
+NaiMaSpeakDB.allLines = true
 
 -- A copied chat window ----------------------------------------------------------------
 
@@ -148,44 +148,44 @@ TranslateDB.allLines = true
 local asked, withLink = Chat("CHAT_MSG_GUILD", "缺補")
 local _, plainLine = Chat("CHAT_MSG_SAY", "no link here")
 Check("a Chinese line gets its two links", withLink,
-    "缺補 |Haddon:Translate:T:" .. asked .. "|h|cff66ccff[T]|r|h|Haddon:Translate:E:" .. asked .. "|h|cff66ccff[?]|r|h")
+    "缺補 |Haddon:NaiMaSpeak:T:" .. asked .. "|h|cff66ccff[T]|r|h|Haddon:NaiMaSpeak:E:" .. asked .. "|h|cff66ccff[?]|r|h")
 Check("other lines get none", plainLine, "no link here")
 Frames()
 -- The line as a chat window shows it, long after the addon forgot the message itself.
 ChatFrame1:AddMessage("|Hplayer:Bob:424242:GUILD|h[|cff3fc7ebBob|r]|h: " .. withLink, 0.25, 1, 0.25)
-ChatFrame1:AddMessage("|Hplayer:小明:424243:SAY|h[|cff3fc7eb小明|r]|h says: hi |Haddon:Translate:N:77|h[?N]|h", 1, 1, 1)
+ChatFrame1:AddMessage("|Hplayer:小明:424243:SAY|h[|cff3fc7eb小明|r]|h says: hi |Haddon:NaiMaSpeak:N:77|h[?N]|h", 1, 1, 1)
 ns.SendToStrip("0\t\twaiting 1")
 ns.SendToStrip("0\t\twaiting 2")
-clickLink("addon:Translate:T:" .. asked, ChatFrame1)
-clickLink("addon:Translate:E:" .. asked, ChatFrame1)
+clickLink("addon:NaiMaSpeak:T:" .. asked, ChatFrame1)
+clickLink("addon:NaiMaSpeak:E:" .. asked, ChatFrame1)
 clickLink("addon:Other:T:" .. asked, ChatFrame1)
 clickLink("item:1", ChatFrame1)
-clickLink("addon:Translate:N:77")
+clickLink("addon:NaiMaSpeak:N:77")
 Check("a click sends the line, read from the window, ahead of what is waiting", Frames(), {
     "0 |  | waiting 1",
     "N |  |  | ffffff | 小明\nE | [|cff3fc7ebBob|r]:  | 缺補 | 40ff40 | Bob\nT | [|cff3fc7ebBob|r]:  | 缺補 | 40ff40 | Bob\n0 |  | waiting 2",
 })
 local _, named = filters.CHAT_MSG_SAY(nil, "CHAT_MSG_SAY", "hello", "小明", "", "", "", "", 0, 0, "", 0, 555555, "guid-2")
-Check("an English line from a Chinese name gets only the name's link", named, "hello |Haddon:Translate:N:555555|h|cff66ccff[?N]|r|h")
+Check("an English line from a Chinese name gets only the name's link", named, "hello |Haddon:NaiMaSpeak:N:555555|h|cff66ccff[?N]|r|h")
 local _, hidden = filters.CHAT_MSG_COMMUNITIES_CHANNEL(nil, "CHAT_MSG_COMMUNITIES_CHANNEL", "|Kx37|k", "小明", "", "", "", "", 0, 8, "", 0, 555556, "guid-2")
-Check("a community channel's line, its message hidden, gets the name's link too", hidden, "|Kx37|k |Haddon:Translate:N:555556|h|cff66ccff[?N]|r|h")
+Check("a community channel's line, its message hidden, gets the name's link too", hidden, "|Kx37|k |Haddon:NaiMaSpeak:N:555556|h|cff66ccff[?N]|r|h")
 Frames()
 ChatFrame1:AddMessage("|HplayerCommunity:小明:57:1:17:15|h[小明]|h: " .. hidden, 1, 1, 1)
-clickLink("addon:Translate:N:555556", ChatFrame1)
+clickLink("addon:NaiMaSpeak:N:555556", ChatFrame1)
 Check("and a click on it asks about the name", Frames(), { "N |  |  | ffffff | 小明" })
 Frames()
 printed = {}
-clickLink("addon:Translate:T:99999", ChatFrame1)
+clickLink("addon:NaiMaSpeak:T:99999", ChatFrame1)
 Check("a line no window shows any more says so", #printed, 1)
-TranslateDB.showLinks = false
+NaiMaSpeakDB.showLinks = false
 local _, unlinked = Chat("CHAT_MSG_GUILD", "缺坦")
 Check("no links with the option off", unlinked, "缺坦")
-TranslateDB.showLinks = true
+NaiMaSpeakDB.showLinks = true
 Frames()
 
 -- A copied chat window ----------------------------------------------------------------
 
-TranslateDB.sourceWindow = "Pick"
+NaiMaSpeakDB.sourceWindow = "Pick"
 local id, linked = Chat("CHAT_MSG_GUILD", "來打副本 |cffa335ee|Hitem:1|h[劍]|h|r")
 Check("events send nothing while a window is copied", Frames(), {})
 
@@ -212,7 +212,7 @@ Shown(string.rep("長", 200))
 local long = Frames()[1]
 Check("a line too long for a frame keeps its color at the end", long:sub(-12), " | ffffff | ")
 Check("and fits the frame", #long <= ns.STRIP.maxText + 8, true) -- " | " is 2 longer than a tab, 4 times
-TranslateDB.sourceWindow = ""
+NaiMaSpeakDB.sourceWindow = ""
 
 -- Markup helpers -----------------------------------------------------------------------
 
@@ -279,7 +279,7 @@ Check("and starts with the sync blocks", table.concat({ symbols[1], symbols[2], 
 
 -- Buttons and slash commands -------------------------------------------------------------
 
-local slash = SlashCmdList.TRANSLATE
+local slash = SlashCmdList.NAIMASPEAK
 slash("")
 slash("/g sure, I can heal")
 slash("/w Ann on my way")
@@ -370,7 +370,7 @@ Check("a second tab of that name is not made", problem, "There is already a tab 
 -- Where the strip is drawn ----------------------------------------------------------------
 
 local function Origin(place)
-    TranslateDB.stripPosition = place or TranslateDB.stripPosition
+    NaiMaSpeakDB.stripPosition = place or NaiMaSpeakDB.stripPosition
     local left, top = ns.StripOrigin()
     return left .. "," .. top
 end
@@ -395,7 +395,7 @@ function GetPhysicalScreenSize() return 1280, 720 end
 ns.KeepStripAt(1280, 0)
 GetPhysicalScreenSize = screen
 Check("and one dropped past the edge stays on the screen", Origin(), right .. ",0")
-TranslateDB.stripPosition = "topleft"
+NaiMaSpeakDB.stripPosition = "topleft"
 
 local entries = {}
 MenuUtil = {
@@ -413,10 +413,10 @@ local angles = {}
 for _, at in ipairs({ { 1, 0 }, { 0, 1 }, { -1, 0 }, { 0, -1 } }) do angles[#angles + 1] = ns.AngleRound(10, 10, 10 + at[1], 10 + at[2]) end
 Check("the button follows the pointer round the minimap", table.concat(angles, " "), "0 90 180 270")
 
-local toc = assert(io.open(ADDON .. "Translate.toc")):read("*a")
+local toc = assert(io.open(ADDON .. "NaiMaSpeak.toc")):read("*a")
 Check("the .toc and Core.lua name the same version", toc:match("## Version: (%S+)"), ns.VERSION)
 
-Check("SLASH aliases", SLASH_TRANSLATE1 .. " " .. SLASH_TRANSLATE3, "/tr /nms")
+Check("SLASH aliases", SLASH_NAIMASPEAK1 .. " " .. SLASH_NAIMASPEAK3, "/tr /nms")
 local numbers = {}
 for _, n in ipairs({ 1, 9, 10, 11, 20, 21, 99 }) do numbers[#numbers + 1] = ns.ChineseNumber(n) end
 Check("Chinese numbers", table.concat(numbers, " "), "一 九 十 十一 二十 二十一 九十九")
@@ -431,8 +431,27 @@ Check("the demo's lines reach the overlay as chat does", demo:match("^[^\n]*"),
     "1 | [1. General - Undercity] [奶茶 半糖]:  | 血色修道院 教堂 缺坦缺DD 有補 來的密我 | ffbfbf | 奶茶 半糖")
 Check("all of them, the one without Chinese too", select(2, demo:gsub("[^\n]+", "")), 12)
 Check("and are added to the chat window with their links", printed[1]:match("|Haddon.*$"),
-    "|Haddon:Translate:T:1073741825|h|cff66ccff[T]|r|h|Haddon:Translate:E:1073741825|h|cff66ccff[?]|r|h"
-        .. "|Haddon:Translate:N:1073741825|h|cff66ccff[?N]|r|h")
+    "|Haddon:NaiMaSpeak:T:1073741825|h|cff66ccff[T]|r|h|Haddon:NaiMaSpeak:E:1073741825|h|cff66ccff[?]|r|h"
+        .. "|Haddon:NaiMaSpeak:N:1073741825|h|cff66ccff[?N]|r|h")
+
+-- The old addon, named Translate ---------------------------------------------------------------
+
+local loaded, disabled = { Translate = "Nai Ma Speak" }, {}
+C_AddOns = {
+    GetAddOnMetadata = function(name) return loaded[name] or error("Invalid AddOn name") end,
+    IsAddOnLoaded = function(name) return loaded[name] ~= nil end,
+    DisableAddOn = function(name) disabled[#disabled + 1] = name end,
+}
+TranslateDB = { repeatLines = 20 }
+printed = {}
+ns.RetireOld()
+Check("the old addon is turned off and its settings taken over", { disabled[1], NaiMaSpeakDB.repeatLines, #printed }, { "Translate", 20, 1 })
+loaded, disabled = { Translate = "Translate" }, {}
+ns.RetireOld()
+loaded = {}
+ns.RetireOld()
+Check("another addon of that name, or none, is left alone", #disabled, 0)
+C_AddOns, TranslateDB, NaiMaSpeakDB.repeatLines = nil, nil, 50
 
 if failures > 0 then
     print(failures .. " failed")

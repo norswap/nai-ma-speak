@@ -6,7 +6,7 @@ local _, ns = ...
 -- is added to it. What the tab is set to show still counts for "Lines sent to the
 -- overlay": one tab can pick the lines and stay empty under their translations.
 
-local POPUP = "TRANSLATE_KEEP_EMPTY"
+local POPUP = "NAIMASPEAK_KEEP_EMPTY"
 local asking = false -- the player has yet to confirm the tab chosen
 
 -- The chat window kept empty, if one is chosen in the options and still exists.

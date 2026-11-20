@@ -1,5 +1,5 @@
 //! Reads the addon's pixel strip off the screen. The layout must match
-//! addon/Translate/Strip.lua: a frame of 64 x 8 blocks, each one of 64 colors: 3 sync
+//! addon/NaiMaSpeak/Strip.lua: a frame of 64 x 8 blocks, each one of 64 colors: 3 sync
 //! blocks, then [seq][len hi][len lo][text...][fletcher16 hi][fletcher16 lo] packed
 //! 3 bytes into 4 blocks. Under the frame, a ninth row shows the 64 colors in order.
 

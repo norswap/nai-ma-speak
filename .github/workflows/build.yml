@@ -148,10 +148,10 @@ jobs:
       - name: Check Lua syntax
         run: |
           sudo apt-get update -qq && sudo apt-get install -y -qq lua5.1
-          for f in addon/Translate/*.lua; do luac5.1 -p "$f"; done
+          for f in addon/NaiMaSpeak/*.lua; do luac5.1 -p "$f"; done
       - name: Test
         run: lua5.1 tests/addon_test.lua
-      # GitHub zips folder artifacts once on download; the zip holds the Translate folder.
+      # GitHub zips folder artifacts once on download; the zip holds the NaiMaSpeak folder.
       - uses: actions/upload-artifact@v7
         with:
           name: Nai-Ma-Speak-addon
@@ -173,8 +173,8 @@ jobs:
       - name: Zip the addon
         run: |
           cd dist
-          zip -qr Nai-Ma-Speak-addon.zip Translate
-          rm -r Translate
+          zip -qr Nai-Ma-Speak-addon.zip NaiMaSpeak
+          rm -r NaiMaSpeak
           ls -l
           for f in Nai-Ma-Speak-addon.zip nai-ma-speak-windows-x64.exe Nai-Ma-Speak-macos.zip nai-ma-speak-linux-x64; do
             test -s "$f" || { echo "missing $f"; exit 1; }
