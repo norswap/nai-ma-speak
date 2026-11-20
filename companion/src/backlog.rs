@@ -13,6 +13,9 @@ const KEEP: Duration = Duration::from_secs(10 * 60);
 #[derive(Serialize, Deserialize)]
 pub struct Kept {
     pub seen: u64,
+    /// The character that saw it; empty if not known.
+    #[serde(default)]
+    pub character: String,
     pub line: ChatLine,
     pub done: Option<Vec<Span>>,
 }
@@ -48,7 +51,7 @@ mod tests {
 
     #[test]
     fn only_recent_lines_come_back() {
-        let line = |seen| Kept { seen, line: ChatLine { speaker: String::new(), color: [255; 3], prefix: vec![], body: vec![Span::plain("hi")], number: None }, done: None };
+        let line = |seen| Kept { seen, character: String::new(), line: ChatLine { speaker: String::new(), color: [255; 3], prefix: vec![], body: vec![Span::plain("hi")], number: None }, done: None };
         let kept = recent(vec![line(1000), line(1500), line(1601)], 1000 + 601);
         assert_eq!(kept.iter().map(|line| line.seen).collect::<Vec<_>>(), [1500, 1601]);
         // What is written reads back the same.

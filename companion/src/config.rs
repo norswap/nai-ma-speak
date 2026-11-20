@@ -193,6 +193,9 @@ pub struct Config {
     /// How many lines of text one mouse wheel step scrolls the overlay.
     pub wheel_lines: usize,
     pub show_original: bool,
+    /// Keep each character's lines apart: the overlay shows those of the character
+    /// played, and the Chat history tab one list for each.
+    pub chat_per_character: bool,
     /// Name of the chat tab the overlay sits on and follows; empty to place it by hand.
     pub anchor_tab: String,
     /// Hide the locked overlay while another window is in front of WoW.
@@ -230,6 +233,7 @@ impl Default for Config {
             max_lines: 100,
             wheel_lines: 3,
             show_original: false,
+            chat_per_character: true,
             anchor_tab: String::new(),
             hide_when_unfocused: true,
             auto_update: true,

@@ -117,8 +117,10 @@ local function Chat(event, text, channel, channelIndex)
     return lineID, shown or text
 end
 
+function UnitName(unit) return unit == "player" and "Nors Darkraven" or nil end
 ns.SayVersion()
-Check("the version is told, with the one the game read at its start", Frames(), { "V | " .. ns.VERSION .. " | 0.0.1" })
+Check("the version is told, with the one the game read at its start and the character", Frames(),
+    { "V | " .. ns.VERSION .. " | 0.0.1 | Nors Darkraven" })
 
 -- Chat events, with no chat window copied ------------------------------------------
 

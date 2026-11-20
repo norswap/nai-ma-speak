@@ -408,7 +408,10 @@ pub fn spawn(jobs: Sender<Job>, asked: Sender<Job>, ui: UiSender) {
                                 Message::Command(_) if first => {}
                                 Message::Command(command) => ui.send(UiEvent::Command(command)),
                                 Message::Wheel { name, count } => ui.send(UiEvent::Wheel { name, count }),
-                                Message::Version(version) => ui.send(UiEvent::AddonVersion(version)),
+                                Message::Version { addon, character } => {
+                                    ui.send(UiEvent::AddonVersion(addon));
+                                    ui.send(UiEvent::Character(character));
+                                }
                                 Message::Chat { line, handling } => {
                                     if let Some(number) = line.number {
                                         if had.get(&number) == Some(&line) {

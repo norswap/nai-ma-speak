@@ -60,7 +60,10 @@ local VERSION_TIME = 5 -- seconds between tellings, for a companion started late
 function ns.SayVersion()
     local metadata = (C_AddOns and C_AddOns.GetAddOnMetadata) or GetAddOnMetadata
     local listed = metadata and metadata(addonName, "Version")
-    ns.SendToStrip("V\t" .. ns.VERSION .. "\t" .. (type(listed) == "string" and listed or ""), "V\t")
+    -- With the character's name, which the companion can keep each one's chat by.
+    local character = UnitName and UnitName("player")
+    if type(character) ~= "string" or ns.IsSecret(character) then character = "" end
+    ns.SendToStrip("V\t" .. ns.VERSION .. "\t" .. (type(listed) == "string" and listed or "") .. "\t" .. character, "V\t")
 end
 
 -- Before 0.4.0 the addon's folder was named Translate. Left beside this one, the old

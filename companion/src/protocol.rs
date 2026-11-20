@@ -15,8 +15,8 @@
 //!   up counted positive.
 //! - `C`, then `reply` or `settings`: a click on one of the addon's buttons.
 //! - `R`, then English the player typed after "/tr", to translate and copy.
-//! - `V`, then the addon's version as its Lua files say, and as the game read it from
-//!   the .toc when it started.
+//! - `V`, then the addon's version as its Lua files say, as the game read it from
+//!   the .toc when it started, and the name of the character played.
 //!
 //! The addon side is in `addon/NaiMaSpeak`: Chat.lua (chat lines), Layout.lua (`L`, `S`),
 //! Buttons.lua (`C`, `R`) and Core.lua (`V`).
@@ -30,7 +30,7 @@ pub enum Message {
     Windows(Vec<ChatWindow>),
     Wheel { name: String, count: i64 },
     Command(Command),
-    Version(AddonVersion),
+    Version { addon: AddonVersion, character: String },
 }
 
 /// The addon the game holds. `running` is what its Lua files say and changes with
@@ -80,8 +80,9 @@ pub fn parse(line: &str) -> Option<Message> {
             Some(Message::Wheel { name: name.to_string(), count: count.parse().ok()? })
         }
         "V" => {
-            let (running, listed) = rest.split_once('\t')?;
-            Some(Message::Version(AddonVersion { running: running.into(), listed: listed.into() }))
+            let mut fields = rest.split('\t');
+            let addon = AddonVersion { running: fields.next()?.into(), listed: fields.next()?.into() };
+            Some(Message::Version { addon, character: fields.next().unwrap_or_default().into() })
         }
         "C" if rest == "reply" => Some(Message::Command(Command::OpenReply)),
         "C" if rest == "settings" => Some(Message::Command(Command::OpenSettings)),
@@ -152,8 +153,9 @@ pub mod tests {
         assert_eq!((line.speaker.as_str(), line.number), ("小明", None));
         assert!(matches!(parse("T\t\t缺坦\tffffff"), Some(Message::Chat { handling: Handling::TranslateFirst, .. })));
         assert!(matches!(parse("E\t\t缺坦\tffffff"), Some(Message::Chat { handling: Handling::Explain, .. })));
-        let version = AddonVersion { running: "0.4.0".into(), listed: "0.3.0".into() };
-        assert_eq!(parse("V\t0.4.0\t0.3.0"), Some(Message::Version(version)));
+        let addon = AddonVersion { running: "0.4.0".into(), listed: "0.3.0".into() };
+        assert_eq!(parse("V\t0.4.0\t0.3.0"), Some(Message::Version { addon: addon.clone(), character: String::new() }));
+        assert_eq!(parse("V\t0.4.0\t0.3.0\tNors Darkraven"), Some(Message::Version { addon, character: "Nors Darkraven".into() }));
         assert_eq!(parse("broken"), None);
         assert_eq!(parse("7\t\t缺坦"), None);
         assert_eq!(parse("1\tno body"), None);

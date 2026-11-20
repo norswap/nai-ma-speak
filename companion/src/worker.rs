@@ -56,6 +56,8 @@ pub enum UiEvent {
     Scrolled { at: (f32, f32), steps: f32 },
     /// The version of the addon the game holds.
     AddonVersion(crate::protocol::AddonVersion),
+    /// The character played, as the addon names it; empty if it does not say.
+    Character(String),
     /// The releases that can be installed, newest first, or why they are not known.
     Releases(Result<Vec<crate::update::Release>, String>),
     /// What an update under way is doing.

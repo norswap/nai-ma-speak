@@ -38,6 +38,8 @@ struct OverlayLine {
     id: u64,
     /// When the line arrived, in seconds since 1970.
     seen: u64,
+    /// The character that saw it; empty if not known.
+    character: String,
     line: ChatLine,
     translation: Translation,
 }
@@ -60,14 +62,14 @@ impl OverlayLine {
             Translation::Done(spans) => Some(spans.clone()),
             _ => None,
         };
-        backlog::Kept { seen: self.seen, line: self.line.clone(), done }
+        backlog::Kept { seen: self.seen, character: self.character.clone(), line: self.line.clone(), done }
     }
 
     /// A line of the last run, back in the overlay. What it was still waiting for then
     /// will not come now, so it is shown as it is; its [T] link asks again.
     fn restored(kept: backlog::Kept) -> Self {
         let translation = kept.done.map_or(Translation::NotNeeded, Translation::Done);
-        Self { id: 0, seen: kept.seen, line: kept.line, translation }
+        Self { id: 0, seen: kept.seen, character: kept.character, line: kept.line, translation }
     }
 
     /// The line as the game words and colors it, with the body in English when there is
@@ -112,6 +114,10 @@ pub struct CompanionApp {
     events: Receiver<UiEvent>,
     interactive: Sender<Job>,
     lines: VecDeque<OverlayLine>,
+    /// The character played, as the addon last named it; empty until it does.
+    character: String,
+    /// The character whose lines the Chat history tab shows, if not the one played.
+    history_of: Option<String>,
     status: String,
     notice: String,
     reply: String,
@@ -434,11 +440,14 @@ impl CompanionApp {
         // Before the settings are remembered for Undo, which this is no change for.
         name_release(&mut draft);
         let overlay_start = egui::pos2(draft.overlay_x, draft.overlay_y);
+        let lines: VecDeque<OverlayLine> = backlog::load().into_iter().map(OverlayLine::restored).collect();
         Self {
             config,
             events,
             interactive,
-            lines: backlog::load().into_iter().map(OverlayLine::restored).collect(),
+            character: lines.back().map(|line| line.character.clone()).unwrap_or_default(),
+            history_of: None,
+            lines,
             status: "Ready".into(),
             notice: String::new(),
             reply: String::new(),
@@ -508,23 +517,49 @@ impl CompanionApp {
         }
     }
 
+    /// Takes note of the character the addon names. Lines that arrived before any was
+    /// named are that character's.
+    fn play(&mut self, character: String) {
+        if character.is_empty() || character == self.character {
+            return;
+        }
+        for line in self.lines.iter_mut().filter(|line| line.character.is_empty()) {
+            line.character = character.clone();
+        }
+        self.character = character;
+        self.history_of = None;
+        self.font_texture_stale = true;
+        self.backlog_changed = true;
+    }
+
+    /// The lines to show for `character`: its own, or all when chat is not kept apart.
+    fn lines_of<'a>(&'a self, character: &'a str) -> impl Iterator<Item = &'a OverlayLine> {
+        self.lines.iter().filter(move |line| !self.draft.chat_per_character || line.character == character)
+    }
+
     fn push_line(&mut self, mut line: OverlayLine) {
         let number = line.line.number;
         // The same number again is the line worded anew, with a link now named in
         // English: it takes the earlier one's place, and keeps showing its translation
         // until its own arrives.
-        if let Some(earlier) = self.lines.iter_mut().find(|other| number.is_some() && other.line.number == number) {
+        // Numbers are a character's own: each login counts anew.
+        let own = |other: &OverlayLine| other.character == line.character;
+        if let Some(earlier) = self.lines.iter_mut().find(|other| own(other) && number.is_some() && other.line.number == number) {
             if let (Translation::Pending(_), Translation::Done(_)) = (&line.translation, &earlier.translation) {
                 line.translation = std::mem::replace(&mut earlier.translation, Translation::NotNeeded);
             }
             line.seen = earlier.seen;
             *earlier = line;
         } else {
-            let place = place(self.lines.iter().map(|line| line.line.number), number);
+            let place = place(self.lines.iter().map(|other| other.line.number.filter(|_| own(other))), number);
+            let character = line.character.clone();
             self.lines.insert(place, line);
-        }
-        while self.lines.len() > self.draft.max_lines.max(1) {
-            self.lines.pop_front();
+            // Kept apart, each character has as many lines as are kept.
+            let counted = |line: &OverlayLine| !self.draft.chat_per_character || line.character == character;
+            while self.lines.iter().filter(|line| counted(line)).count() > self.draft.max_lines.max(1) {
+                let oldest = self.lines.iter().position(counted).expect("counted above");
+                self.lines.remove(oldest);
+            }
         }
         self.font_texture_stale = true;
         self.backlog_changed = true;
@@ -581,7 +616,7 @@ impl CompanionApp {
             match event {
                 UiEvent::Line { id, line, awaiting } => {
                     let translation = awaiting.map_or(Translation::NotNeeded, Translation::Pending);
-                    self.push_line(OverlayLine { id, seen: backlog::now(), line, translation });
+                    self.push_line(OverlayLine { id, seen: backlog::now(), character: self.character.clone(), line, translation });
                 }
                 UiEvent::Translated { id, english } => {
                     if let Some(line) = self.lines.iter_mut().rev().find(|line| line.id == id) {
@@ -678,6 +713,7 @@ impl CompanionApp {
                     }
                     self.addon_version = Some(version);
                 }
+                UiEvent::Character(character) => self.play(character),
                 UiEvent::WowView(view) => self.wow_view = view,
                 UiEvent::ChatWindows(windows) => {
                     // Once, and when tabs come or go: not each time one is selected or moved.
@@ -1409,10 +1445,13 @@ impl CompanionApp {
 
     fn overlay_tab(&mut self, ui: &mut egui::Ui) {
         if ui.add(theme::button("Clear overlay")).clicked() {
-            self.lines.clear();
+            let (apart, character) = (self.draft.chat_per_character, self.character.clone());
+            self.lines.retain(|line| apart && line.character != character);
             self.backlog_changed = true;
         }
         ui.checkbox(&mut self.draft.show_original, "Show Chinese too");
+        ui.checkbox(&mut self.draft.chat_per_character, "Keep each character's chat apart")
+            .on_hover_text("The overlay shows the lines of the character you are playing, and the Chat history tab has a list for each. Unticked, all characters share one.");
         ui.checkbox(&mut self.draft.translate_names, "Translate player names")
             .on_hover_text("After a Chinese name, show what it means, or how it sounds if it means nothing. The free services translate it word for word, less well than a chat model.");
         ui.checkbox(&mut self.draft.hide_when_unfocused, HIDE_LABEL);
@@ -1474,6 +1513,7 @@ impl CompanionApp {
 
     /// The lines the overlay holds, to scroll through and select text from.
     fn history_tab(&mut self, ui: &mut egui::Ui) {
+        let of = self.history_character(ui);
         theme::boxed().show(ui, |ui| {
             let room = (ui.available_height() - 60.0).max(160.0);
             let scroll = egui::ScrollArea::vertical().id_salt("history").max_height(room).stick_to_bottom(true);
@@ -1483,15 +1523,41 @@ impl CompanionApp {
                 let width = ui.available_width();
                 let row = ui.fonts_mut(|fonts| fonts.row_height(&font)).ceil();
                 let names = self.draft.translate_names.then_some(&self.names);
-                if self.lines.is_empty() {
+                let mut lines = self.lines_of(&of).peekable();
+                if lines.peek().is_none() {
                     ui.label(RichText::new("No chat lines yet.").color(theme::MUTED));
                 }
-                for line in &self.lines {
+                for line in lines {
                     ui.add(egui::Label::new(line.job(&font, row, width, names)).selectable(true));
                 }
             });
         });
-        ui.label(RichText::new("Holds as many lines as \"Lines kept\" on the Overlay tab.").color(theme::MUTED));
+        let each = if self.draft.chat_per_character { " for each character" } else { "" };
+        ui.label(RichText::new(format!("Holds as many lines as \"Lines kept\" on the Overlay tab{each}.")).color(theme::MUTED));
+    }
+
+    /// With chat kept apart, a row to pick whose lines the Chat history tab shows: the
+    /// characters that have lines, and the one played. Gives the one picked.
+    fn history_character(&mut self, ui: &mut egui::Ui) -> String {
+        let mut characters: Vec<&str> = Vec::new();
+        for character in self.lines.iter().map(|line| line.character.as_str()).chain([self.character.as_str()]) {
+            if !characters.contains(&character) {
+                characters.push(character);
+            }
+        }
+        let mut of = self.history_of.clone().filter(|of| characters.contains(&of.as_str())).unwrap_or_else(|| self.character.clone());
+        if self.draft.chat_per_character && characters.len() > 1 {
+            ui.horizontal_wrapped(|ui| {
+                for character in characters {
+                    let label = if character.is_empty() { "Not known" } else { character };
+                    if ui.selectable_label(character == of, label).clicked() {
+                        of = character.to_string();
+                    }
+                }
+            });
+        }
+        self.history_of = (of != self.character).then(|| of.clone());
+        of
     }
 
     /// How things stand, for a report of a problem: what the Status tab shows and the
@@ -1930,7 +1996,7 @@ impl CompanionApp {
         let mut rect = self.overlay_rect;
         let wheel_steps = std::mem::take(&mut self.wheel_steps);
         let pill = self.reply_pill(ctx);
-        let lines = &self.lines;
+        let lines: Vec<&OverlayLine> = self.lines_of(&self.character).collect();
         let names = self.draft.translate_names.then_some(&self.names);
 
         show_window(ctx, overlay_id(), builder, |root, _class| {
@@ -1973,7 +2039,7 @@ impl CompanionApp {
                         ui.scroll_with_delta(egui::vec2(0.0, wheel_steps * draft.wheel_lines as f32 * row));
                     }
                     let mut galleys = Vec::new();
-                    for line in lines {
+                    for line in &lines {
                         galleys.push(ui.painter().layout_job(line.job(&font, row, width, names)));
                         let original = markup::plain(&line.line.body);
                         // Not under a line that had no body of its own, such as a name explained.
