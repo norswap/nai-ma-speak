@@ -166,7 +166,8 @@ pub struct Config {
     /// The Chinese that replies are written in.
     pub reply_variant: Region,
     pub reading: Reading,
-    /// Show what a Chinese player name means, or how it sounds, after it.
+    /// Show what a Chinese player name means, or how it sounds, after it. Google
+    /// Translate cannot, so the setting only counts with the other backends.
     pub translate_names: bool,
     pub overlay_x: f32,
     pub overlay_y: f32,
@@ -182,7 +183,7 @@ pub struct Config {
     pub anchor_tab: String,
     /// Hide the locked overlay while another window is in front of WoW.
     pub hide_when_unfocused: bool,
-    /// Put a newer release in place when the companion starts, without asking.
+    /// Put a newer release in place without asking, when the companion starts and every half hour.
     pub auto_update: bool,
     /// The release to stay on, such as "0.4.0"; empty for the newest.
     pub version: String,
@@ -204,7 +205,7 @@ impl Default for Config {
             server: Region::default(),
             reply_variant: Region::default(),
             reading: Reading::default(),
-            translate_names: false,
+            translate_names: true,
             overlay_x: 20.0,
             overlay_y: 420.0,
             overlay_width: 520.0,
@@ -216,7 +217,7 @@ impl Default for Config {
             show_original: false,
             anchor_tab: String::new(),
             hide_when_unfocused: true,
-            auto_update: false,
+            auto_update: true,
             version: String::new(),
             addons_folder: String::new(),
         }

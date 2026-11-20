@@ -1416,10 +1416,11 @@ impl CompanionApp {
             self.backlog_changed = true;
         }
         ui.checkbox(&mut self.draft.show_original, "Show Chinese too");
-        let can_name = self.draft.backend.takes_instructions();
-        let label = if can_name { "Translate player names" } else { "Translate player names (unavailable with Google Translate)" };
-        ui.add_enabled(can_name, egui::Checkbox::new(&mut self.draft.translate_names, label))
-            .on_hover_text("After a Chinese name, show what it means, or how it sounds if it means nothing.");
+        // Google Translate cannot put a name into English as a name.
+        if self.draft.backend.takes_instructions() {
+            ui.checkbox(&mut self.draft.translate_names, "Translate player names")
+                .on_hover_text("After a Chinese name, show what it means, or how it sounds if it means nothing.");
+        }
         ui.checkbox(&mut self.draft.hide_when_unfocused, HIDE_LABEL);
         ui.spacing_mut().slider_width = (ui.available_width() - 70.0).max(120.0);
         slider(ui, "Lines kept (scrollback)", &mut self.draft.max_lines, 1..=500);
