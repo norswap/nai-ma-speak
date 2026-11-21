@@ -1,7 +1,7 @@
 local addonName, ns = ...
 
 -- The release this file belongs to; the release workflow writes it here and in the .toc.
-ns.VERSION = "0.3.0"
+ns.VERSION = "0.4.0"
 
 -- One event frame, one handler table keyed by event name.
 ns.handlers = {}

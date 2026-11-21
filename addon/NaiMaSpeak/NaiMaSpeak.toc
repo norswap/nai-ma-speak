@@ -2,7 +2,7 @@
 ## Title: Nai Ma Speak
 ## Notes: Chinese to English chat translation, paired with the Nai Ma Speak companion app.
 ## Author: cherryroots
-## Version: 0.3.0
+## Version: 0.4.0
 ## IconTexture: Interface\AddOns\NaiMaSpeak\icon
 ## SavedVariables: NaiMaSpeakDB
 
