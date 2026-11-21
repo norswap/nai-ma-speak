@@ -317,11 +317,22 @@ Check("with neither, it asks whose", #printed, 1)
 
 -- A tab kept empty ---------------------------------------------------------------
 
-local function Undo() ns.db.emptyWindow = "" end
+local function Undo(name) ns.db.emptyWindow = name end
+local function Settle() while #timers > 0 do table.remove(timers, 1)() end end
+-- Stepping through the options to "Pick" passes "General", which shows chat.
+ChatFrame1.messageTypeList = { "SAY" }
 ChatFrame2:AddMessage("an old line")
+local before = #ChatFrame2.added
+popup = nil
+ns.db.emptyWindow = "General"
+ns.EmptyChosen(Undo)
+ChatFrame1:AddMessage("passing by")
 ns.db.emptyWindow = "Pick"
 ns.EmptyChosen(Undo)
-Check("a tab chosen to be kept empty is emptied", #ChatFrame2.added, 0)
+Check("a tab is not emptied the moment it is chosen", #ChatFrame2.added, before)
+Settle()
+Check("a tab passed on the way is left alone, and not asked about", tostring(#ChatFrame1.added > 0) .. " " .. tostring(popup), "true nil")
+Check("a tab chosen to be kept empty is emptied once the choice has stood", #ChatFrame2.added, 0)
 ChatFrame2:AddMessage("Total time played: 3 days")
 ChatFrame1:AddMessage("hello")
 Check("and so is every line added to it", #ChatFrame2.added, 0)
@@ -332,21 +343,28 @@ ns.db.sourceWindow = ""
 Check("its lines can still be picked for the overlay", Frames(), { "1 | [Guild] [Bob]:  | 副本缺補 | 40ff40 | " })
 
 ns.db.emptyWindow = "General"
-ChatFrame1.messageTypeList = { "SAY" }
 ns.EmptyChosen(Undo)
+Settle()
 ChatFrame1:AddMessage("still here")
-Check("a tab set to show chat is kept until the player agrees", ChatFrame1.added[#ChatFrame1.added][1], "still here")
+ChatFrame2:AddMessage("gone")
+Check("a tab set to show chat is kept until the player agrees, and the one before stays empty",
+    { ChatFrame1.added[#ChatFrame1.added][1], #ChatFrame2.added }, { "still here", 0 })
 popup.dialog.OnCancel(nil, popup.data)
 ChatFrame1:AddMessage("and here")
-Check("refusing puts the options back", ns.db.emptyWindow .. " " .. ChatFrame1.added[#ChatFrame1.added][1], " and here")
+Check("refusing puts the options back on the tab kept before", ns.db.emptyWindow .. " " .. ChatFrame1.added[#ChatFrame1.added][1], "Pick and here")
 ns.db.emptyWindow = "General"
 ns.EmptyChosen(Undo)
-popup.dialog.OnAccept()
+Settle()
+popup.dialog.OnAccept(nil, popup.data)
 Check("agreeing empties it", #ChatFrame1.added, 0)
 ns.db.emptyWindow = "Gone"
+ns.EmptyChosen(Undo)
+Settle()
 ChatFrame1:AddMessage("kept")
 Check("a tab that no longer exists empties none", #ChatFrame1.added, 1)
 ns.db.emptyWindow = ""
+ns.EmptyChosen(Undo)
+Settle()
 
 -- A new empty tab -----------------------------------------------------------------
 
@@ -359,13 +377,28 @@ function FCF_OpenNewWindow(name)
     tabNames[3] = name
     return ChatFrame3
 end
-local _, problem = ns.NewEmptyTab()
+local _, problem = ns.NewEmptyTab("Overlay")
 Check("with every chat window in use, no tab is made", problem:match("^All 2 chat windows") ~= nil, true)
+printed, popup = {}, nil
+ns.AskNewEmptyTab(function() end)
+Check("nor is its name asked for", tostring(popup) .. " " .. #printed, "nil 1")
 ChatFrame2.isDocked = false
 ChatFrame2.IsShown = function() return false end
-Check("a free chat window becomes a tab that shows nothing", ns.NewEmptyTab() == ChatFrame3 and table.concat(cleared, " "), "types channels")
-_, problem = ns.NewEmptyTab()
-Check("a second tab of that name is not made", problem, "There is already a tab named \"Translated\".")
+_, problem = ns.NewEmptyTab("  ")
+Check("a tab needs a name", problem, "The tab needs a name.")
+-- The popup asks for the name, offering one; the player types another.
+local typed, made
+local dialog = { editBox = { SetText = function(_, text) typed = text end, HighlightText = function() end, GetText = function() return typed end } }
+ns.AskNewEmptyTab(function(name) made = name end)
+popup.dialog.OnShow(dialog)
+Check("a name is offered", typed, "Translated")
+typed = " Overlay "
+popup.dialog.OnAccept(dialog, popup.data)
+Check("a free chat window becomes a tab of the name typed that shows nothing",
+    { made, tabNames[3], table.concat(cleared, " ") }, { "Overlay", "Overlay", "types channels" })
+printed = {}
+popup.dialog.OnAccept(dialog, popup.data)
+Check("a second tab of that name is not made", printed[1]:match("There is already a tab named \"Overlay\"") ~= nil, true)
 
 -- The minimap button ----------------------------------------------------------------
 

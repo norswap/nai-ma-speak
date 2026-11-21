@@ -58,24 +58,22 @@ local function Build()
     Settings.CreateDropdown(category, empty,
         WindowOptions("emptyWindow", "None", function(name) return name end, "none is kept empty", combatLog),
         "Throw away every line the game writes into this tab, so nothing shows behind the overlay. "
+        .. "A choice is taken up once it has stood for a moment. "
         .. "Pick the tab the companion app's overlay is anchored to. The game writes some lines, such as "
         .. "the answer to /played, into whichever tab is in front, even one set to show nothing. "
         .. "Lines thrown away do not come back when this is turned off.")
     Settings.SetOnValueChangedCallback("NaiMaSpeak_emptyWindow", function()
-        ns.EmptyChosen(function() empty:SetValue(NONE) end)
+        ns.EmptyChosen(function(name) empty:SetValue(name) end)
     end, ns)
 
     if CreateSettingsButtonInitializer and FCF_OpenNewWindow then
         local button = CreateSettingsButtonInitializer("Tab for the overlay", "New empty tab", function()
-            local window, problem = ns.NewEmptyTab()
-            if window then
-                empty:SetValue(ns.NEW_TAB)
-                ns.Print("Made the \"" .. ns.NEW_TAB .. "\" tab, kept empty. "
+            ns.AskNewEmptyTab(function(name)
+                empty:SetValue(name)
+                ns.Print("Made the \"" .. name .. "\" tab, kept empty. "
                     .. "To put the overlay on it, pick it under \"Anchor to chat tab\" in the companion app.")
-            else
-                ns.Print(problem)
-            end
-        end, "Open a chat tab named \"" .. ns.NEW_TAB .. "\" that shows nothing, and keep it empty. "
+            end)
+        end, "Open a chat tab that shows nothing, under a name you choose, and keep it empty. "
             .. "The game allows " .. (NUM_CHAT_WINDOWS or 10) .. " chat windows: with all of them in use "
             .. "this button is greyed out, until a tab is closed (right-click it, Close Window).", true)
         layout:AddInitializer(button)
