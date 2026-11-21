@@ -3,113 +3,179 @@
 Chat translation between Chinese and English for World of Warcraft, made for playing on a Taiwanese or Mainland server
 without reading Chinese.
 
-奶媽 (nǎi mā, "wet nurse") is what Chinese-speaking players call a healer.
-
 It reads Traditional and Simplified Chinese, and writes your replies in Traditional Chinese with Taiwanese wording, or
 in Simplified.
 
-<p>
+Compatible with WoW Forever (1.60.1) and Retail (12.1.5). Runs on macOS, Windows & Linux.
+
+**This has been extensively tested only on WoW Forever, on Taiwanese servers, and on macOS. Users report it also works
+on Windows.**
+
+<p align="center">
   <img src="assets/chat.png" alt="The game's chat in Chinese, on the General tab" width="49%">
   <img src="assets/overlay.png" alt="The same chat translated, in the overlay on a chat tab, in the game's own colors" width="49%">
 </p>
 
-<img src="assets/companion.png" alt="The companion app's window, on its Backend tab" width="480">
+<p align="center">
+  <img src="assets/companion.png" alt="The companion app's window, on its Backend tab" width="480">
+</p>
 
-This is a fork of [cherryroots/Translate](https://github.com/cherryroots/Translate). It has two parts:
+This is a fork of [cherryroots/Translate](https://github.com/cherryroots/Translate), greatly expanding on the original.
 
-- **`addon/NaiMaSpeak`**: the in-game addon, listed in the game as "Nai Ma Speak". One folder loads in both WoW: Forever
-  and retail (`## Interface: 16001, 120105`).
-
-- **`companion`**: a small Rust app that runs next to the game, translates, and draws the result as an overlay over the
-  game.
-
-> **Tested only on macOS with WoW: Forever.** Retail WoW, Windows and Linux are untested since the fork: the addon declares the retail interface and the companion builds and passes its tests on the other systems, but nobody has run them with the game.
+奶媽 (nǎi mā, "wet nurse") is what Chinese-speaking players call a healer.
 
 ## How It Works
 
-WoW addons cannot reach the internet, so the two parts talk through the screen:
+The system has two parts: an in-game AddOn and a companion app.
 
-1. **Game to companion.** The addon draws each new chat line as a small strip of colored blocks, in the top-left corner
-   of the screen unless moved (128 x 18 pixels). The companion finds the strip, decodes it and translates the Chinese lines. The strip's last row shows every color it uses, so it is read correctly whatever the display's color profile or the game's gamma setting does to the colors.
+WoW AddOns cannot reach the internet, so the companion app reads the screen to grab the chat, translates it, and draws
+the translation as a transparent click-through overlay over the game.
 
-2. **Overlay.** The companion shows the lines in a see-through, click-through window. It can sit exactly on one of your chat tabs, taking its place, size and text size, and it draws lines the way the game does: same colors, wording, class-colored names, chat font and text shadow. A Chinese line appears at once, marked "(translation pending)", and turns into English when the translation arrives.
-3. **Replies.** You type English, and the Chinese is put on your clipboard to paste into the game's chat box. The companion only ever writes to the clipboard.
+**We don't currently do OCR** (maybe soon). The AddOn captures the chat and transmits it to the companion via a block
+of colored pixels (128x18 pixels). One advantage of this method is that the chat to be translated does not need to be
+visible on screen.
 
-The addon never learns what the companion did, and the companion never presses a key or sends chat for you.
+**The companion app cannot talk to the AddOn.** This would employ the same methods as bots, and is therefore risky.
 
-Reading the strip is screen capture: it only reads pixels and never sends input to the game, but Blizzard's terms do not clearly allow or forbid it. Use it at your own judgment.
-
-## Features
-
-- **A copy of a chat window.** Pick a chat window in the addon's options and the overlay shows every line that window shows, including system messages and what other addons print, with their color tags. Without one, the overlay gets player chat and the game's own messages as they arrive.
-- **Translation backends.** Free services that need no setup and no key (Bing Translator, with Google Translate as its fallback, or either alone), Claude with a Claude Console API key, or any OpenAI-compatible endpoint: OpenAI, or a local model through Ollama or LM Studio.
-- **Learn from the chat.** Chinese lines in the game's chat windows also end in a `[?]` link. Clicking it explains the line in the overlay: each word followed by how it is read, in pinyin or bopomofo, and what it means, then the whole line in English and, when there is one, a note on its grammar. It needs Claude or an OpenAI-compatible model; the free services cannot do it.
-- **Player names.** With "Translate player names" on, as it is unless you turn it off, a Chinese name is followed by what it means in English, or how it sounds if it means nothing. The free services translate a name word for word, less well than a chat model. A `[?N]` link after a line explains its speaker's name: what it says and what it plays on. Names of players seen speaking stay in Chinese inside translated lines, so you can still tell who is meant.
-- **Links in your language.** A linked quest, item, spell or achievement shows the name its sender's game gave it. The addon asks your own game for the name instead, so links arrive in English exactly as your client names them. A link the game has not loaded yet is translated word for word, and corrected within seconds, once the game knows the name.
-- **Slang and place hints.** The chat models are told whether you play on a Taiwanese or a mainland server, so whose slang to expect. They are also told the WoW slang found in each line (缺補, 坦, 副本...), from a list of mainland and Taiwanese terms, and the English names of the classic world's zones, towns, dungeons and raids, with the short forms players type. The free services take no hints.
-- **In-game buttons.** "Translate" and "App" buttons on the chat window open the reply box and the companion app's window.
-- **Translate again on request.** Chinese lines in the game's own chat windows end in a `[T]` link. Clicking it sends that line to the overlay again, ahead of everything waiting, marked "[On request]": for a line that scrolled away, or was dropped when chat was too busy.
-- **Catching up.** While chat is quiet the addon keeps sending its last 50 chat lines again (the count is in the addon's options). Lines the companion missed, because another window covered the game or the companion was not running, appear in the overlay in their place within seconds; lines it has are not shown twice.
-- **Scrollback.** With the overlay on a chat tab, the mouse wheel over that tab scrolls the overlay, by as many lines a step as set on the Overlay tab. On macOS the wheel scrolls the overlay wherever it sits, and on every notch, including the slow single ones the game itself lets pass.
-- **Chat history.** The companion keeps the recent lines in a tab where text can be selected and copied. How many lines are kept, and how far back the lines brought back after a restart go (ten minutes unless you change it, up to a week), are set on the same tab. With "Keep each character's chat apart" on, as it is unless you turn it off, the overlay shows only the lines of the character you are playing and this tab has a list for each character.
+Once the app gets the line, it uses a third-party service to translate it: either a free translation service (Bing or
+Google) or an LLM (bring your own API key). It then draws it back over the game (or somewhere else if you want) on a
+translucent click-through overlay.
 
 ## Install
 
-Download both parts from the [latest release](https://github.com/norswap/nai-ma-speak/releases/latest):
+Download the app from the [latest release](https://github.com/norswap/nai-ma-speak/releases/latest).
 
-| File | What it is |
-| --- | --- |
-| `Nai-Ma-Speak-addon.zip` | The addon |
-| `Nai-Ma-Speak-macos.zip` | The companion app for macOS (Apple silicon and Intel) |
-| `nai-ma-speak-windows-x64.exe` | The companion for Windows (untested) |
-| `nai-ma-speak-linux-x64` | The companion for Linux (untested) |
+You do not need to install the AddOn yourself; the app will offer to do so when you launch it.
+(But if you want to install it manually, that is also feasible.)
 
-### The addon
+The companion app is just a program you can run.
 
-The companion can install it: when it starts and finds the addon missing from the game's AddOns folder, it offers to put it there, and the Status tab keeps the offer. To do it by hand, unzip `Nai-Ma-Speak-addon.zip` into the AddOns folder of the client you play, so the files end up in a folder named `NaiMaSpeak`:
+macOS: unzip, then double-click the `.app`, dismiss the warning, then go to *"System Settings" > "Privacy & Security"*,
+scroll down to the message about "Nai Ma Speak" and click *"Open Anyway"*. Seriously, fuck you, Apple.
 
-```
-Forever: World of Warcraft/_forever_/Interface/AddOns/NaiMaSpeak/
-Retail:  World of Warcraft/_retail_/Interface/AddOns/NaiMaSpeak/
-```
+You will also need to grant screen recording permission.
 
-Before 0.4.0 the folder was named `Translate`. The companion's update removes that one and keeps its settings. After unzipping by hand, delete the old `Translate` folder yourself: the addon turns the old one off and takes its settings over the first time both are loaded, and says so in chat.
+Linux: run `chmod +x nai-ma-speak-linux-x64` once before running.
 
-Restart the client if "Nai Ma Speak" does not appear in the addon list. If retail lists it as out of date, the retail patch has moved past `120105`: check the number with `/dump select(4, GetBuildInfo())` and update the `## Interface:` line in `NaiMaSpeak.toc`.
+**Run WoW in "windowed" or "windowed (fullscreen)" mode**: overlays cannot draw over true fullscreen, and screen capture
+may see a black screen there.
 
-### The companion
+**If you supply API keys, they will be stored in plaintext in `config.json` next to the program.**
+The program also writes a few more files next to it, so you may want to put it in its own directory.
 
-Give it a folder of its own: it keeps `config.json`, `nai-ma-speak.log` and `backlog.json` next to the program (next to the `.app` on macOS). `config.json` holds your API keys in plain text, and `backlog.json` the overlay's recent chat lines.
+To build from sources, see [CONTRIBUTING.md](./CONTRIBUTING.md).
 
-- **macOS:** unzip `Nai-Ma-Speak-macos.zip`. The app is not signed by a registered developer, so macOS refuses to open it the first time. To let it through, do one of these once:
-  - Right-click (or Control-click) the app and choose **Open**, then **Open** again in the dialog.
-  - On recent versions of macOS, where that no longer offers to open it: double-click the app, dismiss the warning, then go to **System Settings > Privacy & Security**, scroll down to the message about "Nai Ma Speak" and click **Open Anyway**.
-  - Or in Terminal: `xattr -dr com.apple.quarantine "Nai Ma Speak.app"`.
+## Features
 
-  macOS then asks for the Screen Recording permission, so the companion can read the strip; a new version may ask again.
-- **Windows:** run the `.exe`.
-- **Linux:** run `chmod +x nai-ma-speak-linux-x64` once, then start it.
+In the default setup, the companion receives all chat lines from every chat window, translates those containing
+Chinese, and draws them in a translucent click-through overlay. The overlay is hidden when the game isn't showing.
 
-### Building it yourself
+Hitting the *"Translate"* button near the chat brings up a textbox where you can type English text. Hitting Enter
+translates it and sends it to your clipboard. You can use the `/tr` or `/nms` command to achieve the same (see below).
 
-It needs Rust 1.95 or newer. On macOS, `./macos-app.sh <folder>` inside `companion/` builds `Nai Ma Speak.app` into that folder; run `./macos-signing-cert.sh` once beforehand to sign your builds with a local certificate, so the Screen Recording permission survives rebuilds. Elsewhere, `cargo build --release` inside `companion/` makes `target/release/nai-ma-speak`; Linux also needs the PipeWire, X11 and Wayland development packages listed in `.github/workflows/build.yml`.
+Every chat message containing Chinese (in its text or in the speaker's name) also allows you to request a new
+translation by clicking `[T]` next to the message in the game's chat windows (useful when the free models are
+rate-limited or for old messages).
 
-Run WoW in **windowed** or **windowed (fullscreen)** mode: overlays cannot draw over exclusive fullscreen, and screen capture may see a black screen there.
+When using AI models (OpenAI, Anthropic), you can also request a sentence breakdown (translates every word, and
+shows phonetics and a short note) by clicking `[?]`. You can request an explanation of a Chinese player name via `[?N]`.
 
-## Using it
+More features below. I've highlighted the important stuff **in bold**.
 
-### In the game
+### Translation / Backend Features
 
-The pixel strip can be moved to another corner of the screen in the addon's options, or dragged anywhere while the game's Edit Mode is open. Keep it where nothing covers it.
+- Select the translation provider.
+  - The default is a mix of Google and Bing Translate, but the quality is lower and it is prone to rate-limiting
+    and failures.
+  - **You can put in your OpenAI or Anthropic API key for improved quality and reliability (recommended).**
+    - The cost is a few cents a day with GPT-4o-mini.
+  - You can also use any local model that serves an OpenAI-compatible API (e.g. via Ollama or LM Studio).
+    - If you enter a base address like `http://localhost:1234`, the `/v1` suffix is added automatically.
+- Choose between traditional and simplified Chinese for translating your messages.
+- Choose between pinyin and bopomofo for phonetics.
+- **Built-in knowledge of WoW slang, locations and abbreviations when using LLMs.**
+- Links to items, quests, etc. are shown in your client's language (the name comes directly from your game client).
+  - However, they are not clickable, as the overlay cannot be interacted with.
 
-A button on the minimap opens a menu with the addon's options and the companion app's window; drag it to move it, or turn it off in the addon's options.
+### Overlay Features
 
-The two buttons sit on the main chat window. Their place (on the tab row, upright beside the window at its top right or bottom right, or hidden) is set under Options > AddOns > Nai Ma Speak, along with which chat window the overlay copies.
+- The overlay is scrollable when anchored to a chat tab, and on macOS also when floating.
+  - The overlay is not otherwise interactive.
+  - On macOS, the scroll is sensitive to every "notch" in your scroll wheel (unlike the built-in chat).
+  - You can select the number of lines that each scroll passes (in the companion app).
+- The overlay behaviour can be customized in the *"Overlay"* tab of the companion app.
+  - Choose whether to translate player names.
+  - Choose whether to display the original Chinese line.
+  - Show the overlay when the game isn't showing.
+- **Only translate some messages by selecting a source window: only messages from that window will be translated and
+  shown on the overlay.** (in the AddOn options)
+- Select whether messages containing no Chinese are passed through the overlay or not (in the AddOn options).
+- Reposition the overlay by unlocking it in the companion app and moving it around.
+- **Select an empty chat window to anchor the overlay to, mimicking a native chat window (in the companion app).**
+  - You can create such an empty tab in the AddOn options.
+  - The overlay will be hidden when another tab is shown.
 
-- **Translate** opens a box above the chat window. Type English and press Enter: the box closes at once and a note on the overlay says "Translating", then "Copied, paste it". Paste into the game's chat box and send. If the translation fails or is too long for one chat message (255 bytes), the note says so, and Translate reopens the box with your text.
-- **App** brings the companion app's window over the game, and sends it away again. (The addon's own few settings are in the game's options.)
+### History & Misc Features
 
-The same from the chat box, where `/nms` works in place of `/tr`:
+By default, each character's overlay chat history is preserved separately. The history survives logout.
+
+- **You can choose to merge all characters' overlay chat history instead, for a unified log.**
+- You can configure the overlay scrollback (up to 2000 lines per character).
+- Within that limit, you can configure how far back lines are brought back when the companion starts (e.g. the last
+  hour / day / week, or all of them).
+
+Other stuff:
+
+- You can move the location of the pixel block in the AddOn options, or reposition it manually in edit mode.
+- You can bring up the companion app via the *"App"* button for quick access.
+- The companion app auto-updates itself and the AddOn.
+
+## Limitations & Pitfalls
+
+- **The pixel block must be visible (showing on the screen, not covered by another window).**
+  - Lines missed while it was covered are sent again once it is visible: the AddOn keeps repeating its most recent
+    lines while chat is quiet.
+
+- **Doesn't work in "community channels".** (These chat messages are hidden from AddOns.)
+
+- **The overlay isn't scrollable when floating on Windows & Linux.** Anchor it to a chat tab to get scrolling.
+
+- Non-LLM services do not support the explanation modes (`[?]` and `[?N]`).
+
+- Non-LLM services cannot take hints, so they do not benefit from the built-in knowledge of WoW slang, locations and
+  abbreviations.
+
+- Max message length is 376 bytes. This is big enough for all chat messages, but some system messages might get cut.
+
+- The AddOn can transmit about 10 messages per second (minimum 4) via the pixel block. If messages come faster, they are
+  queued up, up to 200. If the queue gets full, translations might get dropped, although you can always request a manual
+  translation via the `[T]` button.
+
+- Icons inside chat lines (raid markers and the like) are left out of the overlay.
+
+- Colors in text may be dropped. Line color is preserved (e.g. green for guild chat), link (item/quest/...) color is
+  order-matched (the first link in the translation gets the color of the first link in the original, which might be
+  incorrect if the translation changes the link ordering). Bespoke coloring on normal words is lost, unless they appear
+  as-is in the output.
+
+- The pixel block must not be stretched. Stretching happens when anything enlarges the game's picture by a fraction:
+  for instance, exclusive fullscreen at a different resolution than the screen, other forms of (up)scaling applied by
+  the OS, or streaming.
+
+## Troubleshooting
+
+Please make sure you read through the [Limitations & Pitfalls](#limitations--pitfalls) section first.
+
+If something goes wrong, go to the *"Status"* tab, click *"Copy report"*, and open an issue in this repository, with the
+report and any additional useful details (your setup, what you already tried, etc.).
+
+If the companion app crashes, please also attach the `nai-ma-speak.log` file that lives next to the program.
+
+## In-Game Command Reference
+
+The command prefix is `/tr` (for "translate") or `/nms` (for "Nai Ma Speak").
+
+Everything the commands do can be achieved via the UI (*"Translate"* button in-game and AddOn or App options).
 
 | Command | Does |
 | --- | --- |
@@ -117,53 +183,23 @@ The same from the chat box, where `/nms` works in place of `/tr`:
 | `/tr hello` | Translate and copy, then reopen the chat box on the channel it was last on |
 | `/tr /g hello` | The same, reopening the chat box on that target: `/p`, `/s`, `/y`, `/ra`, `/i`, `/o`, `/2`, `/w Name`, `/r` |
 | `/tr /name` | Explain your target's name in the overlay; `/tr /name 黑熊` for one you type |
-| `/tr /options` | Open the addon's options |
+| `/tr /options` | Open the AddOn's options |
 | `/tr /all` | Toggle lines without Chinese in the overlay |
-| `/tr /test` | Send a Chinese test line to the overlay, seen only by you, to check the strip and overlay |
-| `/tr /test 10` | Send that many test lines |
-| `/tr /demo` | Play a made-up Chinese conversation in your chat window, seen only by you, to try the overlay when chat is quiet |
-| `/tr /probe` | Report which client features the addon found |
+| `/tr /test` | Send a Chinese test line to the overlay, seen only by you, to check the block and overlay |
 | `/tr /help` | List the commands |
 
-### The companion window
+There are some extra internal / troubleshooting commands:
 
-Settings take effect as you change them and are saved by themselves. **Undo** puts them back as they were when the companion was opened, **Restart** starts it again, and **Hide** hides the window while the overlay stays; the game's App button or the app's icon brings it back.
+| Command | Does |
+| --- | --- |
+| `/tr /test 10` | Send that many test lines, to the overlay only as well |
+| `/tr /demo` | Play a made-up Chinese conversation in your chat window, seen only by you, to try the overlay when chat is quiet |
+| `/tr /probe` | Report which client features the AddOn found |
 
-- **Backend:** what translates, which server you play on (Taiwan or mainland China), which Chinese replies are written in, and whether explanations give readings in pinyin or bopomofo. "Test translation" sends a fixed line and shows the answer and how long it took.
-  - *Free services* need nothing, and are what a new install uses: Bing Translator, whose translations of game chat are the better ones, and Google Translate whenever Bing refuses or takes more than two seconds. Both are asked the way their own web pages ask them, which is unofficial: they limit use and may stop working. A service that fails is left alone for a wait that doubles up to 30 seconds. *Bing Translator* and *Google Translate* can also be picked alone.
-  - *Claude* needs a key from the [Claude Console](https://console.anthropic.com). Haiku is the default, and enough for chat lines.
-  - *OpenAI-compatible* has presets for OpenAI and for Tencent's translation model [HY-MT1.5-7B](https://huggingface.co/tencent/HY-MT1.5-7B-GGUF) on a local [Ollama](https://ollama.com) server (`ollama pull hf.co/tencent/HY-MT1.5-7B-GGUF:Q4_K_M`, 4.6 GB, free and offline). "Custom" takes any base URL and model; a bare address like `http://localhost:1234` gets `/v1` added.
-- **Overlay:** whether to show the Chinese under each translation, whether to translate player names, when to hide the overlay, how many lines a mouse wheel step scrolls, and where it sits. "Anchor to chat tab" puts it on one of the game's chat tabs; a spare, empty tab works best, and the addon's "Tab kept empty" option (Options > AddOns > Nai Ma Speak) keeps it empty, throwing away what the game writes into whichever tab is in front, such as the answer to `/played`. The "New empty tab" button there makes such a tab. Unticked, you unlock the overlay, drag it into place and set its size and text size yourself. Keep it off the top-left corner, where the strip is.
-- **Status:** whether the strip was found and whether it can be read, and which chat tabs the game reported. **Copy report** copies all of that with your settings (without the API keys) and the log, to paste into a bug report.
-- **Update:** whether the companion and the addon are up to date, with the version installed and the latest one for each. With "Update automatically" on, as it is unless you turn it off, the companion looks for a new release when it starts and every half hour, and puts it in place without asking: the addon first, then the companion, which starts again and says to type `/reload`. Settings are kept, the companion's and the addon's. With it off, "Release to use" names the release installed, a button updates to a newer one when there is one, and an earlier release can be picked there if a newer one misbehaves. When only the addon is behind or missing, a button installs it, and when the game still runs an older one than its folder holds, the tab says to type `/reload`. The AddOns folder is found by itself for a game in its usual place; where it is not, the tab asks for it. On macOS, replacing the companion makes the system ask for the Screen Recording permission again.
-- **Chat history** and **Translate:** the recent lines, and a field for translating a reply outside the game.
+## More Nerdy Details
 
-Chat lines are sent to whichever backend you choose. Only a local model keeps them on your computer.
+(to be expanded)
 
-## Troubleshooting
-
-- **The overlay stays empty.** Open the Status tab: it says whether the addon is installed, whether the pixel strip was found, and whether it can be read. When the game has been in front for a while without a strip, the companion comes forward to say so: tick Nai Ma Speak in the game's AddOns list, type `/reload`, and keep the strip uncovered. "Found, but cannot read it" with a note about the palette row means the addon is older than the companion: update both from the same release. With a note about frames failing their check, something changes the strip on its way to the companion, often another program's overlay drawn over that corner: send the Status tab's Copy report. The strip must be visible in the game, in the top-left corner unless moved, and on macOS the companion needs the Screen Recording permission. `/tr /probe` in the game reports what the addon found, and `/tr /test` sends a line through.
-- **To check a screenshot for the strip,** run `nai-ma-speak --decode screenshot.png`.
-- **The companion froze or misbehaved.** `nai-ma-speak.log`, next to `config.json`, records crashes, stalls, translation errors and what happened to the strip and the chat tabs. **Copy report** on the Status tab copies it with your settings, without the API keys.
-
-## Known limits
-
-- Chat text inside instances may be a secret value under Midnight rules. The addon cannot read those lines, so they are not shown or translated.
-- Each strip frame holds 376 bytes, enough for a chat message (255 bytes at most) with its speaker and colors. Longer lines, such as some system messages, are cut.
-- The strip carries about 1,500 bytes a second. In a flood of chat, lines queue in the addon, up to 200, and the oldest are dropped beyond that. A dropped line comes back by itself if it is among the last ones the addon repeats, and can be asked for again with its `[T]` link.
-- Icons inside chat lines (raid markers and the like) are left out of the overlay.
-- A translation keeps the colors of the original line only where they can be placed: a line in one color, item links in order, and words that come back unchanged.
-- The buttons sit on the main chat window and its docked tabs, not on a chat window floating on its own.
-- The strip assumes the UI is drawn at the screen's physical resolution. If the companion never finds it, send a screenshot through `--decode`.
-
-## Icon
-
-`assets/icon.svg` is the source for the icons. `companion/icon.png` is the window icon, `companion/icon.ico` is built into the Windows exe, and `addon/NaiMaSpeak/icon.tga` is shown in the AddOns list through `## IconTexture`. To change the icon, edit the SVG and re-export those files at the same sizes.
-
-## Making a release
-
-Run the **Build** workflow from the Actions tab with a tag such as `v0.3.0` in the *release* box, or push a `v*` tag. The workflow builds everything and publishes the release with notes generated from the merged pull requests. The tag sets the version: a `v0.3.0` run first commits "Release v0.3.0" to main with `## Version` in `Translate.toc` and the companion version in `companion/Cargo.toml` and `Cargo.lock` set to 0.3.0, then builds and tags that commit. Prefer the release box: a pushed tag stays on the commit you tagged, before the version commit.
-
-## License and credits
-
-MIT, see [LICENSE](LICENSE). The original project is by cherryroots. Slang terms from two other MIT-licensed addons, the bundled Marcellus font and the Chinese conversion library are credited in [THIRD_PARTY_NOTICES](THIRD_PARTY_NOTICES). Contributions are welcome: see [CONTRIBUTING.md](CONTRIBUTING.md).
+- **Catching up.** While chat is quiet the AddOn keeps sending its last N chat lines again (the count is in the AddOn's
+  options). Lines the companion missed, because another window covered the game or the companion was not running, appear
+  in the overlay in their place within seconds; lines it has are not shown twice.
