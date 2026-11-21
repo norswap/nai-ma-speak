@@ -8,7 +8,10 @@ without reading Chinese.
 It reads Traditional and Simplified Chinese, and writes your replies in Traditional Chinese with Taiwanese wording, or
 in Simplified.
 
-![The overlay on a chat tab in the game, with translated chat in the game's own colors](assets/overlay.png)
+<p>
+  <img src="assets/chat.png" alt="The game's chat in Chinese, on the General tab" width="49%">
+  <img src="assets/overlay.png" alt="The same chat translated, in the overlay on a chat tab, in the game's own colors" width="49%">
+</p>
 
 <img src="assets/companion.png" alt="The companion app's window, on its Backend tab" width="480">
 
