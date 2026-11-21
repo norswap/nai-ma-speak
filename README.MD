@@ -8,9 +8,7 @@ without reading Chinese.
 It reads Traditional and Simplified Chinese, and writes your replies in Traditional Chinese with Taiwanese wording, or
 in Simplified.
 
-<!-- The overlay in the game. Add the picture as assets/overlay.png, then remove this comment's two marker lines.
 ![The overlay on a chat tab in the game, with translated chat in the game's own colors](assets/overlay.png)
--->
 
 <img src="assets/companion.png" alt="The companion app's window, on its Backend tab" width="480">
 
