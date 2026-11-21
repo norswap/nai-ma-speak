@@ -74,6 +74,25 @@ local function LinkText(kind, id, text)
     return text:match("^[%[%]%d%s+]*") .. name .. text:match("[%]%s]*$")
 end
 
+-- The form of a word that goes with a number, of those the game is given as
+-- "|4one:many;" ("|4one:few:many;" in Russian) after the number: "2 |4hour:hours;".
+local function Counted(number, between, forms)
+    local list = {}
+    for form in forms:gmatch("[^:]+") do list[#list + 1] = form end
+    local n = tonumber(number) or 0
+    local form
+    if #list < 3 then
+        form = n == 1 and list[1] or list[2]
+    elseif n % 10 == 1 and n % 100 ~= 11 then
+        form = list[1]
+    elseif n % 10 >= 2 and n % 10 <= 4 and (n % 100 < 12 or n % 100 > 14) then
+        form = list[2]
+    else
+        form = list[3]
+    end
+    return number .. between .. (form or list[1] or "")
+end
+
 -- A line as the overlay draws it: links become their text, icons go, and the
 -- color codes (|cAARRGGBB, |r, and |cnNAME: for unknown names) stay for the
 -- companion to apply.
@@ -86,6 +105,7 @@ local function Markup(text)
     -- Text the game draws but keeps from addons: a community channel's messages,
     -- Battle.net names.
     text = text:gsub("|K.-|k", "(hidden from addons)")
+    text = text:gsub("(%d+)(%D-)|4([^;]*);", Counted)
     text = text:gsub("|n", " ")
     -- Tabs and newlines separate fields and lines on the strip. Not "%c",
     -- which in some locales also matches bytes inside Chinese characters.

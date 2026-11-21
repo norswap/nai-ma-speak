@@ -341,6 +341,12 @@ ns.db.sourceWindow = "Pick"
 ChatFrame2:AddMessage("[Guild] [Bob]: 副本缺補", 0.25, 1, 0.25)
 ns.db.sourceWindow = ""
 Check("its lines can still be picked for the overlay", Frames(), { "1 | [Guild] [Bob]:  | 副本缺補 | 40ff40 | " })
+ns.db.sourceWindow = "Pick"
+ChatFrame2:AddMessage("Total time played: 5 |4day:days;, 1 |4hour:hours;, 21 |4minute:minutes;, 1 |4second:seconds;", 1, 1, 0)
+ChatFrame2:AddMessage("21 |4день:дня:дней;, 3 |4час:часа:часов;, 12 |4минута:минуты:минут;", 1, 1, 0)
+ns.db.sourceWindow = ""
+Check("a word that goes with a number takes the form for it, as in the answer to /played", Frames(),
+    { "0 |  | Total time played: 5 days, 1 hour, 21 minutes, 1 second | ffff00 | \n0 |  | 21 день, 3 часа, 12 минут | ffff00 | " })
 
 ns.db.emptyWindow = "General"
 ns.EmptyChosen(Undo)
