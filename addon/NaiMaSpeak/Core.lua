@@ -102,7 +102,7 @@ ns.On("PLAYER_LOGIN", function()
     if C_Timer and C_Timer.NewTicker then C_Timer.NewTicker(VERSION_TIME, ns.SayVersion) end
 end)
 
--- The most lines "/tr test <count>" sends: 1 to 99 is what ChineseNumber writes.
+-- The most lines "/tr /test <count>" sends: 1 to 99 is what ChineseNumber writes.
 local TEST_MOST = 99
 
 -- 1 to 99 in Chinese numerals: 7 is 七, 12 is 十二, 30 is 三十.
@@ -119,8 +119,8 @@ local function ShowHelp()
     ns.Print("/tr /name  explain your target's name in the overlay, or /tr /name 黑熊 for one you type")
     ns.Print("/tr /options  open the options (also under Options > AddOns)")
     ns.Print("/tr /all  toggle showing lines without Chinese in the overlay too")
-    ns.Print("/tr /test  say a Chinese test line to check the strip and overlay")
-    ns.Print("/tr /test 10  send that many short test lines to the overlay only (at most " .. TEST_MOST .. ")")
+    ns.Print("/tr /test  send a Chinese test line to the overlay, to check the strip and overlay")
+    ns.Print("/tr /test 10  send that many short test lines (at most " .. TEST_MOST .. ")")
     ns.Print("/tr /demo  play a made-up Chinese conversation in your chat window, seen only by you")
     ns.Print("/tr /probe  report which client features this addon found")
     ns.Print("/tr /help  this list")
@@ -141,29 +141,22 @@ local commands = {
         end
         ns.ExplainName(name)
     end,
-    -- With a count, sends that many short lines, each a number in Chinese,
-    -- straight to the overlay: enough different lines to see how the
-    -- translator copes with a burst. Nothing is said in chat: the game only
-    -- lets an addon talk in /say right on a key press, not from a timer. The
-    -- companion never reuses an earlier translation for a line marked
-    -- "(Translate test)".
+    -- Sends a made-up Chinese line straight to the overlay, to check the strip
+    -- and the translation. With a count, that many short lines, each a number in
+    -- Chinese: enough different lines to see how the translator copes with a
+    -- burst. Nothing is said in chat. The companion never reuses an earlier
+    -- translation for a line marked "(Translate test)".
     test = function(count)
-        if count then
-            count = math.max(1, math.min(count, TEST_MOST))
-            for i = 1, count do
-                ns.SendTestLine(ns.ChineseNumber(i) .. " (Translate test)")
-            end
-            ns.Print("Sent " .. count .. " test lines to the overlay. They are not said in chat.")
+        if not count then
+            ns.SendTestLine("大家好，今天一起打副本嗎？ (Translate test)")
+            ns.Print("Sent a test line to the overlay, which should show it in English shortly. It is not said in chat.")
             return
         end
-        -- Mainline moved SendChatMessage into C_ChatInfo; probe both.
-        local send = (C_ChatInfo and C_ChatInfo.SendChatMessage) or SendChatMessage
-        if not send then
-            ns.Print("No SendChatMessage on this client. Type /s 需要奶妈 by hand.")
-            return
+        count = math.max(1, math.min(count, TEST_MOST))
+        for i = 1, count do
+            ns.SendTestLine(ns.ChineseNumber(i) .. " (Translate test)")
         end
-        send("大家好，今天一起打副本嗎？ (Translate test)", "SAY")
-        ns.Print("Sent a test line in /say. The companion overlay should show it in English shortly.")
+        ns.Print("Sent " .. count .. " test lines to the overlay. They are not said in chat.")
     end,
     demo = function()
         ns.Demo()
@@ -187,14 +180,12 @@ local commands = {
         ns.Print("Chat font: " .. tostring(font))
         local w, h = GetPhysicalScreenSize()
         ns.Print("Physical screen: " .. tostring(w) .. "x" .. tostring(h))
-        ns.Print("SendChatMessage: " .. ((C_ChatInfo and C_ChatInfo.SendChatMessage) and "C_ChatInfo" or (SendChatMessage and "global" or "none")))
     end,
     help = ShowHelp,
 }
 
 SLASH_NAIMASPEAK1 = "/tr"
-SLASH_NAIMASPEAK2 = "/translate"
-SLASH_NAIMASPEAK3 = "/nms"
+SLASH_NAIMASPEAK2 = "/nms"
 -- "/tr" alone is the Translate button. A command is a word after a slash
 -- ("/tr /test 5"), so no English sentence can be taken for one; a slash word
 -- that is no command is a chat target ("/tr /g hello").

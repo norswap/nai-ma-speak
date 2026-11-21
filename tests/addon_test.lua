@@ -300,10 +300,9 @@ Check("nothing was sent for it", Frames(), {})
 
 slash("/test 2")
 Check("counted test lines go to the overlay", Frames(), { "1 | [Test]:  | 一 (Translate test) | ffffff | Test\n1 | [Test]:  | 二 (Translate test) | ffffff | Test" })
-Check("and are not said in chat", #said, 0)
 slash("/TEST")
-Check("the plain test line is said", said[1], "SAY 大家好，今天一起打副本嗎？ (Translate test)")
-Frames()
+Check("the plain test line goes to the overlay too", Frames(), { "1 | [Test]:  | 大家好，今天一起打副本嗎？ (Translate test) | ffffff | Test" })
+Check("and nothing is said in chat", #said, 0)
 
 local target = "小明"
 function UnitName(unit) return unit == "target" and target or nil end
@@ -457,7 +456,7 @@ Check("the button follows the pointer round the minimap", table.concat(angles, "
 local toc = assert(io.open(ADDON .. "NaiMaSpeak.toc")):read("*a")
 Check("the .toc and Core.lua name the same version", toc:match("## Version: (%S+)"), ns.VERSION)
 
-Check("SLASH aliases", SLASH_NAIMASPEAK1 .. " " .. SLASH_NAIMASPEAK3, "/tr /nms")
+Check("SLASH aliases", SLASH_NAIMASPEAK1 .. " " .. SLASH_NAIMASPEAK2, "/tr /nms")
 local numbers = {}
 for _, n in ipairs({ 1, 9, 10, 11, 20, 21, 99 }) do numbers[#numbers + 1] = ns.ChineseNumber(n) end
 Check("Chinese numbers", table.concat(numbers, " "), "一 九 十 十一 二十 二十一 九十九")

@@ -119,8 +119,8 @@ The same from the chat box, where `/nms` works in place of `/tr`:
 | `/tr /name` | Explain your target's name in the overlay; `/tr /name 黑熊` for one you type |
 | `/tr /options` | Open the addon's options |
 | `/tr /all` | Toggle lines without Chinese in the overlay |
-| `/tr /test` | Say a Chinese test line in `/say` to check the strip and overlay |
-| `/tr /test 10` | Send that many test lines to the overlay only |
+| `/tr /test` | Send a Chinese test line to the overlay, seen only by you, to check the strip and overlay |
+| `/tr /test 10` | Send that many test lines |
 | `/tr /demo` | Play a made-up Chinese conversation in your chat window, seen only by you, to try the overlay when chat is quiet |
 | `/tr /probe` | Report which client features the addon found |
 | `/tr /help` | List the commands |
