@@ -561,9 +561,12 @@ impl CompanionApp {
         self.backlog_changed = true;
     }
 
-    /// The lines to show for `character`: its own, or all when chat is not kept apart.
+    /// The lines to show for `character`: its own, or with chat not kept apart the last
+    /// of all characters, as many as one character may have.
     fn lines_of<'a>(&'a self, character: &'a str) -> impl Iterator<Item = &'a OverlayLine> {
-        self.lines.iter().filter(move |line| !self.draft.chat_per_character || line.character == character)
+        let apart = self.draft.chat_per_character;
+        let hidden = if apart { 0 } else { self.lines.len().saturating_sub(self.draft.max_lines.max(1)) };
+        self.lines.iter().skip(hidden).filter(move |line| !apart || line.character == character)
     }
 
     fn push_line(&mut self, mut line: OverlayLine) {
@@ -583,8 +586,9 @@ impl CompanionApp {
             let place = place(self.lines.iter().map(|other| other.line.number.filter(|_| own(other))), number);
             let character = line.character.clone();
             self.lines.insert(place, line);
-            // Kept apart, each character has as many lines as are kept.
-            let counted = |line: &OverlayLine| !self.draft.chat_per_character || line.character == character;
+            // Each character has as many lines as are kept, whether or not they are shown
+            // apart, so that telling them apart again finds them all.
+            let counted = |line: &OverlayLine| line.character == character;
             while self.lines.iter().filter(|line| counted(line)).count() > self.draft.max_lines.max(1) {
                 let oldest = self.lines.iter().position(counted).expect("counted above");
                 self.lines.remove(oldest);
@@ -1528,10 +1532,9 @@ impl CompanionApp {
     /// The lines the overlay holds, to scroll through and select text from.
     fn history_tab(&mut self, ui: &mut egui::Ui) {
         ui.checkbox(&mut self.draft.chat_per_character, "Keep each character's chat apart")
-            .on_hover_text("The overlay shows the lines of the character you are playing, and this tab has a list for each. Unticked, all characters share one.");
+            .on_hover_text("The overlay shows the lines of the character you are playing, and this tab has a list for each. Unticked, all characters share one list of the same length; each character's lines are still remembered, so ticking this again loses none.");
         ui.spacing_mut().slider_width = (ui.available_width() - 70.0).max(120.0);
-        let each = if self.draft.chat_per_character { ", for each character" } else { "" };
-        slider(ui, &format!("Lines kept{each} (scrollback)"), &mut self.draft.max_lines, 1..=2000);
+        slider(ui, "Lines kept, for each character (scrollback)", &mut self.draft.max_lines, 1..=2000);
         ui.label(theme::label("Lines brought back when the companion starts"));
         let lasting = |minutes: u64| RESTORED.iter().find(|(length, _)| *length == minutes).map_or(format!("Those of the last {minutes} minutes"), |(_, name)| name.to_string());
         egui::ComboBox::from_id_salt("restored").width(ui.available_width()).selected_text(lasting(self.draft.restore_minutes)).show_ui(ui, |ui| {
