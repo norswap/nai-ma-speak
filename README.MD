@@ -136,7 +136,9 @@ Other stuff:
   - Lines missed while it was covered are sent again once it is visible: the AddOn keeps repeating its most recent
     lines while chat is quiet.
 
-- **Doesn't work in "community channels".** (These chat messages are hidden from AddOns.)
+
+- **Doesn't work in "community channels", during boss fights, during Mythic+ runs, or in battlegrounds and arenas.**
+  (The game hides these chat messages from AddOns.)
 
 - **The overlay isn't scrollable when floating on Windows & Linux.** Anchor it to a chat tab to get scrolling.
 
