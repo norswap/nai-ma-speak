@@ -120,6 +120,8 @@ pub struct CompanionApp {
     history_of: Option<String>,
     status: String,
     notice: String,
+    /// What became of the last reply, said on the Translate tab.
+    reply_note: String,
     reply: String,
     locked: bool,
     overlay_start: egui::Pos2,
@@ -479,6 +481,7 @@ impl CompanionApp {
             lines,
             status: "Ready".into(),
             notice: String::new(),
+            reply_note: String::new(),
             reply: String::new(),
             locked: true,
             overlay_start,
@@ -679,7 +682,7 @@ impl CompanionApp {
                     }
                 }
                 UiEvent::ReplyReady { english, chinese, copied } => {
-                    self.notice = if copied {
+                    self.reply_note = if copied {
                         format!("Copied \"{chinese}\" for \"{english}\". Paste it into WoW chat.")
                     } else {
                         format!("Not copied: \"{chinese}\" is too long for WoW chat. Say it in fewer words.")
@@ -878,7 +881,7 @@ impl CompanionApp {
         if let ReplyState::TooLong(chinese) = &self.reply_state {
             ctx.copy_text(chinese.clone());
             self.reply_state = ReplyState::Copied(Instant::now());
-            self.notice = "Copied the long reply. WoW will cut it at 255 bytes.".into();
+            self.reply_note = "Copied the long reply. WoW will cut it at 255 bytes.".into();
         }
     }
 
@@ -1360,11 +1363,13 @@ impl CompanionApp {
         if edit.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) && !self.reply.trim().is_empty() {
             let english = std::mem::take(&mut self.reply).trim().to_string();
             self.send_reply(english);
-            self.notice = "Translating your reply".into();
+            self.reply_note = "Translating your reply".into();
             edit.request_focus();
         }
         if let Some((problem, color)) = self.reply_problem() {
             ui.label(RichText::new(problem).color(color));
+        } else if !self.reply_note.is_empty() {
+            ui.label(RichText::new(&self.reply_note).color(theme::MUTED));
         }
         if matches!(self.reply_state, ReplyState::TooLong(_)) && ui.add(theme::button("Copy anyway")).clicked() {
             self.copy_anyway(ui.ctx());
