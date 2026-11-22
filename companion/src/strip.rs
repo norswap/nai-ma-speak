@@ -149,6 +149,21 @@ fn fletcher16(bytes: &[u8]) -> u16 {
 /// color is assumed: each block is the palette color it is nearest to, and the palette
 /// went through whatever the frame went through.
 pub fn decode(img: &RgbaImage, lock: Lock) -> Decoded {
+    match read(img, lock) {
+        Ok(reading) => reading.decoded(),
+        Err(why) => why,
+    }
+}
+
+/// The colors of a strip as captured: its palette row and every block of the frame.
+struct Reading {
+    palette: [Color; COLS],
+    blocks: Vec<Color>,
+}
+
+/// Reads the palette and the frame's blocks at `lock`, or says why there is no frame to
+/// read there: no sync blocks (Missing) or no palette under them (NoPalette).
+fn read(img: &RgbaImage, lock: Lock) -> Result<Reading, Decoded> {
     let block = |i: usize| {
         let x = lock.x + (i % COLS) as u32 * lock.block;
         let y = lock.y + (i / COLS) as u32 * lock.block;
@@ -156,51 +171,147 @@ pub fn decode(img: &RgbaImage, lock: Lock) -> Decoded {
     };
     for (i, expected) in SYNC.iter().enumerate() {
         if block(i).map(on_off) != Some(*expected) {
-            return Decoded::Missing;
+            return Err(Decoded::Missing);
         }
     }
     let mut palette = [[0.0; 3]; COLS];
     for (color, seen) in palette.iter_mut().enumerate() {
-        match block(COLS * ROWS + color) {
-            Some(pixel) => *seen = pixel,
-            None => return Decoded::Missing,
-        }
+        *seen = block(COLS * ROWS + color).ok_or(Decoded::Missing)?;
     }
+    let blocks = (0..COLS * ROWS).map(block).collect::<Option<Vec<_>>>().ok_or(Decoded::Missing)?;
     let in_palette = |(i, color): (usize, &u8)| {
-        let (sync, listed) = (block(i).expect("read above"), palette[*color as usize]);
+        let (sync, listed) = (blocks[i], palette[*color as usize]);
         (0..3).all(|channel| (sync[channel] - listed[channel]).abs() <= SAME_COLOR)
     };
     if !is_palette(&palette) || !SYNC.iter().enumerate().all(in_palette) {
-        return Decoded::NoPalette;
+        return Err(Decoded::NoPalette);
     }
-    let nearest = |pixel: Color| {
-        let closer = |a: &usize, b: &usize| distance(palette[*a], pixel).total_cmp(&distance(palette[*b], pixel));
-        (0..COLS).min_by(closer).expect("the palette is not empty") as u32
-    };
-    let mut symbols = Vec::with_capacity(COLS * ROWS);
-    for i in SYNC.len()..COLS * ROWS {
-        match block(i) {
-            Some(pixel) => symbols.push(nearest(pixel)),
-            None => return Decoded::Missing,
+    Ok(Reading { palette, blocks })
+}
+
+impl Reading {
+    /// The two palette colors nearest to `color`, nearest first, with their distances.
+    fn ranked(&self, color: Color) -> [(usize, f32); 2] {
+        let mut best = [(0, f32::MAX), (0, f32::MAX)];
+        for (index, listed) in self.palette.iter().enumerate() {
+            let d = distance(*listed, color).sqrt();
+            if d < best[0].1 {
+                best = [(index, d), best[0]];
+            } else if d < best[1].1 {
+                best[1] = (index, d);
+            }
+        }
+        best
+    }
+
+    /// Each data block as the palette color it is nearest to.
+    fn symbols(&self) -> Vec<u32> {
+        self.blocks[SYNC.len()..].iter().map(|color| self.ranked(*color)[0].0 as u32).collect()
+    }
+
+    /// How close the two closest palette colors are, in 0-255 units.
+    fn closest_colors(&self) -> (usize, usize, f32) {
+        let mut closest = (0, 0, f32::MAX);
+        for a in 0..COLS {
+            for b in a + 1..COLS {
+                let d = distance(self.palette[a], self.palette[b]).sqrt();
+                if d < closest.2 {
+                    closest = (a, b, d);
+                }
+            }
+        }
+        closest
+    }
+
+    fn decoded(&self) -> Decoded {
+        let bytes = bytes_of(&self.symbols());
+        let len = (bytes[1] as usize) << 8 | bytes[2] as usize;
+        if 3 + len + 2 > bytes.len() {
+            return Decoded::Corrupt;
+        }
+        let checksum = (bytes[3 + len] as u16) << 8 | bytes[4 + len] as u16;
+        if fletcher16(&bytes[..3 + len]) != checksum {
+            return Decoded::Corrupt;
+        }
+        match String::from_utf8(bytes[3..3 + len].to_vec()) {
+            Ok(text) => Decoded::Frame(Frame { seq: bytes[0], checksum, text }),
+            Err(_) => Decoded::Corrupt,
         }
     }
+}
+
+/// The frame's bytes from its data symbols, 4 symbols to 3 bytes.
+fn bytes_of(symbols: &[u32]) -> Vec<u8> {
     let mut bytes = Vec::with_capacity(symbols.len() / 4 * 3);
     for chunk in symbols.as_chunks::<4>().0 {
         let v = chunk[0] << 18 | chunk[1] << 12 | chunk[2] << 6 | chunk[3];
         bytes.extend_from_slice(&[(v >> 16) as u8, (v >> 8) as u8, v as u8]);
     }
+    bytes
+}
+
+/// Two palette colors closer than this, in 0-255 units, cannot be told apart reliably.
+const TOO_CLOSE: f32 = 20.0;
+
+/// A block whose second-nearest palette color is less than this much farther away than
+/// its nearest one could be either.
+const AMBIGUOUS_MARGIN: f32 = 8.0;
+
+/// What the strip at `lock` looks like as captured, for finding out why it cannot be read.
+/// It names colors and counts, never the text, so it can go into the log: the levels each
+/// channel's four steps came back as, the two palette colors closest together, how many
+/// blocks could be one color as well as another, and the frame's length and checksum.
+pub fn diagnose(img: &RgbaImage, lock: Lock) -> Vec<String> {
+    let reading = match read(img, lock) {
+        Ok(reading) => reading,
+        Err(why) => return vec![format!("no frame to diagnose: {why:?}")],
+    };
+    let steps = |name: &str, step: usize, channel: usize| {
+        let values: Vec<String> = (0..4).map(|n| format!("{:.0}", reading.palette[n * step][channel])).collect();
+        format!("{name} levels 0-3 came back as {}", values.join(" / "))
+    };
+    let mut lines = vec![steps("red", 16, 0), steps("green", 4, 1), steps("blue", 1, 2)];
+    let rgb = |c: Color| format!("{:.0},{:.0},{:.0}", c[0], c[1], c[2]);
+    let (a, b, apart) = reading.closest_colors();
+    lines.push(format!(
+        "closest palette colors: {a} ({}) and {b} ({}), {apart:.1} apart{}",
+        rgb(reading.palette[a]),
+        rgb(reading.palette[b]),
+        if apart < TOO_CLOSE { ": too close to tell apart" } else { "" }
+    ));
+    let data = &reading.blocks[SYNC.len()..];
+    let ambiguous = data.iter().filter(|c| {
+        let [first, second] = reading.ranked(**c);
+        second.1 - first.1 < AMBIGUOUS_MARGIN
+    });
+    let worst = data.iter().map(|c| reading.ranked(*c)[0].1).fold(0.0, f32::max);
+    lines.push(format!(
+        "{} of {} data blocks are ambiguous; the farthest block from any palette color is {worst:.1} off",
+        ambiguous.count(),
+        data.len()
+    ));
+    let bytes = bytes_of(&reading.symbols());
     let len = (bytes[1] as usize) << 8 | bytes[2] as usize;
     if 3 + len + 2 > bytes.len() {
-        return Decoded::Corrupt;
+        lines.push(format!("length field reads {len} bytes, more than a frame holds ({})", bytes.len() - 5));
+    } else {
+        let read = (bytes[3 + len] as u16) << 8 | bytes[4 + len] as u16;
+        let computed = fletcher16(&bytes[..3 + len]);
+        lines.push(format!("seq {}, length {len}, checksum read {read:04x}, computed {computed:04x}", bytes[0]));
     }
-    let checksum = (bytes[3 + len] as u16) << 8 | bytes[4 + len] as u16;
-    if fletcher16(&bytes[..3 + len]) != checksum {
-        return Decoded::Corrupt;
-    }
-    match String::from_utf8(bytes[3..3 + len].to_vec()) {
-        Ok(text) => Decoded::Frame(Frame { seq: bytes[0], checksum, text }),
-        Err(_) => Decoded::Corrupt,
-    }
+    lines.push(format!("result: {}", match reading.decoded() {
+        Decoded::Frame(_) => "a good frame".to_string(),
+        other => format!("{other:?}"),
+    }));
+    lines
+}
+
+/// Why the strip cannot be read, in words for the Status tab, when its colors say so.
+fn likely_cause(img: &RgbaImage, lock: Lock) -> Option<&'static str> {
+    let reading = read(img, lock).ok()?;
+    (reading.closest_colors().2 < TOO_CLOSE).then_some(
+        "some of its colors come back too close together to tell apart. Update the addon to the companion's version and /reload; otherwise check that Windows HDR is off and that the game's brightness, contrast and gamma are near their defaults.",
+    )
 }
 
 /// Scans a whole image for the sync blocks and returns where the strip is.
@@ -266,8 +377,9 @@ fn region_in_points(lock: Lock, scale: f32, max_w: u32, max_h: u32) -> Option<(u
 }
 
 /// Reads the strip's own rectangle once it has been found. Returns what was captured
-/// too, for a picture of a strip that cannot be read.
-fn read_locked(monitor: &Monitor, lock: Lock) -> (Decoded, Option<RgbaImage>) {
+/// too, and where the strip is in it if it is there, for a picture and a diagnosis of a
+/// strip that cannot be read.
+fn read_locked(monitor: &Monitor, lock: Lock) -> (Decoded, Option<(RgbaImage, Option<Lock>)>) {
     let scale = if cfg!(target_os = "macos") {
         monitor.scale_factor().unwrap_or(1.0).max(1.0)
     } else {
@@ -276,7 +388,10 @@ fn read_locked(monitor: &Monitor, lock: Lock) -> (Decoded, Option<RgbaImage>) {
     if scale == 1.0 {
         let (w, h) = size(lock);
         return match monitor.capture_region(lock.x, lock.y, w, h) {
-            Ok(img) => (decode(&img, Lock { x: 0, y: 0, block: lock.block }), Some(img)),
+            Ok(img) => {
+                let at = Lock { x: 0, y: 0, block: lock.block };
+                (decode(&img, at), Some((img, Some(at))))
+            }
             Err(_) => (Decoded::Missing, None),
         };
     }
@@ -288,7 +403,10 @@ fn read_locked(monitor: &Monitor, lock: Lock) -> (Decoded, Option<RgbaImage>) {
     match monitor.capture_region(x, y, w, h) {
         // The capture comes back in pixels; finding the strip again inside it
         // is cheap and avoids redoing the rounding.
-        Ok(img) => (find(&img).map_or(Decoded::Missing, |found| decode(&img, found)), Some(img)),
+        Ok(img) => {
+            let found = find(&img);
+            (found.map_or(Decoded::Missing, |found| decode(&img, found)), Some((img, found)))
+        }
         Err(_) => (Decoded::Missing, None),
     }
 }
@@ -419,16 +537,22 @@ pub fn spawn(jobs: Sender<Job>, asked: Sender<Job>, ui: UiSender, restored: u64)
             // Finding the strip takes its three sync blocks; reading it takes every block.
             let (decoded, seen) = read_locked(monitor, lock);
             // Once the strip has stayed unreadable a while, what was captured at its place
-            // is kept for the report, once.
+            // is kept for the report and what its colors look like is logged, once. The
+            // log lines name colors and counts, never the chat.
             let mut unreadable = |why: &str| {
                 let since = *unread_since.get_or_insert_with(Instant::now);
                 if since.elapsed() <= UNREADABLE_AFTER {
                     return;
                 }
-                tell(&ui, &mut told, format!("Found the pixel block {place}, but cannot read it: {why}"));
-                if let (false, Some(seen)) = (pictured, &seen) {
+                let found = seen.as_ref().and_then(|(img, at)| Some((img, (*at)?)));
+                let cause = found.and_then(|(img, at)| likely_cause(img, at));
+                tell(&ui, &mut told, format!("Found the pixel block {place}, but cannot read it: {}", cause.unwrap_or(why)));
+                if let (false, Some((img, _))) = (pictured, &seen) {
                     pictured = true;
-                    crate::diag::keep_strip(seen);
+                    crate::diag::keep_strip(img);
+                    for line in found.map(|(img, at)| diagnose(img, at)).unwrap_or_default() {
+                        crate::diag::log(format!("strip diagnosis: {line}"));
+                    }
                 }
             };
             match decoded {
@@ -716,6 +840,35 @@ mod tests {
         }
         let lock = Lock { x: at.0, y: at.1, block };
         assert!(matches!(decode(&img, lock), Decoded::Frame(f) if f.text == text));
+    }
+
+    /// Two of the four levels squashed into one, as HDR or extreme brightness can do: the
+    /// strip cannot be read, and the diagnosis and the Status line say why.
+    #[test]
+    fn names_levels_that_collapsed() {
+        let mut img = paint(&encode(5, "1\tA\t你好嗎"), (0, 0), 4);
+        for pixel in img.pixels_mut() {
+            for c in 0..3 {
+                if (150..=200).contains(&pixel[c]) {
+                    pixel[c] = 250;
+                }
+            }
+        }
+        let lock = Lock { x: 0, y: 0, block: 4 };
+        assert_eq!(decode(&img, lock), Decoded::Corrupt);
+        assert!(likely_cause(&img, lock).is_some());
+        let lines = diagnose(&img, lock);
+        assert!(lines.iter().any(|l| l.contains("too close to tell apart")), "{lines:?}");
+    }
+
+    #[test]
+    fn diagnoses_a_good_strip_without_complaint() {
+        let img = paint(&encode(5, "1\tA\t你好嗎"), (0, 0), 4);
+        let lock = Lock { x: 0, y: 0, block: 4 };
+        assert_eq!(likely_cause(&img, lock), None);
+        let lines = diagnose(&img, lock);
+        assert!(lines.last().is_some_and(|l| l.contains("a good frame")), "{lines:?}");
+        assert!(lines.iter().any(|l| l.starts_with("0 of ")), "{lines:?}");
     }
 
     #[test]

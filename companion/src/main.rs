@@ -42,9 +42,23 @@ fn decode_file(path: &str) {
         Ok(img) => img.to_rgba8(),
         Err(e) => return println!("Could not open {path}: {e}"),
     };
-    match strip::find(&img) {
-        None => println!("No pixel block in {path}"),
-        Some(lock) => println!("Pixel block at {},{} ({} px squares): {:?}", lock.x, lock.y, lock.block, strip::decode(&img, lock)),
+    let report = match strip::find(&img) {
+        None => format!("No pixel block in {path}\n"),
+        Some(lock) => {
+            let mut report =
+                format!("Pixel block at {},{} ({} px squares): {:?}\n", lock.x, lock.y, lock.block, strip::decode(&img, lock));
+            for line in strip::diagnose(&img, lock) {
+                report.push_str(&format!("  {line}\n"));
+            }
+            report
+        }
+    };
+    print!("{report}");
+    // The Windows release is a windowed program, whose printing a terminal does not show:
+    // the report is also written beside the picture.
+    let beside = format!("{path}.decode.txt");
+    if let Err(e) = std::fs::write(&beside, &report) {
+        eprintln!("could not write {beside}: {e}");
     }
 }
 
