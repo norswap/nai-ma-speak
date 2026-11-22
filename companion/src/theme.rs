@@ -48,11 +48,31 @@ pub fn label(text: &str) -> RichText {
     RichText::new(text).font(heading_font(15.0)).color(GOLD)
 }
 
+/// Gold text in the heading font, with its numbers in the body font: the heading font's
+/// zero is a circle, and reads as a capital O in a version such as 0.4.0.
+pub fn heading(text: &str, size: f32) -> egui::text::LayoutJob {
+    let chars: Vec<char> = text.chars().collect();
+    let digit = |at: usize| chars.get(at).is_some_and(char::is_ascii_digit);
+    // A point between two digits belongs to the number.
+    let figure = |at: usize| digit(at) || (chars[at] == '.' && at > 0 && digit(at - 1) && digit(at + 1));
+    let mut job = egui::text::LayoutJob::default();
+    let mut start = 0;
+    for at in 1..=chars.len() {
+        if at == chars.len() || figure(at) != figure(start) {
+            let font_id = if figure(start) { FontId::proportional(size) } else { heading_font(size) };
+            let run: String = chars[start..at].iter().collect();
+            job.append(&run, 0.0, egui::TextFormat { font_id, color: GOLD, ..Default::default() });
+            start = at;
+        }
+    }
+    job
+}
+
 /// A button as the game's classic interface draws them: dark red with a gold edge and
 /// gold lettering.
 /// The edge is the widgets' own: bronze, and thicker and gold under the pointer.
 pub fn button(text: &str) -> egui::Button<'static> {
-    egui::Button::new(RichText::new(text.to_string()).font(heading_font(15.0)).color(GOLD)).fill(BUTTON).corner_radius(4)
+    egui::Button::new(heading(text, 15.0)).fill(BUTTON).corner_radius(4)
 }
 
 /// A sunken box around a group, such as the chat history.
