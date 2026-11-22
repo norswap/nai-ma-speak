@@ -275,21 +275,22 @@ pub const JUST_UPDATED: &str = "NAIMASPEAK_JUST_UPDATED";
 
 /// Starts a second copy of the companion, for the caller to then quit. An app bundle is
 /// opened as one, so the new copy is the same app to macOS and keeps its permissions.
-/// `marks` are environment variables set for it, each telling it something about its start.
-pub fn start_again(marks: &[&str]) -> std::io::Result<()> {
+pub fn start_again(just_updated: bool) -> std::io::Result<()> {
     let exe = std::env::current_exe()?;
     let mut command = match app_bundle(&exe) {
         Some(bundle) => {
             let mut open = std::process::Command::new("open");
             open.arg("-n").arg(bundle);
-            for mark in marks {
-                open.arg("--env").arg(format!("{mark}=1"));
+            if just_updated {
+                open.arg("--env").arg(format!("{JUST_UPDATED}=1"));
             }
             open
         }
         None => {
             let mut program = std::process::Command::new(&exe);
-            program.envs(marks.iter().map(|mark| (mark, "1")));
+            if just_updated {
+                program.env(JUST_UPDATED, "1");
+            }
             program
         }
     };

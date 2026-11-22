@@ -294,7 +294,10 @@ pub fn spawn(jobs: Sender<Job>, asked: Sender<Job>, ui: UiSender, restored: u64)
         // The system's question comes once the companion's window is up, or the window
         // would cover it.
         #[cfg(target_os = "macos")]
-        crate::permission::ask();
+        if !crate::permission::granted() {
+            thread::sleep(Duration::from_secs(2));
+            crate::permission::renew();
+        }
 
         loop {
             let monitors = match Monitor::all() {

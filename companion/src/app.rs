@@ -1062,7 +1062,7 @@ impl CompanionApp {
     fn start_again(&mut self, ctx: &egui::Context, just_updated: bool) {
         self.save();
         self.write_backlog();
-        match config::start_again(if just_updated { &[config::JUST_UPDATED] } else { &[] }) {
+        match config::start_again(just_updated) {
             Ok(()) => ctx.send_viewport_cmd_to(ViewportId::ROOT, ViewportCommand::Close),
             Err(e) => self.notice = format!("Could not restart: {e}"),
         }
