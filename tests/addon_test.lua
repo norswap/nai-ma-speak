@@ -418,7 +418,7 @@ Check("the strip starts in the top-left corner", Origin("topleft"), "0,0")
 local right, bottom = 1920 - ns.STRIP.cols * ns.STRIP.block, 1080 - (ns.STRIP.rows + 1) * ns.STRIP.block
 Check("or sits in another corner of a 1920x1080 screen, clear of a window's rounded bottom corners",
     Origin("topright") .. " " .. Origin("bottomleft") .. " " .. Origin("bottomright"),
-    right .. ",0 6," .. (bottom - 6) .. " " .. (right - 6) .. "," .. (bottom - 6))
+    right .. ",0 16," .. (bottom - 16) .. " " .. (right - 16) .. "," .. (bottom - 16))
 fullscreen = true
 Check("and right in the corner in fullscreen", Origin("bottomleft") .. " " .. Origin("bottomright"),
     "0," .. bottom .. " " .. right .. "," .. bottom)

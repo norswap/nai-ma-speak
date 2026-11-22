@@ -82,8 +82,9 @@ local ticking = false
 local WIDTH, HEIGHT = COLS * BLOCK, (ROWS + 1) * BLOCK
 -- How far in from the edges the strip sits in a bottom corner while the game runs
 -- in a window: a window's bottom corners are rounded (macOS, Windows 11), which
--- cuts into what is drawn right in them.
-local MARGIN = 6
+-- cuts into what is drawn right in them. In screen pixels, while the rounding is
+-- twice as many of them on a high-density screen: enough for one of 50.
+local MARGIN = 16
 
 -- The strip's top-left corner in physical screen pixels from the screen's: in the
 -- corner chosen in the options, or where the player dragged it. Whole pixels, so
