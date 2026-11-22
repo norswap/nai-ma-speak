@@ -278,6 +278,7 @@ Frames()
 local symbols = encode(7, "hi")
 Check("a frame fills the strip", #symbols, ns.STRIP.cols * ns.STRIP.rows)
 Check("and starts with the sync blocks", table.concat({ symbols[1], symbols[2], symbols[3] }, ","), "51,15,60")
+Check("the strip is drawn at half brightness, HDR or not", ns.StripBrightness(), 0.5)
 
 -- Buttons and slash commands -------------------------------------------------------------
 

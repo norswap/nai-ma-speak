@@ -186,10 +186,25 @@ local function Build()
     end
 end
 
+-- The strip is drawn at half brightness, always. With the game's HDR output on, a
+-- screen capture sees the picture brightened: at full brightness the top two of the
+-- four levels came back both clipped to white (0, 85, 170, 255 read as 0, 149, 255,
+-- 255 on Windows). At half they stay apart whether or not the capture brightens them,
+-- so nothing depends on noticing the HDR setting, which can be switched from the
+-- console at any time. A dimmer strip is also less glaring in the corner of the screen.
+-- The companion reads blocks by the palette row, dimmed the same way, so it needs to
+-- know nothing of this.
+local BRIGHTNESS = 0.5
+
+function ns.StripBrightness()
+    return BRIGHTNESS
+end
+
 -- Colors the block at `index` (from 1) with one of the 64 colors.
 function ns.PaintBlock(index, color)
     local r, g, b = math.floor(color / 16) % 4, math.floor(color / 4) % 4, color % 4
-    textures[index]:SetColorTexture(r / 3, g / 3, b / 3, 1)
+    local top = 3 / BRIGHTNESS
+    textures[index]:SetColorTexture(r / top, g / top, b / top, 1)
 end
 
 local function Paint(symbols)

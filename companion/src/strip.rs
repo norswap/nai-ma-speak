@@ -87,10 +87,19 @@ fn block_color(img: &RgbaImage, x: u32, y: u32, block: u32) -> Option<Color> {
     Some([median(r), median(g), median(b)])
 }
 
+/// Below this, the brightest channel is taken for black: no sync color.
+const DARKEST_SYNC: f32 = 64.0;
+
 /// A color read as one of the sync colors, using only on/off per channel: the strip has
-/// to be found before its palette can be read.
+/// to be found before its palette can be read. A channel is on when it is at least half
+/// as bright as the brightest one, not above a set level: the addon draws the strip at
+/// half brightness, and with the game's HDR output on the capture brightens it again.
 fn on_off(color: Color) -> u8 {
-    let on = |v: f32| if v >= 128.0 { 3 } else { 0 };
+    let brightest = color[0].max(color[1]).max(color[2]);
+    if brightest < DARKEST_SYNC {
+        return 0;
+    }
+    let on = |v: f32| if v >= brightest / 2.0 { 3 } else { 0 };
     on(color[0]) * 16 + on(color[1]) * 4 + on(color[2])
 }
 
@@ -109,11 +118,17 @@ const SAME_COLOR: f32 = 24.0;
 /// Whether a row of blocks is the palette: the 64 colors in order, as far as on and off
 /// tell, which is all that is known of a color before the palette is read. Scenery that
 /// happens to show the three sync colors in a row does not pass for a strip this way.
+/// On and off are told against the row's last color, white, which is as bright as the
+/// strip gets: half of it, per channel, whatever brightness the strip is drawn at.
 fn is_palette(row: &[Color; COLS]) -> bool {
+    let white = row[COLS - 1];
+    if white.iter().any(|channel| *channel < DARKEST_SYNC) {
+        return false;
+    }
     row.iter().enumerate().all(|(color, seen)| {
         (0..3).all(|channel| match (color >> (4 - 2 * channel)) & 3 {
-            0 => seen[channel] < 128.0,
-            3 => seen[channel] >= 128.0,
+            0 => seen[channel] < white[channel] / 2.0,
+            3 => seen[channel] >= white[channel] / 2.0,
             _ => true,
         })
     })
@@ -576,6 +591,48 @@ mod tests {
             *pixel = Rgba([(mixed[0] * 255.0) as u8, (mixed[1] * 255.0) as u8, (mixed[2] * 255.0) as u8, 255]);
         }
         seen
+    }
+
+    /// Every channel scaled by `gain` and clipped at white.
+    fn scaled(img: &RgbaImage, gain: f32) -> RgbaImage {
+        let mut seen = img.clone();
+        for pixel in seen.pixels_mut() {
+            for c in 0..3 {
+                pixel[c] = (pixel[c] as f32 * gain).min(255.0) as u8;
+            }
+        }
+        seen
+    }
+
+    /// The game's HDR output as a capture saw it on Windows: 85 came back as 149, and
+    /// 170 and 255 both as 255. Drawn at full brightness the strip cannot be read; drawn
+    /// at half, as Strip.lua does, it can, brightened or not.
+    #[test]
+    fn reads_the_dimmed_strip_through_hdr() {
+        let text = "7\t[Party] 奶媽\t副本缺補 密我";
+        let full = paint(&encode(5, text), (0, 0), 4);
+        let lock = Lock { x: 0, y: 0, block: 4 };
+        assert_eq!(decode(&scaled(&full, 1.75), lock), Decoded::Corrupt);
+        let dimmed = scaled(&full, 0.5);
+        for gain in [1.0, 1.75, 2.0] {
+            let seen = scaled(&dimmed, gain);
+            assert_eq!(find(&seen), Some(lock), "gain {gain}");
+            assert!(matches!(decode(&seen, lock), Decoded::Frame(f) if f.text == text), "gain {gain}");
+        }
+    }
+
+    /// The strip as the addon draws it: blocks of 2 pixels at half brightness, seen
+    /// through a display's color profile and through HDR's brightening.
+    #[test]
+    fn reads_the_small_dimmed_strip() {
+        let text = "7\t[Party] 奶媽\t副本缺補 密我";
+        let at = (0, 0);
+        let drawn = scaled(&paint(&encode(9, text), at, 2), 0.5);
+        for seen in [through_a_display(&drawn), scaled(&drawn, 1.75)] {
+            let lock = find(&seen).expect("strip found");
+            assert_eq!(lock, Lock { x: at.0, y: at.1, block: 2 });
+            assert!(matches!(decode(&seen, lock), Decoded::Frame(f) if f.text == text));
+        }
     }
 
     #[test]
