@@ -441,7 +441,7 @@ fn name_release(settings: &mut Config) {
 fn update_note() -> String {
     let mut note = "It replaces the addon, then the companion, which starts again.".to_string();
     if cfg!(target_os = "macos") {
-        note += " macOS will then ask again for the Screen Recording permission: remove the companion from that list in System Settings and add it back.";
+        note += " macOS will then ask again for the Screen Recording permission.";
     }
     note
 }
@@ -1135,7 +1135,7 @@ impl CompanionApp {
                     if prompt == Prompt::Updated {
                         ui.label("The companion and its addon were replaced. Your settings are kept.");
                         if cfg!(target_os = "macos") {
-                            ui.label("If no chat arrives, macOS wants the Screen Recording permission given again: remove the companion from that list in System Settings > Privacy & Security and add it back.");
+                            ui.label("macOS asks for the Screen Recording permission again: allow it, then quit and reopen the companion.");
                         }
                     }
                     ui.label(match self.wow_view {
