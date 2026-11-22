@@ -291,6 +291,13 @@ pub fn spawn(jobs: Sender<Job>, asked: Sender<Job>, ui: UiSender, restored: u64)
         let mut said_capture_error = false;
         let dump = std::env::var_os("NAIMASPEAK_DUMP").is_some();
         let mut pictured = false;
+        // The system's question comes once the companion's window is up, or the window
+        // would cover it.
+        #[cfg(target_os = "macos")]
+        if !crate::permission::granted() {
+            thread::sleep(Duration::from_secs(2));
+            crate::permission::renew();
+        }
 
         loop {
             let monitors = match Monitor::all() {

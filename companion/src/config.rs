@@ -273,9 +273,6 @@ fn config_dir(exe: &Path) -> Option<&Path> {
 /// otherwise be put in place over and over.
 pub const JUST_UPDATED: &str = "NAIMASPEAK_JUST_UPDATED";
 
-/// The macOS app's identifier, as `macos-app.sh` writes it.
-pub const BUNDLE_ID: &str = "com.github.norswap.nai-ma-speak";
-
 /// Starts a second copy of the companion, for the caller to then quit. An app bundle is
 /// opened as one, so the new copy is the same app to macOS and keeps its permissions.
 pub fn start_again(just_updated: bool) -> std::io::Result<()> {

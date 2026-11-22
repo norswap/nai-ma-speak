@@ -182,6 +182,8 @@ pub struct CompanionApp {
     reply_box_height: f32,
     /// The game's App button asked for this window to come forward.
     show_window: bool,
+    /// A pop-up wants the window in front: shown and focused, at its usual level.
+    raise_window: bool,
     /// This window was hidden with its Hide button.
     window_hidden: bool,
     /// The window has been on screen, so having no rectangle now means it is minimized.
@@ -516,6 +518,7 @@ impl CompanionApp {
             reply_box_focus: false,
             reply_box_height: 56.0,
             show_window: false,
+            raise_window: false,
             window_hidden: false,
             window_placed: false,
             window_summoned: false,
@@ -736,7 +739,7 @@ impl CompanionApp {
                             self.restart = companion;
                             if !companion {
                                 self.prompt = Some(Prompt::Installed);
-                                self.show_window = true;
+                                self.raise_window = true;
                             }
                         }
                         Err(problem) => self.updates.problem = format!("The update to v{version} failed: {problem}"),
@@ -1013,12 +1016,13 @@ impl CompanionApp {
             // Nothing else may ask for a pass while the app waits to be clicked.
             ctx.request_repaint_after(Duration::from_millis(300));
         }
-        let asked = std::mem::take(&mut self.show_window);
+        let raised = std::mem::take(&mut self.raise_window);
+        let asked = std::mem::take(&mut self.show_window) && !raised;
         if asked && !self.window_hidden && (self.window_summoned || active) {
             self.hide_window(ctx);
             return;
         }
-        if !asked && !(self.window_hidden && activated) {
+        if !asked && !raised && !(self.window_hidden && activated) {
             return;
         }
         self.window_hidden = false;
@@ -1086,7 +1090,8 @@ impl CompanionApp {
         }
         // In front: on screen with no ordinary window before it.
         let in_front = matches!(&self.wow_view, WowView::Shown { covers } if covers.is_empty());
-        if in_front && looking {
+        // Without the permission macOS is asking for it, and must not be covered.
+        if in_front && looking && crate::permission::granted() {
             let since = *self.without_strip.get_or_insert_with(Instant::now);
             if !self.no_strip_said && since.elapsed() > NO_STRIP_AFTER {
                 self.no_strip_said = true;
@@ -1100,7 +1105,7 @@ impl CompanionApp {
         if let Some(prompt) = raise.filter(|_| self.prompt.is_none()) {
             self.install_offered |= prompt == Prompt::Install;
             self.prompt = Some(prompt);
-            self.show_window = true;
+            self.raise_window = true;
         }
     }
 

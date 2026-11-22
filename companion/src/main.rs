@@ -12,6 +12,7 @@ mod fonts;
 mod layout;
 mod markup;
 mod names;
+mod permission;
 mod protocol;
 mod strip;
 #[cfg(test)]
@@ -69,28 +70,6 @@ fn game_shot(path: &std::path::Path) -> Result<(), String> {
     picture.save(path).map_err(|e| e.to_string())
 }
 
-/// macOS ties the Screen Recording permission to the app's signature, and a release is
-/// signed anew each time: after an update the permission still shows as given in System
-/// Settings, but counts for the old app, and cannot be given again from there. So when
-/// the permission is missing, what is on record for the app is cleared and macOS is
-/// asked afresh. Only for the app bundle: a bare program has no record of its own.
-#[cfg(target_os = "macos")]
-fn renew_screen_permission() {
-    #[link(name = "CoreGraphics", kind = "framework")]
-    extern "C" {
-        fn CGPreflightScreenCaptureAccess() -> bool;
-        fn CGRequestScreenCaptureAccess() -> bool;
-    }
-    let bundled = std::env::current_exe().is_ok_and(|exe| exe.to_string_lossy().contains(".app/Contents/MacOS/"));
-    // SAFETY: both take nothing and only read or ask for the permission.
-    if !bundled || unsafe { CGPreflightScreenCaptureAccess() } {
-        return;
-    }
-    let cleared = std::process::Command::new("/usr/bin/tccutil").args(["reset", "ScreenCapture", config::BUNDLE_ID]).status();
-    diag::log(format!("no Screen Recording permission; clearing the old one: {cleared:?}"));
-    unsafe { CGRequestScreenCaptureAccess() };
-}
-
 fn main() -> eframe::Result {
     // `nai-ma-speak --decode shot.png` reads a strip from a screenshot.
     let args: Vec<String> = std::env::args().collect();
@@ -106,8 +85,6 @@ fn main() -> eframe::Result {
     }
     diag::start();
     update::clean_up();
-    #[cfg(target_os = "macos")]
-    renew_screen_permission();
     let config = Arc::new(Mutex::new(config::load()));
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
