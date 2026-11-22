@@ -199,8 +199,8 @@ pub fn translate(state: &Arc<State>, services: &[Service], config: &Config, text
     let target = match (task, config.reply_variant) {
         // A name is translated like any text: its words, with no telling a name from a phrase.
         (Task::ToEnglish | Task::Name, _) => Target::English,
-        (Task::ToChinese, Region::Taiwan) => Target::Taiwanese,
-        (Task::ToChinese, Region::Mainland) => Target::Simplified,
+        (Task::ToChinese | Task::ToChineseAgain, Region::Taiwan) => Target::Taiwanese,
+        (Task::ToChinese | Task::ToChineseAgain, Region::Mainland) => Target::Simplified,
         (Task::Explain(_) | Task::ExplainName, _) => {
             return Err(format!("{named} unable to explain lines or names. Choose Claude or an OpenAI-compatible model on the Backend tab."))
         }
