@@ -84,6 +84,10 @@ fn main() -> eframe::Result {
         return Ok(());
     }
     diag::start();
+    #[cfg(target_os = "macos")]
+    if permission::renew() {
+        return Ok(());
+    }
     update::clean_up();
     let config = Arc::new(Mutex::new(config::load()));
     let options = eframe::NativeOptions {
