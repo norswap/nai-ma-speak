@@ -62,7 +62,7 @@ pub fn report(state: &str) -> String {
     let lines: Vec<&str> = log.lines().collect();
     let last = lines[lines.len().saturating_sub(REPORT_LINES)..].join("\n");
     let strip = match &*UNREAD_STRIP.lock().unwrap() {
-        Some(picture) => format!("\nThe pixel strip that could not be read, as a PNG picture in base64:\n{picture}\n"),
+        Some(picture) => format!("\nThe pixel block that could not be read, as a PNG picture in base64:\n{picture}\n"),
         None => String::new(),
     };
     without_keys(&format!("Nai Ma Speak {}\n{state}\n\nLog:\n{last}\n{strip}", env!("CARGO_PKG_VERSION")))

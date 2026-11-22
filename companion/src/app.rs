@@ -268,7 +268,7 @@ const INSTALL_ASKED_AFTER: Duration = Duration::from_secs(3);
 const NO_STRIP_HELP: &[&str] = &[
     "In the game's AddOns list (on the character screen, or Esc > AddOns), tick Nai Ma Speak. If it is greyed out, tick \"Load out of date AddOns\" too.",
     "Type /reload in the game's chat.",
-    "Keep the strip visible: nothing may cover it.",
+    "Keep the pixel block visible: nothing may cover it.",
     #[cfg(target_os = "macos")]
     "Give the companion the Screen Recording permission, in System Settings > Privacy & Security.",
 ];
@@ -525,7 +525,7 @@ impl CompanionApp {
             was_active: true,
             test_result: String::new(),
             report_copied: false,
-            strip_status: "Starting the pixel strip reader".into(),
+            strip_status: "Starting the pixel block reader".into(),
             updates: Updates {
                 ui,
                 releases: Vec::new(),
@@ -924,7 +924,7 @@ impl CompanionApp {
             let frame = theme::popup(edge).inner_margin(egui::Margin::symmetric(12, 10));
             egui::CentralPanel::default().frame(frame).show(root, |ui| {
                 ui.horizontal(|ui| {
-                    ui.label(RichText::new("Translate").font(theme::heading_font(16.0)).color(theme::GOLD));
+                    ui.label(theme::heading("Translate", 16.0));
                     let edit = ui.add(theme::field(reply));
                     if edit.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
                         submit = !reply.trim().is_empty();
@@ -1122,7 +1122,7 @@ impl CompanionApp {
                 Prompt::Install => "The addon is not installed".to_string(),
                 Prompt::Installed => "The addon is installed".to_string(),
                 Prompt::Updated => format!("Updated to v{}", Version::own()),
-                Prompt::NoStrip => "The game shows no pixel strip".to_string(),
+                Prompt::NoStrip => "The game shows no pixel block".to_string(),
                 Prompt::Checked => match self.newer() {
                     _ if self.updates.checking.is_some() => "Checking for updates".to_string(),
                     _ if !self.updates.problem.is_empty() => "The releases could not be checked".to_string(),
@@ -1130,7 +1130,7 @@ impl CompanionApp {
                     None => "The companion is up to date".to_string(),
                 },
             };
-            ui.label(RichText::new(title).font(theme::heading_font(18.0)).color(theme::GOLD));
+            ui.label(theme::heading(&title, 18.0));
             match prompt {
                 Prompt::Install => {
                     ui.label("The companion reads the game's chat through its addon, which is not in the game's AddOns folder.");
@@ -1150,7 +1150,7 @@ impl CompanionApp {
                     });
                 }
                 Prompt::NoStrip => {
-                    ui.label("The companion reads the game's chat from a small strip of colored squares that the addon draws, in the top-left corner of the game unless it was moved. It is nowhere on screen.");
+                    ui.label("The companion reads the game's chat from a small block of colored squares that the addon draws, in the top-left corner of the game unless it was moved. It is nowhere on screen.");
                     for help in NO_STRIP_HELP {
                         ui.label(format!("• {help}"));
                     }
@@ -1217,7 +1217,7 @@ impl CompanionApp {
         let frame = theme::popup(theme::BORDER).inner_margin(18);
         let asked = egui::Modal::new(egui::Id::new("undo")).frame(frame).show(ctx, |ui| {
             ui.set_width(340.0);
-            ui.label(RichText::new("Undo changes").font(theme::heading_font(18.0)).color(theme::GOLD));
+            ui.label(theme::heading("Undo changes", 18.0));
             ui.label("This will reset the settings to what they were when the companion was opened. Proceed?");
             ui.add_space(6.0);
             ui.horizontal(|ui| {
@@ -1613,7 +1613,7 @@ impl CompanionApp {
             Backend::OpenAiCompatible => format!(", model {} at {}", draft.model, draft.api_base),
         };
         format!(
-            "System: {} {}\nCompanion: {}\nAddon in the game: {:?}\nAddon in {:?}: {:?}\nBackend: {}{model}\nTranslation: {}\nPixel strip: {}\nChat windows: {:?}\nOverlay: on tab {:?}, hidden {}, game in view {:?}",
+            "System: {} {}\nCompanion: {}\nAddon in the game: {:?}\nAddon in {:?}: {:?}\nBackend: {}{model}\nTranslation: {}\nPixel block: {}\nChat windows: {:?}\nOverlay: on tab {:?}, hidden {}, game in view {:?}",
             std::env::consts::OS,
             std::env::consts::ARCH,
             env!("CARGO_PKG_VERSION"),
@@ -1633,7 +1633,7 @@ impl CompanionApp {
     fn status_tab(&mut self, ui: &mut egui::Ui) {
         ui.label(theme::label("Translation"));
         ui.label(format!("{} · translating with {}", self.status, self.draft.backend.short_label()));
-        ui.label(theme::label("Pixel strip"));
+        ui.label(theme::label("Pixel block"));
         ui.label(&self.strip_status);
         if self.no_strip_said && self.strip_status == crate::strip::LOOKING {
             for help in NO_STRIP_HELP {

@@ -106,7 +106,7 @@ local function Build()
     Settings.SetOnValueChangedCallback("NaiMaSpeak_buttons", function() ns.PlaceButtons() end, ns)
 
     local strip = Settings.RegisterAddOnSetting(category, "NaiMaSpeak_stripPosition", "stripPosition", ns.db,
-        Settings.VarType.String, "Pixel strip position", "topleft")
+        Settings.VarType.String, "Pixel block position", "topleft")
     Settings.CreateDropdown(category, strip, function()
         local container = Settings.CreateControlTextContainer()
         container:Add("topleft", "Top left")
@@ -115,7 +115,7 @@ local function Build()
         container:Add("bottomright", "Bottom right")
         container:Add("custom", "Custom (drag it in Edit Mode)")
         return container:GetData()
-    end, "Where on the screen the small strip of colored blocks is drawn, which the companion app reads the chat from. "
+    end, "Where on the screen the small block of colored squares is drawn, which the companion app reads the chat from. "
         .. "It can also be dragged anywhere while the game's Edit Mode is open (Game Menu, Edit Mode): "
         .. "this then reads Custom. Keep it where nothing covers it, and out of a window's rounded bottom corners. Top left is the one place that stays put "
         .. "when the game's window is resized; elsewhere the companion needs a few seconds to find it again.")

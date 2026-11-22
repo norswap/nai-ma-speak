@@ -263,7 +263,7 @@ const HAD_MOST: usize = 2000;
 
 /// Sets the Status tab's line about the strip, unless it says that already.
 /// What the Status tab says while no strip is on any screen.
-pub const LOOKING: &str = "Looking for the pixel strip. In game, type /tr /test.";
+pub const LOOKING: &str = "Looking for the pixel block. In game, type /tr /test.";
 
 fn tell(ui: &UiSender, told: &mut String, text: String) {
     if *told != text {
@@ -378,7 +378,7 @@ pub fn spawn(jobs: Sender<Job>, asked: Sender<Job>, ui: UiSender, restored: u64)
                 if since.elapsed() <= UNREADABLE_AFTER {
                     return;
                 }
-                tell(&ui, &mut told, format!("Found the pixel strip {place}, but cannot read it: {why}"));
+                tell(&ui, &mut told, format!("Found the pixel block {place}, but cannot read it: {why}"));
                 if let (false, Some(seen)) = (pictured, &seen) {
                     pictured = true;
                     crate::diag::keep_strip(seen);
@@ -388,7 +388,7 @@ pub fn spawn(jobs: Sender<Job>, asked: Sender<Job>, ui: UiSender, restored: u64)
                 Decoded::Frame(frame) => {
                     last_good = Instant::now();
                     unread_since = None;
-                    tell(&ui, &mut told, format!("Reading the pixel strip {place}"));
+                    tell(&ui, &mut told, format!("Reading the pixel block {place}"));
                     if last_seen != Some((frame.seq, frame.checksum)) {
                         // The first frame after locking may be an old line; it is
                         // still new to the overlay, so it is shown too.

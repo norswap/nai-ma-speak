@@ -43,8 +43,8 @@ fn decode_file(path: &str) {
         Err(e) => return println!("Could not open {path}: {e}"),
     };
     match strip::find(&img) {
-        None => println!("No pixel strip in {path}"),
-        Some(lock) => println!("Strip at {},{} ({} px blocks): {:?}", lock.x, lock.y, lock.block, strip::decode(&img, lock)),
+        None => println!("No pixel block in {path}"),
+        Some(lock) => println!("Pixel block at {},{} ({} px squares): {:?}", lock.x, lock.y, lock.block, strip::decode(&img, lock)),
     }
 }
 
