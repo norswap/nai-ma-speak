@@ -57,12 +57,45 @@ fn pixel(img: &RgbaImage, x: u32, y: u32) -> Option<Color> {
     Some([p[0] as f32, p[1] as f32, p[2] as f32])
 }
 
-/// Reads a sync color using only on/off per channel: the strip has to be found before
-/// its palette can be read.
-fn sync_symbol(img: &RgbaImage, x: u32, y: u32) -> Option<u8> {
-    let [r, g, b] = pixel(img, x, y)?;
+/// A block's color: per channel, the median of the pixels inside it, leaving out a
+/// one-pixel border. An edge pixel can be blended with the block beside it (scaling,
+/// sharpening, a strip that does not sit on whole pixels) and a single pixel can carry
+/// dithering noise; the median of the inside is the block's own color either way. A block
+/// of 2 px or less has no inside and is read at its middle pixel.
+fn block_color(img: &RgbaImage, x: u32, y: u32, block: u32) -> Option<Color> {
+    if block <= 2 {
+        return pixel(img, x + block / 2, y + block / 2);
+    }
+    if x + block > img.width() || y + block > img.height() {
+        return None;
+    }
+    let mut channels: [Vec<f32>; 3] = Default::default();
+    for py in y + 1..y + block - 1 {
+        for px in x + 1..x + block - 1 {
+            let p = img.get_pixel(px, py).0;
+            for (channel, values) in channels.iter_mut().enumerate() {
+                values.push(p[channel] as f32);
+            }
+        }
+    }
+    let median = |values: &mut Vec<f32>| {
+        values.sort_unstable_by(f32::total_cmp);
+        let mid = values.len() / 2;
+        if values.len().is_multiple_of(2) { (values[mid - 1] + values[mid]) / 2.0 } else { values[mid] }
+    };
+    let [r, g, b] = &mut channels;
+    Some([median(r), median(g), median(b)])
+}
+
+/// A color read as one of the sync colors, using only on/off per channel: the strip has
+/// to be found before its palette can be read.
+fn on_off(color: Color) -> u8 {
     let on = |v: f32| if v >= 128.0 { 3 } else { 0 };
-    Some(on(r) * 16 + on(g) * 4 + on(b))
+    on(color[0]) * 16 + on(color[1]) * 4 + on(color[2])
+}
+
+fn sync_symbol(img: &RgbaImage, x: u32, y: u32) -> Option<u8> {
+    pixel(img, x, y).map(on_off)
 }
 
 fn distance(a: Color, b: Color) -> f32 {
@@ -102,13 +135,12 @@ fn fletcher16(bytes: &[u8]) -> u16 {
 /// went through whatever the frame went through.
 pub fn decode(img: &RgbaImage, lock: Lock) -> Decoded {
     let block = |i: usize| {
-        let x = lock.x + (i % COLS) as u32 * lock.block + lock.block / 2;
-        let y = lock.y + (i / COLS) as u32 * lock.block + lock.block / 2;
-        pixel(img, x, y)
+        let x = lock.x + (i % COLS) as u32 * lock.block;
+        let y = lock.y + (i / COLS) as u32 * lock.block;
+        block_color(img, x, y, lock.block)
     };
     for (i, expected) in SYNC.iter().enumerate() {
-        let (x, y) = (lock.x + i as u32 * lock.block + lock.block / 2, lock.y + lock.block / 2);
-        if sync_symbol(img, x, y) != Some(*expected) {
+        if block(i).map(on_off) != Some(*expected) {
             return Decoded::Missing;
         }
     }
@@ -600,6 +632,33 @@ mod tests {
         wrong[COLS * ROWS + 20] = 63;
         let img = paint(&wrong, (0, 0), 2);
         assert_eq!((find(&img), decode(&img, Lock { x: 0, y: 0, block: 2 })), (None, Decoded::NoPalette));
+    }
+
+    /// Sharpening or scaling blends a block's edge pixels with what is beside it, and
+    /// dithering or noise can change any single pixel: each block's border is mixed with
+    /// gray, and the pixel at its center, the one a block used to be read at, is wrong.
+    #[test]
+    fn reads_blocks_with_blended_edges_and_a_noisy_pixel() {
+        let text = "7\t[Party] Lili\t副本缺T 速来";
+        let (at, block) = ((0, 40), 4);
+        let mut img = paint(&encode(5, text), at, block);
+        for i in 0..COLS * (ROWS + 1) {
+            let (x0, y0) = (at.0 + (i % COLS) as u32 * block, at.1 + (i / COLS) as u32 * block);
+            for dy in 0..block {
+                for dx in 0..block {
+                    let p = img.get_pixel_mut(x0 + dx, y0 + dy);
+                    if dx == 0 || dy == 0 || dx == block - 1 || dy == block - 1 {
+                        for c in 0..3 {
+                            p[c] = ((p[c] as u16 + 128) / 2) as u8;
+                        }
+                    }
+                }
+            }
+            let noisy = img.get_pixel_mut(x0 + block / 2, y0 + block / 2);
+            noisy.0 = [noisy[0] ^ 0x60, noisy[1] ^ 0x60, noisy[2] ^ 0x60, 255];
+        }
+        let lock = Lock { x: at.0, y: at.1, block };
+        assert!(matches!(decode(&img, lock), Decoded::Frame(f) if f.text == text));
     }
 
     #[test]
