@@ -216,6 +216,84 @@ Check("a line too long for a frame keeps its color at the end", long:sub(-12), "
 Check("and fits the frame", #long <= ns.STRIP.maxText + 8, true) -- " | " is 2 longer than a tab, 4 times
 NaiMaSpeakDB.sourceWindow = ""
 
+-- Chat the game keeps from addons ----------------------------------------------------------
+
+-- During a boss fight an event's text, speaker and GUID are secret values and no filter is
+-- run; the game gives a line by its lineID once the fight is over.
+local SECRET, fight, tick = {}, true, nil
+function issecretvalue(value) return value == SECRET end
+local spoken = { [9001] = { "副本缺補", "Bob", "guid-1" }, [9002] = { "gg", "Bob", "guid-1" } }
+local function Later(field)
+    return function(id) return fight and SECRET or (spoken[id] or {})[field] or "" end
+end
+C_ChatInfo = {
+    InChatMessagingLockdown = function() return fight end,
+    GetChatLineText = Later(1), GetChatLineSenderName = Later(2), GetChatLineSenderGUID = Later(3),
+}
+local newTicker = C_Timer.NewTicker
+C_Timer.NewTicker = function(_, fn) tick = fn; return { Cancel = function() tick = nil end } end
+local function Kept(event, id) ns.handlers[event](SECRET, SECRET, "", "", SECRET, "", 0, 0, "", 0, id, SECRET) end
+-- The lines shown, each without its number, and the numbers.
+local function Numbered()
+    local lines, numbers = {}, {}
+    for line in table.concat(Frames(), "\n"):gmatch("[^\n]+") do
+        lines[#lines + 1], numbers[#numbers + 1] = line:gsub(" | 17%d+$", ""), line:match(" | (17%d+)$")
+    end
+    return lines, table.concat(numbers, " ")
+end
+
+numbered = true
+Kept("CHAT_MSG_PARTY", 9001)
+Kept("CHAT_MSG_GUILD", 9002)
+Kept("CHAT_MSG_GUILD", 9002)
+ns.handlers.CHAT_MSG_SYSTEM(SECRET, "")
+local held, places = Numbered()
+Check("a hidden line of player chat takes its place at once, saying so", held, {
+    "0 | [Party]  | (hidden from addons for now; translated when the game allows it) | ffffff | ",
+    "0 | [Guild]  | (hidden from addons for now; translated when the game allows it) | 40ff40 | ",
+})
+tick()
+Check("nothing more is sent while the fight lasts", Frames(), {})
+fight = false
+tick()
+local read, same = Numbered()
+Check("once the game gives the lines they are sent as chat, to be translated", read, {
+    "1 | [Party] [Bob]:  | 副本缺補 | ffffff | Bob",
+    "0 | [Guild] [|cff3fc7ebBob|r]:  | gg | 40ff40 | Bob",
+})
+Check("under the numbers that held their places", same, places)
+Check("and the lines are no longer watched", tick, nil)
+
+fight = true
+Kept("CHAT_MSG_SAY", 9003)
+Frames()
+fight = false
+tick()
+Check("a line the game no longer has stays hidden", (Numbered()), { "0 |  | (hidden from addons) | ffffff | " })
+C_ChatInfo = nil
+Kept("CHAT_MSG_SAY", 9004)
+Check("as does every hidden line where the game cannot be asked", (Numbered()), { "0 |  | (hidden from addons) | ffffff | " })
+NaiMaSpeakDB.sourceWindow, ChatTypeGroup, ChatFrame2.messageTypeList = "Pick", { PARTY = { "CHAT_MSG_PARTY" } }, { "PARTY" }
+Kept("CHAT_MSG_PARTY", 9005)
+Kept("CHAT_MSG_GUILD", 9006)
+Check("with a window copied, only the kinds of line it shows", (Numbered()), { "0 | [Party]  | (hidden from addons) | ffffff | " })
+Check("the probe says how hidden chat fared", ns.HiddenChat(),
+    "Hidden chat: cannot be read back on this client; 0 waiting, 2 read back, 3 not read")
+-- The game failing where a line is read: the line is given up and the watch goes on.
+NaiMaSpeakDB.sourceWindow, fight = "", true
+C_ChatInfo = { InChatMessagingLockdown = function() return fight end, GetChatLineText = Later(1), GetChatLineSenderName = Later(2) }
+Kept("CHAT_MSG_SAY", 9007)
+Frames()
+spoken[9007], fight, Ambiguate = { "好", "Bob" }, false, function() error("no such function") end
+tick()
+Check("a line that cannot be worded stays hidden", (Numbered()), { "0 |  | (hidden from addons) | ffffff | " })
+Check("and the probe says why", ns.HiddenChat():match("; failed: .*(no such function)$"), "no such function")
+tick()
+Check("and the watch ends with nothing left to read", tick, nil)
+C_ChatInfo, Ambiguate = nil, function(name) return name end
+NaiMaSpeakDB.sourceWindow, ChatTypeGroup, ChatFrame2.messageTypeList = "", nil, {}
+C_Timer.NewTicker, numbered, frames = newTicker, false, {}
+
 -- Markup helpers -----------------------------------------------------------------------
 
 Check("Plain drops color codes only", ns.Plain("a|cff112233b|cnRED_FONT_COLOR:c|r|rd|x"), "abcd|x")

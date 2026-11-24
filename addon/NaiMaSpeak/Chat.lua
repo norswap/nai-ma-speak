@@ -191,6 +191,11 @@ end
 -- the time of login, so they keep rising from one login to the next.
 local number = time() * 1000
 
+local function NextNumber()
+    number = number + 1
+    return string.format("%.0f", number)
+end
+
 local NAME_TRIES = 5 -- how many times a line is built again for the names of its links
 
 -- Sends a line of the chat. `build` returns its kind (0 or 1), prefix, body,
@@ -204,8 +209,7 @@ local function SendChat(build)
     unnamed = false
     local kind, prefix, body, color, speaker = build()
     if not kind then return end
-    number = number + 1
-    local own = string.format("%.0f", number)
+    local own = NextNumber()
     local line = Line(kind, prefix, body, color, speaker, own)
     local tries = unnamed and NAME_TRIES or 0
     ns.SendToStrip(line)
@@ -306,25 +310,9 @@ local function MirroredWindow()
     return ns.ChatWindowNamed(wanted)
 end
 
--- Takes a chat event's line once, and sends it to the pixel strip unless a
--- chat window is mirrored: then Mirror sends what that window shows, and the
--- line is only remembered for it. Lines without Chinese are sent only with
--- allLines on, so the overlay can show the whole conversation in order.
--- Lines that cannot be read (secret values) are left alone. Returns the
--- line's lineID and whether its message has Chinese, for its links.
--- Arguments follow the CHAT_MSG_* payload: the 4th is the channel's full
--- name, the 8th its number, the 11th the lineID, the 12th the sender's GUID.
-local function Capture(event, msg, author, _, channel, _, _, _, channelIndex, _, _, lineID, guid)
-    if ns.IsSecret(msg) or ns.IsSecret(author) or ns.IsSecret(channel) or ns.IsSecret(lineID)
-        or ns.IsSecret(channelIndex) or ns.IsSecret(guid) then
-        return
-    end
-    if type(msg) ~= "string" then return end
-    if lineID ~= nil and handled[lineID] ~= nil then return lineID, handled[lineID] ~= false end
-    local chinese = HasChinese(msg)
-    if lineID ~= nil then Remember(lineID, chinese and Plain(Markup(msg))) end
-    if MirroredWindow() or not (chinese or ns.db.allLines) then return lineID, chinese end
-
+-- A chat event's line for the overlay, worded as the game words it: its kind,
+-- prefix, body, color and speaker, as SendChat's `build` returns them.
+local function Worded(event, msg, author, channel, channelIndex, guid)
     local name = type(author) == "string" and author ~= "" and Ambiguate(author, "short") or nil
     local color, info = LineColor(event, channelIndex)
     local around = AROUND_NAME[event]
@@ -335,7 +323,166 @@ local function Capture(event, msg, author, _, channel, _, _, _, channelIndex, _,
     elseif around and name then
         prefix = around[1] .. NameMarkup(name, guid, info) .. around[2]
     end
-    SendChat(function() return chinese and "1" or "0", Markup(prefix), Markup(msg), color, name end)
+    return HasChinese(msg) and "1" or "0", Markup(prefix), Markup(msg), color, name
+end
+
+-- Chat the game keeps from addons for a time. During a boss fight, a Mythic+
+-- run or a PvP match a chat event still comes, but its text and its speaker
+-- cannot be read, and the chat windows' filters are not run for it. The line's
+-- lineID is never kept back, and by it the game gives the text and the speaker
+-- once the restriction is over. So such a line takes its place in the overlay
+-- at once, saying that it is hidden, and is sent again under the same number
+-- when it can be read, to be translated in that place.
+local PLAYER_CHAT = {}
+for _, event in ipairs(CHAT_EVENTS) do PLAYER_CHAT[event] = true end
+local HIDDEN_FOR_NOW = "(hidden from addons for now; translated when the game allows it)"
+local HIDDEN = "(hidden from addons)"
+local HIDDEN_CHECK = 2 -- seconds between tries to read the waiting lines
+local waiting = {} -- the hidden lines not yet read, oldest first
+local watch -- the ticker that tries them, while any wait
+local readBack, lost = 0, 0
+
+-- A value unless the game keeps it from addons.
+local function Known(value)
+    if not ns.IsSecret(value) then return value end
+end
+
+-- Whether the game is keeping chat from addons now; nil where it cannot be asked.
+local function ChatHidden()
+    local ask = C_ChatInfo and C_ChatInfo.InChatMessagingLockdown
+    if not ask then return nil end
+    local ok, hidden = pcall(ask)
+    return ok and Known(hidden) == true
+end
+
+-- What the game says of a chat line by its lineID, if it says it readably.
+local function OfLine(ask, lineID)
+    if not ask then return nil end
+    local ok, value = pcall(ask, lineID)
+    return ok and Known(value) or nil
+end
+
+-- Whether a chat window shows this kind of line, by its tab's settings: the
+-- channels by name or zone, as the game matches them, the rest by their group.
+local function Shows(window, event, zone, baseName)
+    if event == "CHAT_MSG_CHANNEL" then
+        for i, name in ipairs(window.channelList or {}) do
+            local zoned = type(zone) == "number" and zone > 0 and (window.zoneChannelList or {})[i] == zone
+            if zoned or (type(baseName) == "string" and name:upper() == baseName:upper()) then return true end
+        end
+        return false
+    end
+    if type(ChatTypeGroup) ~= "table" then return true end
+    for _, group in ipairs(window.messageTypeList or {}) do
+        for _, shown in ipairs(ChatTypeGroup[group] or {}) do
+            if shown == event then return true end
+        end
+    end
+    return false
+end
+
+-- A hidden line that will not be read after all keeps its place, and says so.
+local function GiveUp(line)
+    line.text = Line("0", line.label, HIDDEN, line.color, "", line.number)
+    lost = lost + 1
+    ns.SendToStrip(line.text)
+end
+
+-- Reads the waiting lines in order, as far as the game now gives them. A line
+-- it does not give though chat is no longer kept back is one it has dropped.
+local function Reveal()
+    while waiting[1] do
+        local line = waiting[1]
+        local msg = OfLine(C_ChatInfo.GetChatLineText, line.lineID)
+        if type(msg) == "string" and msg ~= "" then
+            local author = OfLine(C_ChatInfo.GetChatLineSenderName, line.lineID)
+            local guid = OfLine(C_ChatInfo.GetChatLineSenderGUID, line.lineID)
+            local kind, prefix, body, color, speaker = Worded(line.event, msg, author, line.channel, line.channelIndex, guid)
+            if handled[line.lineID] ~= nil then handled[line.lineID] = kind == "1" and Plain(body) end
+            line.text = Line(kind, prefix, body, color, speaker, line.number)
+            readBack = readBack + 1
+            ns.SendToStrip(line.text)
+        elseif ChatHidden() then
+            return
+        else
+            GiveUp(line)
+        end
+        table.remove(waiting, 1)
+    end
+    if watch then
+        watch:Cancel()
+        watch = nil
+    end
+end
+
+-- Runs Reveal behind the ticker, where an error would come again every time:
+-- the line it stopped at is given up, and /tr /probe says what went wrong.
+local hiddenProblem
+local function TryReveal()
+    local ok, problem = pcall(Reveal)
+    if ok then return end
+    hiddenProblem = tostring(problem)
+    local line = table.remove(waiting, 1)
+    if line then pcall(GiveUp, line) end
+end
+
+-- Gives a hidden line of player chat its place in the overlay, once. With a
+-- chat window copied, only the lines that window shows.
+local function Hide(event, zone, channel, channelIndex, baseName, lineID)
+    if not PLAYER_CHAT[event] or type(lineID) ~= "number" or handled[lineID] ~= nil then return end
+    local window = MirroredWindow()
+    if window and not Shows(window, event, zone, baseName) then return end
+    Remember(lineID, false)
+    local label = AROUND_NAME[event] and (AROUND_NAME[event][1]:gsub("%[$", "")) or ""
+    if event == "CHAT_MSG_CHANNEL" then
+        label = type(channel) == "string" and channel ~= "" and ("[" .. channel .. "] ") or ""
+    end
+    local line = { lineID = lineID, event = event, channel = channel, channelIndex = channelIndex,
+        label = Markup(label), color = (LineColor(event, channelIndex)), number = NextNumber() }
+    if ChatHidden() ~= nil and C_ChatInfo.GetChatLineText then
+        line.text = Line("0", line.label, HIDDEN_FOR_NOW, line.color, "", line.number)
+        ns.SendToStrip(line.text)
+        waiting[#waiting + 1] = line
+        if #waiting > KEEP then GiveUp(table.remove(waiting, 1)) end
+        watch = watch or C_Timer.NewTicker(HIDDEN_CHECK, TryReveal)
+    else
+        GiveUp(line)
+    end
+    ns.RepeatOnStrip(function() return line.text end)
+end
+
+-- How hidden chat has fared, for /tr /probe.
+function ns.HiddenChat()
+    local can = ChatHidden() ~= nil and C_ChatInfo.GetChatLineText ~= nil
+    return "Hidden chat: " .. (can and "read back when the game allows it" or "cannot be read back on this client")
+        .. "; " .. #waiting .. " waiting, " .. readBack .. " read back, " .. lost .. " not read"
+        .. (hiddenProblem and ("; failed: " .. hiddenProblem) or "")
+end
+
+-- Takes a chat event's line once, and sends it to the pixel strip unless a
+-- chat window is mirrored: then Mirror sends what that window shows, and the
+-- line is only remembered for it. Lines without Chinese are sent only with
+-- allLines on, so the overlay can show the whole conversation in order.
+-- A line whose text or speaker the game keeps back goes to Hide. Returns the
+-- line's lineID and whether its message has Chinese, for its links.
+-- Arguments follow the CHAT_MSG_* payload: the 4th is the channel's full
+-- name, the 7th its zone, the 8th its number, the 9th its name alone, the
+-- 11th the lineID, the 12th the sender's GUID.
+local function Capture(event, msg, author, _, channel, _, _, zone, channelIndex, baseName, _, lineID, guid)
+    if ns.IsSecret(msg) or ns.IsSecret(author) or ns.IsSecret(guid) then
+        -- An error here would come with every line said during the fight.
+        local ok, problem = pcall(Hide, event, Known(zone), Known(channel), Known(channelIndex), Known(baseName), Known(lineID))
+        if not ok then hiddenProblem = tostring(problem) end
+        return
+    end
+    if ns.IsSecret(channel) or ns.IsSecret(lineID) or ns.IsSecret(channelIndex) then return end
+    if type(msg) ~= "string" then return end
+    if lineID ~= nil and handled[lineID] ~= nil then return lineID, handled[lineID] ~= false end
+    local chinese = HasChinese(msg)
+    if lineID ~= nil then Remember(lineID, chinese and Plain(Markup(msg))) end
+    if MirroredWindow() or not (chinese or ns.db.allLines) then return lineID, chinese end
+
+    SendChat(function() return Worded(event, msg, author, channel, channelIndex, guid) end)
     return lineID, chinese
 end
 

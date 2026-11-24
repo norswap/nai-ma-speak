@@ -171,6 +171,7 @@ local commands = {
         ns.Print("Options panel: " .. tostring(ns.optionsSource))
         ns.Print("Lines sent: " .. ((ns.db.sourceWindow or "") == "" and "all chat" or ("what the " .. ns.db.sourceWindow .. " window shows")))
         ns.Print("Chat window copying: " .. tostring(ns.mirrorSource))
+        ns.Print(ns.HiddenChat())
         ns.Print("Link clicks: " .. tostring(ns.linkSource))
         ns.Print("Overlay scrolling: " .. tostring(ns.wheelSource))
         ns.Print("Chat window buttons: " .. tostring(ns.buttonSource))
